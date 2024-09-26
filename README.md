@@ -1,1 +1,1 @@
-# mdt-manager
+# mdt.registry

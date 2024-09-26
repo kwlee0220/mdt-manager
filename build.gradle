@@ -1,0 +1,111 @@
+plugins {
+	id 'java'
+	id 'application'
+	id 'eclipse'
+	id 'org.springframework.boot' version '3.2.4'
+	id 'io.spring.dependency-management' version '1.1.4'
+}
+
+group = 'etri'
+version = '0.9.1'
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+	
+	withSourcesJar()
+	withJavadocJar()
+}
+	
+[compileJava,compileTestJava]*.options*.encoding = 'UTF-8'
+tasks.withType(JavaCompile) {
+	options.encoding = 'UTF-8'
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+	maven {
+		url "https://maven.aksw.org/repository/internal/"
+		allowInsecureProtocol = true
+	}
+}
+dependencies {
+	implementation project(":utils")
+	implementation project(":mdt-client")
+
+	// Guava (from the project :utils)
+	implementation "com.google.guava:guava:${guava_version}"
+
+	// Lombok (from the project :utils)
+	compileOnly "org.projectlombok:lombok:${lombok_version}"
+	annotationProcessor "org.projectlombok:lombok:${lombok_version}"
+
+	// logback with SLF4j (from the project :utils)
+	implementation "ch.qos.logback:logback-classic:${logback_version}"
+	
+	// AAS model
+	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-json:${aas4j_version}"
+	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-aasx:${aas4j_version}"
+
+	// Spring boot
+	implementation "org.springframework.boot:spring-boot-starter-web:${spring_boot_version}"
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0'
+	
+	// Hibernate
+	implementation "org.hibernate.orm:hibernate-core:${hibernate_version}"
+	implementation "com.zaxxer:HikariCP:${hikaricp_version}"
+
+	// H2
+	implementation "com.h2database:h2:${h2_version}"
+	
+	// MQTT
+	implementation "org.eclipse.paho:org.eclipse.paho.client.mqttv3:${paho_version}"
+	
+	// Docker Java Binding
+	implementation "org.mandas:docker-client:${docker_client_version}"
+	implementation "org.glassfish.jersey.core:jersey-client:${jersey_version}"
+	implementation ( "org.glassfish.jersey.connectors:jersey-apache-connector:${jersey_version}" ) {
+		exclude group: 'commons-logging', module: 'commons-logging'
+	}
+	implementation "org.glassfish.jersey.media:jersey-media-json-jackson:${jersey_version}"
+	implementation "org.glassfish.jersey.inject:jersey-hk2:${jersey_version}"
+	
+	// Kubernetes client
+	implementation "io.fabric8:kubernetes-client:${fabric8_version}"
+	
+	// Argo Java-Client
+	implementation "io.argoproj.workflow:argo-client-java:${argo_client_java}"
+}
+configurations {
+	all {
+		exclude group: 'commons-logging', module: 'commons-logging'
+	}
+}
+
+task sourceJar(type: Jar) {
+	from sourceSets.main.allSource
+}
+
+test {
+	useJUnitPlatform()
+}
+
+javadoc {
+	options.encoding = 'UTF-8'
+	options.links("https://docs.oracle.com/javase/8/docs/api/")
+	options.links("https://google.github.io/guava/releases/23.0/api/docs/")
+	options.links("http://reactivex.io/RxJava/javadoc/")
+	
+	options.addStringOption('Xdoclint:none', '-quiet')
+}
+
+bootJar {
+	archiveClassifier = 'all'
+	mainClass = 'mdt.MDTInstanceApplication'
+}

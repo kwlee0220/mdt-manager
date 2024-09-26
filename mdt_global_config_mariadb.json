@@ -1,0 +1,11 @@
+{
+  "persistence" : {
+    "jpaConfig" : {
+      "jdbc" : {
+        "jdbcUrl": "jdbc:mariadb://129.254.89.150:23306/emdb",
+        "user": "admin123",
+        "password": "admin123"
+      }
+    }
+  }
+}

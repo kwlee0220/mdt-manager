@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: MDTManager
+  servlet:
+    multipart:
+      maxFileSize: 200MB
+      maxRequestSize: 200MB
+  # h2:
+  #   console:
+  #     enabled: true
+  #     path: /${instanceManager.workspaceDir}/descriptors
+      
+server:
+   port: 12985
+   error:
+      include-message: always
+
+logging:
+   level:
+      root: INFO
+   pattern:
+      console: "%d{yyyy-MM-dd HH:mm:ss} | %-5level | %-40.40logger{39} | %msg%n"
+
+
+
+rootDir: ${MDT_HOME}
+
+instanceManager:
+  type: jar
+  homeDir: ${rootDir}/mdt-manager
+  instancesDir: ${rootDir}/instances
+  # repositoryEndpointFormat: https://129.254.91.75:%d/api/v3.0
+  repositoryEndpointFormat: https://localhost:%d/api/v3.0
+
+jpa:
+  jdbc:
+    url: jdbc:h2:${instanceManager.homeDir}/descriptors
+    user: sa
+    password: ""
+  properties:
+    hibernate.show_sql: false
+    hibernate.format_sql: false
+    hibernate.hbm2ddl.auto: update
+     
+#mqtt:
+#  clientId: MDTInstanceManager
+#  endpoint: tcp://localhost:1883
+   
+executor:
+  workspaceDir: ${instanceManager.instancesDir}
+  sampleInterval: 2s
+  startTimeout: 1m
+  defaultMDTInstanceJarFile: ${executor.workspaceDir}/faaast-starter-all.jar
+  heapSize: 256m
+      
+docker:
+  dockerHost: http://localhost:2375
+  mountPrefix: ${instanceManager.instancesDir}
+  dockerImageName: kwlee0220/faaast-starter
