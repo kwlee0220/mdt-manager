@@ -5,12 +5,12 @@ spring:
     multipart:
       maxFileSize: 200MB
       maxRequestSize: 200MB
-  # h2:
-  #   console:
-  #     enabled: true
-  #     path: /${instanceManager.workspaceDir}/descriptors
+  jpa:
+    properties:
+      hibernate.transaction.jta.platform: org.hibernate.service.jta.JtaPlatform
       
 server:
+   host: 129.254.91.134
    port: 12985
    error:
       include-message: always
@@ -28,9 +28,9 @@ rootDir: ${MDT_HOME}
 instanceManager:
   type: jar
   homeDir: ${rootDir}/mdt-manager
-  instancesDir: ${rootDir}/instances
-  # repositoryEndpointFormat: https://129.254.91.75:%d/api/v3.0
-  repositoryEndpointFormat: https://localhost:%d/api/v3.0
+  bundlesDir: ${rootDir}/bundles
+  defaultMDTInstanceJarFile: ${instanceManager.homeDir}/faaast-starter-all.jar
+  repositoryEndpointFormat: https://${server.host}:%d/api/v3.0
 
 jpa:
   jdbc:
@@ -47,13 +47,12 @@ jpa:
 #  endpoint: tcp://localhost:1883
    
 executor:
-  workspaceDir: ${instanceManager.instancesDir}
+  workspaceDir: ${rootDir}/instances
   sampleInterval: 2s
   startTimeout: 1m
   defaultMDTInstanceJarFile: ${executor.workspaceDir}/faaast-starter-all.jar
   heapSize: 256m
       
 docker:
-  dockerHost: http://localhost:2375
-  mountPrefix: ${instanceManager.instancesDir}
-  dockerImageName: kwlee0220/faaast-starter
+  dockerEndpoint: http://${server.host}:2375
+  imageName: faaast-starter

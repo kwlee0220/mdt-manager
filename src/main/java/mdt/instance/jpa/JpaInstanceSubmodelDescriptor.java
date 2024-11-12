@@ -27,8 +27,8 @@ import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
-import mdt.model.AASUtils;
 import mdt.model.DescriptorUtils;
+import mdt.model.MDTModelSerDe;
 import mdt.model.instance.InstanceSubmodelDescriptor;
 
 
@@ -77,7 +77,7 @@ public class JpaInstanceSubmodelDescriptor implements InstanceSubmodelDescriptor
 		desc.id = smDesc.getId();
 		desc.idShort = smDesc.getIdShort();
 		desc.setSemanticIdReference(smDesc.getSemanticId());
-		desc.aasSubmodelDescriptor = new JpaAASSubmodelDescriptor(AASUtils.getJsonSerializer().write(smDesc));
+		desc.aasSubmodelDescriptor = new JpaAASSubmodelDescriptor(MDTModelSerDe.getJsonSerializer().write(smDesc));
 		
 		return desc;
 	}
@@ -106,7 +106,7 @@ public class JpaInstanceSubmodelDescriptor implements InstanceSubmodelDescriptor
 		FOption.accept(smDesc.getSemanticId(), this::setSemanticIdReference);
 		
 		try {
-			getAasSubmodelDescriptor().setJson(AASUtils.getJsonSerializer().write(smDesc));
+			getAasSubmodelDescriptor().setJson(MDTModelSerDe.getJsonSerializer().write(smDesc));
 		}
 		catch ( SerializationException e ) {
 			throw new IllegalArgumentException("Failed to JSON-serialize SubmodelDescriptor: desc=" + smDesc);

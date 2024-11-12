@@ -14,8 +14,18 @@ import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import utils.InternalException;
 import utils.stream.FStream;
+
+import mdt.model.DescriptorUtils;
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.InstanceSubmodelDescriptor;
+import mdt.model.instance.MDTInstanceStatus;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -31,14 +41,6 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-import mdt.model.AASUtils;
-import mdt.model.DescriptorUtils;
-import mdt.model.instance.InstanceDescriptor;
-import mdt.model.instance.InstanceSubmodelDescriptor;
-import mdt.model.instance.MDTInstanceStatus;
 
 
 /**
@@ -85,7 +87,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 			this.globalAssetId = aasDesc.getGlobalAssetId();
 			this.assetType = aasDesc.getAssetType();
 			this.assetKind = aasDesc.getAssetKind();
-			this.aasDescriptor = new JpaAASDescriptor(AASUtils.getJsonSerializer().write(aasDesc));
+			this.aasDescriptor = new JpaAASDescriptor(MDTModelSerDe.getJsonSerializer().write(aasDesc));
 			
 			this.submodels.clear();
 			for ( SubmodelDescriptor smDesc: aasDesc.getSubmodelDescriptors() ) {
@@ -100,7 +102,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 	}
 
 	public static JpaInstanceDescriptor from(String instId, AssetAdministrationShell aas,
-											List<Submodel> submodels) throws SerializationException {
+											List<Submodel> submodels) {
 		AssetAdministrationShellDescriptor aasDesc
 							= DescriptorUtils.createAssetAdministrationShellDescriptor(aas, null);
 		List<SubmodelDescriptor> smDescList
@@ -126,7 +128,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 		setAssetKind(aasDesc.getAssetKind());
 		
 		try {
-			String aasJson = AASUtils.getJsonSerializer().write(aasDesc);
+			String aasJson = MDTModelSerDe.getJsonSerializer().write(aasDesc);
 			getAasDescriptor().setJson(aasJson);
 			
 			List<JpaInstanceSubmodelDescriptor> updateds = Lists.newArrayList();
@@ -159,7 +161,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 		try {
 			String json = getAasDescriptor().getJson();
 			AssetAdministrationShellDescriptor aasDesc
-					= AASUtils.getJsonDeserializer().read(json, AssetAdministrationShellDescriptor.class);
+					= MDTModelSerDe.getJsonDeserializer().read(json, AssetAdministrationShellDescriptor.class);
 			if ( getBaseEndpoint() != null ) {
 				String aasEp = DescriptorUtils.toAASServiceEndpointString(getBaseEndpoint(), getAasId());
 				aasDesc.setEndpoints(DescriptorUtils.newEndpoints(aasEp, "AAS-3.0"));
@@ -179,7 +181,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 	
 	public SubmodelDescriptor toSubmodelDescriptor(JpaInstanceSubmodelDescriptor ismDesc) {
 		try {
-			SubmodelDescriptor smDesc = AASUtils.getJsonDeserializer()
+			SubmodelDescriptor smDesc = MDTModelSerDe.getJsonDeserializer()
 												.read(ismDesc.getJson(), SubmodelDescriptor.class);
 			if ( getBaseEndpoint() != null ) {
 				String smEp = DescriptorUtils.toSubmodelServiceEndpointString(getBaseEndpoint(), ismDesc.getId());

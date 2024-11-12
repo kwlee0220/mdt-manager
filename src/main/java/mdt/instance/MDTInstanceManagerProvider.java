@@ -1,11 +1,12 @@
 package mdt.instance;
 
-import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
+import java.io.File;
+import java.io.IOException;
 
+import mdt.model.ModelValidationException;
 import mdt.model.ServiceFactory;
-import mdt.model.instance.MDTInstance;
+import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.MDTInstanceManager;
-import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 
 
@@ -19,6 +20,6 @@ public interface MDTInstanceManagerProvider extends MDTInstanceManager {
 	public MDTInstanceStatus getInstanceStatus(String id);
 	public String getInstanceServiceEndpoint(String id);
 	
-	public MDTInstance addInstance(String id, Environment env, String arguments)
-		throws MDTInstanceManagerException;
+	public InstanceDescriptor addInstance(String id, int faaastPort, File bundleDir)
+		throws ModelValidationException, IOException;
 }

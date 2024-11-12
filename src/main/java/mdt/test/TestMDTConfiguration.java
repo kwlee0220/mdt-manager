@@ -1,4 +1,4 @@
-package mdt.instance.test;
+package mdt.test;
 
 import java.io.File;
 import java.time.Duration;
@@ -11,7 +11,6 @@ import com.google.common.collect.Maps;
 import jakarta.persistence.EntityManagerFactory;
 import mdt.MDTConfiguration;
 import mdt.instance.jpa.InstancePersistenceUnitInfo;
-import mdt.model.InvalidIdShortPathException;
 
 /**
  *

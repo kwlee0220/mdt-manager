@@ -1,6 +1,5 @@
 package mdt.workflow;
 
-import java.util.Collection;
 import java.util.List;
 
 import org.hibernate.exception.ConstraintViolationException;
@@ -9,17 +8,16 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 
 import utils.InternalException;
 
+import mdt.instance.jpa.JpaModule;
+import mdt.model.ResourceAlreadyExistsException;
+import mdt.model.ResourceNotFoundException;
+import mdt.workflow.model.MDTWorkflowManager;
+import mdt.workflow.model.WorkflowDescriptor;
+
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.TypedQuery;
-import mdt.instance.jpa.JpaModule;
-import mdt.model.ResourceAlreadyExistsException;
-import mdt.model.ResourceNotFoundException;
-import mdt.model.workflow.BuiltInTaskTemplates;
-import mdt.model.workflow.MDTWorkflowManager;
-import mdt.model.workflow.descriptor.TaskTemplateDescriptor;
-import mdt.model.workflow.descriptor.WorkflowDescriptor;
 
 /**
  *
@@ -123,16 +121,7 @@ public class JpaWorkflowDescriptorManager implements MDTWorkflowManager, JpaModu
 	}
 	
 	@Override
-	public TaskTemplateDescriptor getBuiltInTaskTemplate(String id) throws ResourceNotFoundException {
-		TaskTemplateDescriptor tmplt = BuiltInTaskTemplates.get(id);
-		if ( tmplt != null ) {
-			return tmplt;
-		}
-		
-		throw new ResourceNotFoundException("BuiltInTaskTemplate", "id=" + id);
-	}
-	@Override
-	public Collection<TaskTemplateDescriptor> getBuiltInTaskTemplateAll() {
-		return BuiltInTaskTemplates.getAll();
+	public String getArgoWorkflowDescriptor(String id, String clientImage) throws ResourceNotFoundException {
+		throw new UnsupportedOperationException();
 	}
 }

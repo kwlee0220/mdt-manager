@@ -9,7 +9,7 @@ import org.eclipse.digitaltwin.aas4j.v3.model.Resource;
 
 import utils.stream.FStream;
 
-import mdt.model.repository.AssetAdministrationShellRepository;
+import mdt.aas.AssetAdministrationShellRepository;
 
 
 /**

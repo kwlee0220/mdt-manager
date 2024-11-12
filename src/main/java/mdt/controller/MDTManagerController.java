@@ -12,10 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import utils.async.Executions;
 
-import mdt.MDTController;
-import mdt.instance.AbstractInstance;
 import mdt.instance.AbstractInstanceManager;
-import mdt.model.instance.MDTInstance;
+import mdt.instance.JpaInstance;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -30,11 +28,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 * @author Kang-Woo Lee (ETRI)
 */
 @RestController
-@RequestMapping("/")
-public class MDTManagerController extends MDTController<MDTInstance> implements InitializingBean {
+@RequestMapping(value={""})
+public class MDTManagerController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(MDTManagerController.class);
 	
-	@Autowired AbstractInstanceManager<? extends AbstractInstance> m_instanceManager;
+	@Autowired AbstractInstanceManager<? extends JpaInstance> m_instanceManager;
 
 	@Override
 	public void afterPropertiesSet() throws Exception {

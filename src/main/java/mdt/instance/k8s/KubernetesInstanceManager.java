@@ -1,20 +1,31 @@
 package mdt.instance.k8s;
 
+import java.io.File;
+import java.io.IOException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.base.Preconditions;
 
 import utils.InternalException;
+import utils.func.Try;
+import utils.io.FileUtils;
+
+import mdt.MDTConfiguration;
+import mdt.instance.AbstractInstanceManager;
+import mdt.instance.InstanceDescriptorManager;
+import mdt.instance.docker.DockerConfiguration;
+import mdt.instance.docker.HarborConfiguration;
+import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.model.ModelValidationException;
+import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.MDTInstanceManagerException;
+import mdt.model.instance.MDTInstanceStatus;
 
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.Service;
-import mdt.MDTConfiguration;
-import mdt.instance.AbstractInstanceManager;
-import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.model.instance.KubernetesExecutionArguments;
-import mdt.model.instance.MDTInstanceManagerException;
-import mdt.model.instance.MDTInstanceStatus;
 
 
 /**
@@ -25,10 +36,24 @@ public class KubernetesInstanceManager extends AbstractInstanceManager<Kubernete
 	private static final Logger s_logger = LoggerFactory.getLogger(KubernetesInstanceManager.class);
 	public static final String NAMESPACE = "mdt-instance";
 	
+	private final String m_dockerEndpoint;
+	private final HarborConfiguration m_harborConf;
+	
 	public KubernetesInstanceManager(MDTConfiguration conf) {
 		super(conf);
 		
+		DockerConfiguration dockerConf = conf.getDockerConfiguration();
+		Preconditions.checkNotNull(dockerConf.getDockerEndpoint());
+		
+		m_dockerEndpoint = dockerConf.getDockerEndpoint();
+		m_harborConf = conf.getHarborConfiguration();
+		Preconditions.checkNotNull(m_harborConf);
+		
 		setLogger(s_logger);
+	}
+
+	@Override
+	public void initialize(InstanceDescriptorManager instDescManager) throws MDTInstanceManagerException {
 	}
 
 	@Override
@@ -78,23 +103,36 @@ public class KubernetesInstanceManager extends AbstractInstanceManager<Kubernete
 		}
 	}
 	
-	public String toExecutionArgumentsString(KubernetesExecutionArguments args) {
-		try {
-			return m_mapper.writeValueAsString(args);
-		}
-		catch ( JsonProcessingException e ) {
-			throw new InternalException("Failed to write KubernetesExecutionArguments string, cause=" + e);
-		}
-	}
-	
 	@Override
 	protected KubernetesInstance toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException {
 		return new KubernetesInstance(this, descriptor);
 	}
+
+	@Override
+	public InstanceDescriptor addInstance(String id, int faaastPort, File bundleDir) throws ModelValidationException, IOException {
+		String repoName = deployInstanceDockerImage(id, bundleDir, m_dockerEndpoint, getHarborConfiguration());
+		
+		KubernetesExecutionArguments args = KubernetesExecutionArguments.builder()
+																		.imageRepoName(repoName)
+																		.build();
+		try {
+			File modelFile = FileUtils.path(bundleDir, MODEL_FILE_NAME);
+			String arguments = m_mapper.writeValueAsString(args);
+			
+			return addInstanceDescriptor(id, modelFile, arguments);
+		}
+		catch ( JsonProcessingException e ) {
+			throw new InternalException("Failed to serialize JarExecutionArguments, cause=" + e);
+		}
+		finally {
+	    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
+	    	Try.accept(bundleDir, FileUtils::deleteDirectory);
+		}
+	}
 	
 	@Override
-	protected JpaInstanceDescriptor initializeInstance(JpaInstanceDescriptor desc) {
-		return desc;
+	public String toString() {
+		return String.format("%s", getClass().getSimpleName());
 	}
 
 	KubernetesRemote newKubernetesRemote() {

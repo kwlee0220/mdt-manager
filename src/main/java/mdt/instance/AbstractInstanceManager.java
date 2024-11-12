@@ -4,10 +4,14 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+
+import javax.annotation.Nullable;
+import javax.annotation.concurrent.GuardedBy;
 
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.json.JsonDeserializer;
@@ -21,17 +25,22 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
-import org.hibernate.exception.ConstraintViolationException;
+import org.mandas.docker.client.DockerClient;
+import org.mandas.docker.client.builder.jersey.JerseyDockerClientBuilder;
+import org.mandas.docker.client.exceptions.DockerException;
+import org.mandas.docker.client.messages.Image;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
 
 import utils.LoggerSettable;
+import utils.async.Guard;
 import utils.func.FOption;
 import utils.func.Try;
 import utils.stream.FStream;
@@ -40,20 +49,26 @@ import mdt.Globals;
 import mdt.MDTConfiguration;
 import mdt.MDTConfiguration.MDTInstanceManagerConfiguration;
 import mdt.MDTConfiguration.MqttConfiguration;
+import mdt.controller.DockerCommandUtils;
+import mdt.controller.DockerCommandUtils.StandardOutputHandler;
+import mdt.instance.docker.DockerUtils;
+import mdt.instance.docker.HarborConfiguration;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
 import mdt.instance.jpa.JpaInstanceDescriptorManager.InstanceDescriptorTransform;
 import mdt.instance.jpa.JpaInstanceDescriptorManager.SearchCondition;
 import mdt.instance.jpa.JpaModule;
 import mdt.instance.jpa.JpaProcessor;
-import mdt.model.AASUtils;
 import mdt.model.InvalidResourceStatusException;
+import mdt.model.MDTModelSerDe;
+import mdt.model.ModelValidationException;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
 import mdt.model.ServiceFactory;
-import mdt.model.instance.MDTInstance;
+import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.service.MDTInstance;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -72,37 +87,40 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 
 	private final ThreadLocal<EntityManager> m_emLocal = new ThreadLocal<>();
 	private final MDTInstanceManagerConfiguration m_conf;
+	private final File m_defaultMDTInstanceJarFile;
 	private final String m_repositoryEndpointFormat;
-//	private final File m_workspaceDir;
-//	private final File m_homeDir;
-//	private final File m_instancesDir;
+	private final HarborConfiguration m_harborConf;
 	private final MqttClient m_mqttClient;
 	
-	protected final JsonMapper m_mapper = JsonMapper.builder().build();
-	private Logger m_logger;
+	private final Guard m_guard = Guard.create();
+	@GuardedBy("m_guard") private final Map<String, Thread> m_installers = Maps.newHashMap();
 	
-	abstract protected JpaInstanceDescriptor initializeInstance(JpaInstanceDescriptor desc);
-	abstract protected T toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException;
+	protected final JsonMapper m_mapper = MDTModelSerDe.getJsonMapper();
+	private Logger m_logger = s_logger;
+	
+	public abstract void initialize(InstanceDescriptorManager instDescManager) throws MDTInstanceManagerException;
+	protected abstract T toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException;
 	
 	protected AbstractInstanceManager(MDTConfiguration conf) throws MDTInstanceManagerException {
-		setLogger(s_logger);
-		
 		m_conf = conf.getMDTInstanceManagerConfiguration();
-		if ( s_logger.isInfoEnabled() ) {
-			s_logger.info("use MDTInstances root dir={}", m_conf.getInstancesDir());
-		}
+		m_defaultMDTInstanceJarFile = m_conf.getDefaultMDTInstanceJarFile();
+		m_harborConf = conf.getHarborConfiguration();
 		
 		String epFormat = m_conf.getRepositoryEndpointFormat();
 		if ( epFormat == null ) {
 			try {
+//				List<String> addrList = NetUtils.getLocalHostAddresses();
 				String host = InetAddress.getLocalHost().getHostAddress();
 				epFormat = "https:" + host + ":%d/api/v3.0";
 			}
-			catch ( UnknownHostException e ) {
+			catch ( Exception e ) {
 				throw new MDTInstanceManagerException("" + e);
 			}
 		}
 		m_repositoryEndpointFormat = epFormat;
+		if ( getLogger().isInfoEnabled() ) {
+			getLogger().info("use MDTInstance endpoint format: {}", m_repositoryEndpointFormat);
+		}
 
 		Globals.EVENT_BUS.register(this);
 		MqttConfiguration mqttConf = conf.getMqttConfiguration();
@@ -114,7 +132,8 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		}
 	}
 	
-	public void shutdown() { }
+	public void shutdown() {
+	}
 //	public void shutdown() {
 //		if ( getLogger().isInfoEnabled() ) {
 //			getLogger().info("Shutting down MDTInstanceManager...");
@@ -175,12 +194,16 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		return m_conf.getHomeDir();
 	}
 	
-	public File getInstancesDir() {
-		return m_conf.getInstancesDir();
+	public File getDefaultMDTInstanceJarFile() {
+		return m_defaultMDTInstanceJarFile;
 	}
 	
-	public File getInstanceHomeDir(String id) {
-		return new File(m_conf.getInstancesDir(), id);
+	public File getBundleHomeDir() {
+		return m_conf.getBundlesDir();
+	}
+	
+	public HarborConfiguration getHarborConfiguration() {
+		return m_harborConf;
 	}
 
 	@Override
@@ -226,54 +249,25 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		return instDescMgr.query(cond, transform);
 	}
 	
-	@Override
-	public T addInstance(String id, Environment env, String arguments)
-		throws MDTInstanceManagerException {
-		JpaInstanceDescriptor desc = null;
+	protected JpaInstanceDescriptor addInstanceDescriptor(String id, File modelFile, String arguments)
+		throws ModelValidationException, IOException {
+		Environment env = readEnvironment(modelFile);
 		
-		try {
-			AssetAdministrationShell aas = env.getAssetAdministrationShells().get(0);
-			desc = JpaInstanceDescriptor.from(id, aas, env.getSubmodels());
-			desc.setStatus(MDTInstanceStatus.STOPPED);
-			desc.setBaseEndpoint(null);
-			desc.setArguments(arguments);
-			desc = initializeInstance(desc);
-		}
-		catch ( MDTInstanceManagerException e ) {
-			throw e;
-		}
-		catch ( Exception e ) {
-			throw new MDTInstanceManagerException("" + e);
-		}
+		AssetAdministrationShell aas = env.getAssetAdministrationShells().get(0);
+		
+		JpaInstanceDescriptor desc = JpaInstanceDescriptor.from(id, aas, env.getSubmodels());
+		desc.setStatus(MDTInstanceStatus.STOPPED);
+		desc.setBaseEndpoint(null);	// endpoint을 MDTInstance가 시작되면 결정되기 때문에 지금을 null로 채운다.
+		desc.setArguments(arguments);
 
 		EntityManager em = m_emLocal.get();
 		Preconditions.checkState(em != null);
 		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
 		instDescMgr.addInstanceDescriptor(desc);
-		T instance = toInstance(desc);
 		
-		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
-		
-		return instance;
+		return desc;
 	}
-
-	@Override
-	public T addInstance(String id, File aasFile, String arguments) throws MDTInstanceManagerException {
-		try {
-			Environment env = readEnvironment(aasFile);
-			return addInstance(id, env, arguments);
-		}
-		catch ( ConstraintViolationException e ) {
-			throw new ResourceAlreadyExistsException("MDTInstance", "id=" + id);
-		}
-		catch ( MDTInstanceManagerException e ) {
-			throw e;
-		}
-		catch ( Exception e ) {
-			throw new MDTInstanceManagerException("" + e);
-		}
-	}
-
+	
 	@Override
 	public void removeInstance(String id) throws ResourceNotFoundException, InvalidResourceStatusException {
 		AbstractInstance inst = getInstance(id);
@@ -291,7 +285,7 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		
 		Try.run(inst::uninitialize);
 		
-		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
+		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.REMOVED(id));
 	}
 
 	@Override
@@ -304,7 +298,7 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 	JpaInstanceDescriptor reload(Long rowId) {
 		return m_emLocal.get().find(JpaInstanceDescriptor.class, rowId);
 	}
-	JpaInstanceDescriptor update(Long rowId, Consumer<JpaInstanceDescriptor> updater) {
+	protected JpaInstanceDescriptor update(Long rowId, Consumer<JpaInstanceDescriptor> updater) {
 		JpaInstanceDescriptor desc = m_emLocal.get().find(JpaInstanceDescriptor.class, rowId);
 		updater.accept(desc);
 		
@@ -333,7 +327,7 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		
 		m_processor.run(em -> {
 			JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
-			JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(ev.getId());
+			JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(ev.getInstanceId());
 			if ( desc != null ) {
 				switch ( ev.getStatus() ) {
 					case RUNNING:
@@ -361,8 +355,74 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		});
 	}
 	
-	private static final String TOPIC_STATUS_CHANGES = "mdt/manager";
-	private static final int MQTT_QOS = 2;
+	protected String deployInstanceDockerImage(String id, File bundleDir, String dockerEndpoint,
+													@Nullable HarborConfiguration harborConf) {
+		try ( DockerClient docker = new JerseyDockerClientBuilder().uri(dockerEndpoint).build() ) {
+			// 동일 image id의 docker image가 존재할 수 있기 때문에 이를 먼저 삭제한다.
+			DockerUtils.removeInstanceImage(docker, id);
+			
+			// bundleDir에 포함된 데이터를 이용하여 docker image를 생성한다.
+			if ( getLogger().isInfoEnabled() ) {
+				getLogger().info("Start building docker image: instance=" + id + ", bundleDir=" + bundleDir);
+			}
+			
+			StandardOutputHandler outputHandler = new DockerCommandUtils.RedirectOutput(
+																			new File(bundleDir, "stdout.log"),
+																			new File(bundleDir, "stderr.log"));
+			String repoName = DockerCommandUtils.buildDockerImage(id, bundleDir, outputHandler);
+			if ( s_logger.isInfoEnabled() ) {
+				s_logger.info("Done: docker image: repo=" + repoName);
+			}
+	    	
+			if ( harborConf != null && harborConf.getEndpoint() != null ) {  	
+				// Harbor로 push하기 위한 tag를 부여한다.
+				Image image = DockerUtils.getInstanceImage(docker, id).getUnchecked();
+				String harborRepoName = DockerUtils.tagImageForHarbor(docker, image, harborConf, "latest");
+
+				if ( getLogger().isInfoEnabled() ) {
+					getLogger().info("Pusing docker image to Harbor: instance={}, repo={}", id, harborRepoName);
+				}
+				DockerUtils.pushImage(docker, harborRepoName, harborConf);
+				if ( s_logger.isInfoEnabled() ) {
+					s_logger.info("Done: push to Harbor: repo=" + harborRepoName);
+				}
+				
+		    	// Harbor로 push하고 나서는 tag되기 이전 image를 삭제한다.
+				docker.removeImage(repoName);
+				
+				// harbor로 push된 경우에는 harbor의 docker image를 사용한다.
+				repoName = harborRepoName;
+			}
+			
+			return repoName;
+		}
+		catch ( DockerException e ) {
+			throw new MDTInstanceManagerException("Failed to add a DockerInstance: id=" + id, e);
+		}
+		catch ( InterruptedException e ) {
+			throw new MDTInstanceManagerException("MDTInstance addition has been interrupted");
+		}
+	}
+	
+	static class InstallWaiter {
+		private final Thread m_thread;
+		private final String m_instanceId;
+		
+		InstallWaiter(Thread thread, String instanceId) {
+			m_thread = thread;
+			m_instanceId = instanceId;
+		}
+	}
+	public void markInstalling(final String instId) throws InterruptedException {
+		m_guard.awaitUntilAndRun(() -> !m_installers.containsKey(instId),
+								() -> m_installers.put(instId, Thread.currentThread()));
+	}
+	public void unmarkInstalling(final String instId) throws InterruptedException {
+		m_guard.runAndSignalAll(() -> m_installers.remove(instId));
+	}
+	
+	private static final String TOPIC_STATUS_CHANGES_FORMAT = "/mdt/manager/instances/%s";
+	private static final int MQTT_QOS = 0;
 	private static final MqttConnectOptions MQTT_OPTIONS;
 	static {
 		MQTT_OPTIONS = new MqttConnectOptions();
@@ -373,30 +433,31 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 	public void publishStatusChangeEvent(InstanceStatusChangeEvent ev) {
 		if ( m_mqttClient != null ) {
 			try {
-				String jsonStr = m_mapper.writeValueAsString(new JsonEvent<>(ev));
-				MqttMessage message = new MqttMessage(jsonStr.getBytes());
+				String topic = String.format(TOPIC_STATUS_CHANGES_FORMAT, ev.getInstanceId());
+				
+				String jsonStr = m_mapper.writeValueAsString(ev);
+				MqttMessage message = new MqttMessage(jsonStr.getBytes(StandardCharsets.UTF_8));
 				message.setQos(MQTT_QOS);
-				m_mqttClient.publish(TOPIC_STATUS_CHANGES, message);
+				m_mqttClient.publish(topic, message);
 			}
 			catch ( Exception e ) {
-				s_logger.error("Failed to publish event, cause=" + e);
+				getLogger().error("Failed to publish event, cause=" + e);
 			}
 		}
 	}
 	
 	@Override
 	public Logger getLogger() {
-		return m_logger;
+		return FOption.getOrElse(m_logger, s_logger);
 	}
 
 	@Override
 	public void setLogger(Logger logger) {
-		m_logger = (logger != null) ? logger : s_logger;
+		m_logger = logger;
 	}
 	
-	private Environment readEnvironment(File aasEnvFile)
-		throws IOException, ResourceAlreadyExistsException, ResourceNotFoundException {
-		JsonDeserializer deser = AASUtils.getJsonDeserializer();
+	private Environment readEnvironment(File aasEnvFile) throws IOException, ModelValidationException {
+		JsonDeserializer deser = MDTModelSerDe.getJsonDeserializer();
 		
 		try ( FileInputStream fis = new FileInputStream(aasEnvFile) ) {
 			Environment env = deser.read(fis, Environment.class);
@@ -417,7 +478,8 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 			for ( Reference ref: aas.getSubmodels() ) {
 				String refId = ref.getKeys().get(0).getValue();
 				if ( !submodelIds.contains(refId) ) {
-					throw new ResourceNotFoundException("Submodel", refId);
+					String msg = String.format("Submodel not found: id=%s", refId);
+					throw new ModelValidationException(msg);
 				}
 			}
 			
@@ -426,14 +488,17 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		catch ( DeserializationException e ) {
 			throw new MDTInstanceManagerException("failed to parse Environment: file=" + aasEnvFile);
 		}
+		catch ( Throwable e ) {
+			e.printStackTrace();
+			throw new AssertionError();
+		}
 	}
 	
 	private MqttClient newConnectedMqttClient(MqttConfiguration conf) {
 		try {
+			String clientId = FOption.getOrElse(conf.getClientId(), "MDTInstanceManager");
 			MqttClientPersistence persist = new MemoryPersistence();
-			MqttClient mqttClient = new MqttClient(conf.getEndpoint(),
-													FOption.ofNullable(conf.getClientId()).getOrNull(),
-													persist);
+			MqttClient mqttClient = new MqttClient(conf.getEndpoint(), clientId, persist);
 			mqttClient.connect();
 			
 			return mqttClient;

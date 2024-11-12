@@ -3,25 +3,27 @@ package mdt.instance.jar;
 import java.io.File;
 import java.io.IOException;
 
-import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.common.io.Files;
 
 import utils.InternalException;
 import utils.func.Tuple;
+import utils.io.FileUtils;
 
 import mdt.Globals;
 import mdt.MDTConfiguration;
+import mdt.MDTConfiguration.JarExecutorConfiguration;
 import mdt.exector.jar.JarExecutionListener;
 import mdt.exector.jar.JarInstanceExecutor;
 import mdt.instance.AbstractInstanceManager;
-import mdt.instance.InstanceStatusChangeEvent;
+import mdt.instance.InstanceDescriptorManager;
+import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.model.instance.JarExecutionArguments;
-import mdt.model.instance.MDTInstanceManager;
+import mdt.model.ModelValidationException;
+import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 
@@ -30,10 +32,11 @@ import mdt.model.instance.MDTInstanceStatus;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class JarInstanceManager extends AbstractInstanceManager<JarInstance> {
+public class JarInstanceManager extends AbstractInstanceManager<JpaInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceManager.class);
 	
 	private final JarInstanceExecutor m_executor;
+	private final File m_instancesDir;
 	private final File m_defaultInstanceJarFile;
 	
 	public JarInstanceManager(MDTConfiguration conf) {
@@ -41,12 +44,40 @@ public class JarInstanceManager extends AbstractInstanceManager<JarInstance> {
 		setLogger(s_logger);
 		
 		m_defaultInstanceJarFile = conf.getJarExecutorConfiguration().getDefaultMDTInstanceJarFile();
-		if ( s_logger.isInfoEnabled() ) {
-			s_logger.info("use default MDTInstance jar file: {}", m_defaultInstanceJarFile.getAbsolutePath());
+		if ( getLogger().isInfoEnabled() ) {
+			getLogger().info("use default MDTInstance jar file: {}", m_defaultInstanceJarFile.getAbsolutePath());
 		}
+		
+		JarExecutorConfiguration execConf = conf.getJarExecutorConfiguration();
+		m_instancesDir = execConf.getWorkspaceDir();
 
 		m_executor = new JarInstanceExecutor(conf.getJarExecutorConfiguration());
 		m_executor.addExecutionListener(m_execListener);
+	}
+
+	@Override
+	public void initialize(InstanceDescriptorManager instDescManager) throws MDTInstanceManagerException {
+		for ( JpaInstanceDescriptor desc: instDescManager.getInstanceDescriptorAll() ) {
+			desc.setStatus(MDTInstanceStatus.STOPPED);
+			desc.setBaseEndpoint(null);
+		}
+    	
+    	try {
+			if ( getInstancesDir().exists() ) {
+				FileUtils.createDirectories(getInstancesDir());
+			}
+		}
+		catch ( IOException e ) {
+			throw new MDTInstanceManagerException(e);
+		}
+	}
+	
+	public File getInstancesDir() {
+		return m_instancesDir;
+	}
+	
+	public File getInstanceHomeDir(String id) {
+		return FileUtils.path(getInstancesDir(), id);
 	}
 	
 	public JarInstanceExecutor getInstanceExecutor() {
@@ -64,6 +95,49 @@ public class JarInstanceManager extends AbstractInstanceManager<JarInstance> {
 		return (result._2 > 0) ? toServiceEndpoint(result._2) : null;
 	}
 	
+	public void shutdown() {
+		m_executor.shutdown();
+	}
+
+	@Override
+	public InstanceDescriptor addInstance(String id, int faaastPort, File bundleDir)
+		throws ModelValidationException, IOException {
+		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
+
+		try {
+			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
+			// instances 디렉토리로 이동시킨다.
+			File instDir = getInstanceHomeDir(id);
+			FileUtils.deleteDirectory(instDir);
+			FileUtils.move(bundleDir, instDir);
+			
+			JarExecutionArguments args = JarExecutionArguments.builder()
+																.jarFile(FA3ST_JAR_FILE_NAME)
+																.port(faaastPort)
+																.build();
+			
+			File modelFile = FileUtils.path(instDir, MODEL_AASX_NAME);
+			if ( !modelFile.canRead() ) {
+				modelFile = FileUtils.path(instDir, MODEL_FILE_NAME);
+			}
+			String arguments = m_mapper.writeValueAsString(args);
+			
+			InstanceDescriptor desc = addInstanceDescriptor(id, modelFile, arguments);
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
+			
+			return desc;
+		}
+		catch ( Throwable e ) {
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
+			throw new InternalException("Failed to add MDTInstance: id=" + id, e);
+		}
+	}
+
+	@Override
+	protected JarInstance toInstance(JpaInstanceDescriptor descriptor) {
+		return new JarInstance(this, descriptor);
+	}
+	
 	public JarExecutionArguments parseExecutionArguments(String argsJson) {
 		try {
 			return m_mapper.readValue(argsJson, JarExecutionArguments.class);
@@ -73,85 +147,9 @@ public class JarInstanceManager extends AbstractInstanceManager<JarInstance> {
 		}
 	}
 	
-	public String toExecutionArgumentsString(JarExecutionArguments args) {
-		try {
-			return m_mapper.writeValueAsString(args);
-		}
-		catch ( JsonProcessingException e ) {
-			throw new InternalException("Failed to write JarExecutionArguments string, cause=" + e);
-		}
-	}
-	
-	public void shutdown() {
-		m_executor.shutdown();
-	}
-	
 	@Override
-	protected JarInstance toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException {
-		return new JarInstance(this, descriptor);
-	}
-	
-	@Override
-	protected JpaInstanceDescriptor initializeInstance(JpaInstanceDescriptor desc) {
-		File instanceDir = getInstanceHomeDir(desc.getId());
-		try {
-			// 동일 이름의 directory가 존재할 수도 있기 때문에 해당 디렉토리가 있으면
-			// 먼저 삭제하고, instance용 workspace directory를 생성한다.
-			FileUtils.deleteDirectory(instanceDir);
-			instanceDir.mkdirs();
-			
-			// Jar 파일은 workspace directory로 복사한다.
-			File jarFile = new File(instanceDir, FA3ST_JAR_FILE_NAME);
-			
-			// configuration 파일들을 configs directory로 복사시킨다.
-			File modelFile = new File(instanceDir, MODEL_FILE_NAME);
-			File confFile = new File(instanceDir, CONF_FILE_NAME);
-			File certFile = new File(instanceDir, CERT_FILE_NAME);
-			File globalConfFile = new File(instanceDir, GLOBAL_CONF_FILE_NAME);
-			
-			JarExecutionArguments jargs = m_mapper.readValue(desc.getArguments(),
-															JarExecutionArguments.class);
-			
-			String jarFilePath = FA3ST_JAR_FILE_NAME;
-			if ( jargs.getJarFile() != null ) {
-				copyFileIfNotSame(new File(jargs.getJarFile()), jarFile);
-			}
-			else {
-				if ( m_defaultInstanceJarFile == null || !m_defaultInstanceJarFile.exists() ) {
-					throw new IllegalStateException("No default MDTInstance jar file exists: path="
-													+ m_defaultInstanceJarFile);
-				}
-				jarFilePath = this.m_defaultInstanceJarFile.getAbsolutePath();
-			}
-			copyFileIfNotSame(new File(jargs.getModelFile()), modelFile);
-			copyFileIfNotSame(new File(jargs.getConfigFile()), confFile);
-			jargs = JarExecutionArguments.builder()
-										.jarFile(jarFilePath)
-										.modelFile(MDTInstanceManager.MODEL_FILE_NAME)
-										.configFile(CONF_FILE_NAME)
-										.build();
-			desc.setArguments(m_mapper.writeValueAsString(jargs));
-			
-			File defaultCertFile = new File(getHomeDir(), CERT_FILE_NAME);
-			Files.copy(defaultCertFile, certFile);
-			
-			File srcGlobalConfFile = new File(getHomeDir(), GLOBAL_CONF_FILE_NAME);
-			if ( srcGlobalConfFile.exists() ) {
-				Files.copy(srcGlobalConfFile, globalConfFile);
-			}
-			
-			return desc;
-		}
-		catch ( IOException e ) {
-			throw new MDTInstanceManagerException("Failed to initialize MDTInstance: descriptor="
-													+ desc + ", cause=" + e);
-		}
-	}
-	
-	private void copyFileIfNotSame(File src, File dest) throws IOException {
-		if ( !src.getAbsolutePath().equals(dest.getAbsolutePath()) ) {
-			Files.copy(src, dest);
-		}
+	public String toString() {
+		return String.format("%s[home=%s]", getClass().getSimpleName(), getInstancesDir());
 	}
 	
 	private final JarExecutionListener m_execListener = new JarExecutionListener() {

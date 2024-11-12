@@ -1,5 +1,6 @@
 package mdt.controller;
 
+import java.io.IOException;
 import java.util.List;
 
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,13 +35,14 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.persistence.EntityManagerFactory;
-import mdt.MDTController;
 import mdt.instance.AbstractInstanceManager;
+import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
 import mdt.instance.jpa.JpaProcessor;
 import mdt.model.AASUtils;
-import mdt.model.instance.MDTInstance;
+import mdt.model.MDTModelSerDe;
+import mdt.model.service.MDTInstance;
 
 
 /**
@@ -47,12 +50,11 @@ import mdt.model.instance.MDTInstance;
  * @author Kang-Woo Lee (ETRI)
  */
 @RestController
-@RequestMapping("/shell-registry/shell-descriptors")
-public class JpaShellRegistryController extends MDTController<AssetAdministrationShellDescriptor>
-										implements InitializingBean {
+@RequestMapping(value={"/shell-registry/shell-descriptors"})
+public class JpaShellRegistryController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(JpaShellRegistryController.class);
 	
-	@Autowired AbstractInstanceManager m_instanceManager;
+	@Autowired AbstractInstanceManager<? extends JpaInstance> m_instanceManager;
 	@Autowired EntityManagerFactory m_emFact;
 	private JpaProcessor m_jpaProcessor;
 
@@ -80,7 +82,7 @@ public class JpaShellRegistryController extends MDTController<AssetAdministratio
     })
     @GetMapping("/{aasId}")
     @ResponseStatus(HttpStatus.OK)
-    public String getAssetAdministrationShellDescriptorById(@PathVariable("aasId") String aasId)
+    public ResponseEntity<String> getAssetAdministrationShellDescriptorById(@PathVariable("aasId") String aasId)
     	throws SerializationException {
 		String decoded = AASUtils.decodeBase64UrlSafe(aasId);
 		
@@ -90,7 +92,8 @@ public class JpaShellRegistryController extends MDTController<AssetAdministratio
 			return inst.getAASDescriptor();
 		});
 		
-		return AASUtils.getJsonSerializer().write(desc);
+		String descJson = MDTModelSerDe.getJsonSerializer().write(desc);
+		return ResponseEntity.ok(descJson);
     }
     
     @Operation(summary = "주어진 idShort에 해당하는 모든 AssetAdministrationShell 등록정보들을 반환한다.")
@@ -109,7 +112,7 @@ public class JpaShellRegistryController extends MDTController<AssetAdministratio
     })
     @GetMapping({""})
     @ResponseStatus(HttpStatus.OK)
-    public String getAllAssetAdministrationShellDescriptors(
+    public ResponseEntity<String> getAllAssetAdministrationShellDescriptors(
     										@RequestParam(name="idShort", required=false) String idShort)
     	throws SerializationException {
     	List<AssetAdministrationShellDescriptor> descList = m_jpaProcessor.get(em -> {
@@ -128,7 +131,8 @@ public class JpaShellRegistryController extends MDTController<AssetAdministratio
 	    				.toList();
     	});
 
-		return AASUtils.getJsonSerializer().write(descList);
+		String descListJson = MDTModelSerDe.getJsonSerializer().write(descList);
+		return ResponseEntity.ok(descListJson);
     }
 
     @Operation(
@@ -152,7 +156,7 @@ public class JpaShellRegistryController extends MDTController<AssetAdministratio
     })
     @PostMapping({""})
     @ResponseStatus(HttpStatus.CREATED)
-    public String addAssetAdministrationShellDescriptor(@RequestBody String aasJson)
+    public ResponseEntity<String> addAssetAdministrationShellDescriptor(@RequestBody String aasJson)
     	throws SerializationException, DeserializationException {
     	throw new UnsupportedOperationException();
     }
@@ -202,10 +206,9 @@ public class JpaShellRegistryController extends MDTController<AssetAdministratio
     })
     @PutMapping({""})
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateAssetAdministrationShellDescriptor(@RequestBody String aasJson)
-    	throws SerializationException, DeserializationException {
-		AssetAdministrationShellDescriptor aas = s_deser.read(aasJson,
-																AssetAdministrationShellDescriptor.class);
+    public void updateAssetAdministrationShellDescriptor(@RequestBody String aasJson) throws IOException {
+		AssetAdministrationShellDescriptor aas = MDTModelSerDe.readValue(aasJson,
+																		AssetAdministrationShellDescriptor.class);
 		m_jpaProcessor.run(em -> {
     		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
     		JpaInstanceDescriptor instDesc = instDescMgr.getInstanceDescriptor(aas.getId());

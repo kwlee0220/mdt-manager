@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
+import org.hibernate.exception.ConstraintViolationException;
+
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -103,7 +105,7 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 		try {
 			m_em.persist(desc);
 		}
-		catch ( EntityExistsException e ) {
+		catch ( EntityExistsException | ConstraintViolationException e ) {
 			throw new ResourceAlreadyExistsException("MDTInstance", "id=" + desc.getId());
 		}
 	}

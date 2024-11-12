@@ -5,10 +5,22 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import utils.Throwables;
 import utils.func.Lazy;
 import utils.func.Unchecked;
 import utils.stream.FStream;
+
+import mdt.Globals;
+import mdt.instance.JpaInstance;
+import mdt.instance.jar.JarInstance;
+import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.model.instance.InstanceStatusChangeEvent;
+import mdt.model.instance.MDTInstanceManagerException;
+import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.service.MDTInstance;
 
 import io.fabric8.kubernetes.api.model.Node;
 import io.fabric8.kubernetes.api.model.NodeAddress;
@@ -17,22 +29,14 @@ import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
-import mdt.Globals;
-import mdt.instance.AbstractInstance;
-import mdt.instance.InstanceStatusChangeEvent;
-import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.model.instance.KubernetesExecutionArguments;
-import mdt.model.instance.MDTInstance;
-import mdt.model.instance.MDTInstanceManagerException;
-import mdt.model.instance.MDTInstanceStatus;
-import mdt.model.registry.RegistryException;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class KubernetesInstance extends AbstractInstance implements MDTInstance {
+public class KubernetesInstance extends JpaInstance implements MDTInstance {
+	private static final Logger s_logger = LoggerFactory.getLogger(JarInstance.class);
 	public static final String NAMESPACE = "mdt-instance";
 	
 	private final Lazy<KubernetesRemote> m_kube = Lazy.of(this::newKubernetesRemote);
@@ -40,6 +44,8 @@ public class KubernetesInstance extends AbstractInstance implements MDTInstance 
 	
 	KubernetesInstance(KubernetesInstanceManager manager, JpaInstanceDescriptor desc) {
 		super(manager, desc);
+		
+		setLogger(s_logger);
 	}
 	
 	private KubernetesRemote newKubernetesRemote() {
@@ -87,7 +93,7 @@ public class KubernetesInstance extends AbstractInstance implements MDTInstance 
 
 	@Override
 	public void startAsync() {
-		JpaInstanceDescriptor desc = getInstanceDescriptor();
+		JpaInstanceDescriptor desc = asJpaInstanceDescriptor();
 
 		KubernetesRemote k8s = m_kube.get();
 		Deployment deployment = null;
@@ -97,7 +103,7 @@ public class KubernetesInstance extends AbstractInstance implements MDTInstance 
 			
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STARTING(desc.getId()));
 			
-			deployment = buildDeploymentResource(args.getImageId());
+			deployment = buildDeploymentResource(args.getImageRepoName());
 			deployment = k8s.createDeployment(NAMESPACE, deployment);
 			
 			Service svc = buildServiceResource();
@@ -106,13 +112,6 @@ public class KubernetesInstance extends AbstractInstance implements MDTInstance 
 			int svcPort = k8s.createService(NAMESPACE, svc);
 			String endpoint = toServiceEndpoint(svcPort);
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.RUNNING(desc.getId(), endpoint));
-		}
-		catch ( RegistryException e ) {
-			Unchecked.runOrIgnore(() -> k8s.deleteService(NAMESPACE, toServiceName(getId())));
-			Unchecked.runOrIgnore(() -> k8s.deleteDeployment(NAMESPACE, toDeploymentName(getId())));
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(desc.getId()));
-			
-			throw new MDTInstanceManagerException("fails to update MDTInstance status, cause=" + e);
 		}
 		catch ( Exception e ) {
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(desc.getId()));
@@ -134,6 +133,10 @@ public class KubernetesInstance extends AbstractInstance implements MDTInstance 
 		m_workerHostname = null;
 
 		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(getId()));
+	}
+	
+	public KubernetesInstanceManager getInstanceManager() {
+		return (KubernetesInstanceManager)m_manager;
 	}
 	
 	private String toServiceEndpoint(int svcPort) {

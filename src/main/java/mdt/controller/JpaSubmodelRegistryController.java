@@ -1,5 +1,6 @@
 package mdt.controller;
 
+import java.io.IOException;
 import java.util.List;
 
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,10 +34,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.TypedQuery;
-import mdt.MDTController;
 import mdt.instance.jpa.JpaInstanceSubmodelDescriptor;
 import mdt.instance.jpa.JpaProcessor;
 import mdt.model.AASUtils;
+import mdt.model.MDTModelSerDe;
 import mdt.model.ResourceNotFoundException;
 
 
@@ -44,9 +46,8 @@ import mdt.model.ResourceNotFoundException;
 * @author Kang-Woo Lee (ETRI)
 */
 @RestController
-@RequestMapping("/submodel-registry/submodel-descriptors")
-public class JpaSubmodelRegistryController extends MDTController<SubmodelDescriptor>
-											implements InitializingBean {
+@RequestMapping(value={"/submodel-registry/submodel-descriptors"})
+public class JpaSubmodelRegistryController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(JpaSubmodelRegistryController.class);
 
 	@Autowired EntityManagerFactory m_emFact;
@@ -75,7 +76,7 @@ public class JpaSubmodelRegistryController extends MDTController<SubmodelDescrip
     })
     @GetMapping({""})
     @ResponseStatus(HttpStatus.OK)
-    public String getAllSubmodelDescriptorsByidShort(@RequestParam(name="idShort", required=false) String idShort)
+    public ResponseEntity<String> getAllSubmodelDescriptorsByidShort(@RequestParam(name="idShort", required=false) String idShort)
     	throws SerializationException {
     	String jpql = ( idShort != null )
     				? String.format("select s from JpaInstanceSubmodelDescriptor s "
@@ -88,7 +89,9 @@ public class JpaSubmodelRegistryController extends MDTController<SubmodelDescrip
 						.map(d -> d.getInstance().toSubmodelDescriptor(d))
 						.toList();
     	});
-		return s_ser.writeList(smDescList);
+		
+		String descListJsjon = MDTModelSerDe.getJsonSerializer().writeList(smDescList);
+		return ResponseEntity.ok(descListJsjon);
     }
 
     @Operation(summary = "주어진 식별자에 해당하는 Submodel 등록정보를 반환한다.")
@@ -104,7 +107,7 @@ public class JpaSubmodelRegistryController extends MDTController<SubmodelDescrip
     })
     @GetMapping(value = "/{submodelId}")
     @ResponseStatus(HttpStatus.OK)
-    public String getSubmodelDescriptorById(@PathVariable("submodelId") String submodelId)
+    public ResponseEntity<String> getSubmodelDescriptorById(@PathVariable("submodelId") String submodelId)
     	throws SerializationException {
 		String decodedId = AASUtils.decodeBase64UrlSafe(submodelId);
 		
@@ -121,7 +124,9 @@ public class JpaSubmodelRegistryController extends MDTController<SubmodelDescrip
 				throw new ResourceNotFoundException("SubmodelDescriptor", "id=" + decodedId);
 			}
     	});
-		return s_ser.write(smDesc);
+    	
+    	String descJson = MDTModelSerDe.toJsonString(smDesc);
+		return ResponseEntity.ok(descJson);
     }
     
     @Operation(
@@ -145,7 +150,7 @@ public class JpaSubmodelRegistryController extends MDTController<SubmodelDescrip
     })
     @PostMapping({""})
     @ResponseStatus(HttpStatus.CREATED)
-    public String addSubmodelDescriptor(@RequestBody String submodelJson)
+    public ResponseEntity<String> addSubmodelDescriptor(@RequestBody String submodelJson)
     	throws SerializationException, DeserializationException {
 //		SubmodelDescriptor aas = s_deser.read(submodelJson, SubmodelDescriptor.class);
     	throw new UnsupportedOperationException();
@@ -197,9 +202,8 @@ public class JpaSubmodelRegistryController extends MDTController<SubmodelDescrip
     })
     @PutMapping("")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateSubmodelDescriptor(@RequestBody String submodelJson)
-    	throws SerializationException, DeserializationException {
-    	SubmodelDescriptor smDesc = s_deser.read(submodelJson, SubmodelDescriptor.class);
+    public void updateSubmodelDescriptor(@RequestBody String submodelJson) throws IOException {
+    	SubmodelDescriptor smDesc = MDTModelSerDe.readValue(submodelJson, SubmodelDescriptor.class);
 
     	String jpql = String.format("select s from JpaInstanceSubmodelDescriptor s where s.id = '%s'",
     								smDesc.getId());

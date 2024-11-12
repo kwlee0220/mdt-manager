@@ -15,6 +15,7 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Lists;
 
+import utils.InternalException;
 import utils.Throwables;
 import utils.fostore.CachingFileObjectStore;
 import utils.fostore.DefaultFileObjectStore;
@@ -25,7 +26,6 @@ import utils.stream.FStream;
 import mdt.model.AASUtils;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.registry.RegistryException;
 
 
 /**
@@ -38,8 +38,7 @@ public class CachingFileBasedRegistry<D> {
 	private final Method m_getIdShort;
 	private final int m_cacheSize;
 	
-	public CachingFileBasedRegistry(File storeDir, int cacheSize, Class<D> descCls, Function<String,D> deser)
-		throws RegistryException {
+	public CachingFileBasedRegistry(File storeDir, int cacheSize, Class<D> descCls, Function<String,D> deser) {
 		try {
 			m_resourceName = descCls.getSimpleName();
 			
@@ -64,7 +63,7 @@ public class CachingFileBasedRegistry<D> {
 			m_getIdShort = method;
 		}
 		catch ( IOException e ) {
-			throw new RegistryException("" + e);
+			throw new InternalException("" + e);
 		}
 	}
 	
@@ -72,7 +71,7 @@ public class CachingFileBasedRegistry<D> {
 		return m_store.getRootDir();
 	}
 
-	public LazyDescriptor<D> getDescriptorById(String id) throws ResourceNotFoundException, RegistryException {
+	public LazyDescriptor<D> getDescriptorById(String id) throws ResourceNotFoundException {
 		Preconditions.checkNotNull(id, m_resourceName + " id");
 		
 		try {
@@ -84,37 +83,37 @@ public class CachingFileBasedRegistry<D> {
 			return resource.get();
 		}
 		catch ( IOException e ) {
-			throw new RegistryException("" + e);
+			throw new InternalException("" + e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new RegistryException("" + cause);
+			throw new InternalException("" + cause);
 		}
 	}
 
-    public List<String> getAllDescriptorIds() throws RegistryException {
+    public List<String> getAllDescriptorIds() {
     	try {
         	return Lists.newArrayList(m_store.getFileObjectKeyAll());
 		}
 		catch ( IOException e ) {
-			throw new RegistryException("" + e);
+			throw new InternalException("" + e);
 		}
     }
 
-	public List<LazyDescriptor<D>> getAllDescriptors() throws RegistryException {
+	public List<LazyDescriptor<D>> getAllDescriptors() {
 		try {
 			return m_store.getFileObjectAll();
 		}
 		catch ( IOException e ) {
-			throw new RegistryException("" + e);
+			throw new InternalException("" + e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new RegistryException("" + cause);
+			throw new InternalException("" + cause);
 		}
 	}
 
-	public List<LazyDescriptor<D>> getAllDescriptorsByShortId(String idShort) throws RegistryException {
+	public List<LazyDescriptor<D>> getAllDescriptorsByShortId(String idShort) {
 		Preconditions.checkNotNull(idShort, m_resourceName + " idShort");
 		
 		try {
@@ -125,16 +124,16 @@ public class CachingFileBasedRegistry<D> {
 			return stream.toList();
 		}
 		catch ( IOException e ) {
-			throw new RegistryException("" + e);
+			throw new InternalException("" + e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new RegistryException("" + cause);
+			throw new InternalException("" + cause);
 		}
 	}
 
 	public LazyDescriptor<D> addDescriptor(String id, LazyDescriptor<D> descriptor)
-		throws ResourceAlreadyExistsException, RegistryException {
+		throws ResourceAlreadyExistsException {
 		try {
 			Preconditions.checkNotNull(descriptor);
 			Preconditions.checkNotNull(id, m_resourceName + " id");
@@ -146,15 +145,15 @@ public class CachingFileBasedRegistry<D> {
 			return descriptor;
 		}
 		catch ( IOException e ) {
-			throw new RegistryException("" + e);
+			throw new InternalException("" + e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new RegistryException("" + cause);
+			throw new InternalException("" + cause);
 		}
 	}
 
-	public void removeDescriptor(String id) throws ResourceNotFoundException, RegistryException {
+	public void removeDescriptor(String id) throws ResourceNotFoundException {
 		Preconditions.checkNotNull(id, m_resourceName + " id");
 		
     	try {
@@ -164,12 +163,12 @@ public class CachingFileBasedRegistry<D> {
     		}
 		}
 		catch ( IOException e ) {
-			throw new RegistryException("" + e);
+			throw new InternalException("" + e);
 		}
 	}
 
 	public LazyDescriptor<D> updateDescriptor(String id, LazyDescriptor<D> descriptor)
-		throws ResourceNotFoundException, RegistryException {
+		throws ResourceNotFoundException {
 		removeDescriptor(id);
 		return addDescriptor(id, descriptor);
 	}

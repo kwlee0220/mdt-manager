@@ -16,18 +16,22 @@ import org.springframework.context.annotation.Configuration;
 
 import com.google.common.collect.Maps;
 
-import jakarta.persistence.EntityManagerFactory;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
+
 import mdt.client.HttpServiceFactory;
 import mdt.instance.AbstractInstanceManager;
+import mdt.instance.JpaInstance;
 import mdt.instance.docker.DockerConfiguration;
 import mdt.instance.docker.DockerInstanceManager;
+import mdt.instance.docker.HarborConfiguration;
 import mdt.instance.jar.JarInstanceManager;
 import mdt.instance.jpa.InstancePersistenceUnitInfo;
 import mdt.instance.k8s.KubernetesInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
+
+import jakarta.persistence.EntityManagerFactory;
 
 /**
  *
@@ -55,10 +59,10 @@ public class MDTConfiguration {
 	@Data
 	public class MDTInstanceManagerConfiguration {
 		private String type;
-		private String repositoryEndpointFormat;
 		private File homeDir;
-		private File instancesDir;
-		private String modelIdTemplate;
+		private File bundlesDir;
+		private File defaultMDTInstanceJarFile;
+		private String repositoryEndpointFormat;
 	}
 	@Bean
 	@ConfigurationProperties(prefix = "instance-manager")
@@ -67,18 +71,21 @@ public class MDTConfiguration {
 	}
 
 	@Bean
-	AbstractInstanceManager getMDTInstanceManager() throws DockerException, InterruptedException {
+	AbstractInstanceManager<? extends JpaInstance> getMDTInstanceManager()
+		throws DockerException, InterruptedException {
 		MDTInstanceManagerConfiguration conf = getMDTInstanceManagerConfiguration();
-		switch ( conf.getType() ) {
-			case "jar":
-				return new JarInstanceManager(this);
-			case "docker":
-				return new DockerInstanceManager(this);
-			case "kubernetes":
-				return new KubernetesInstanceManager(this);
-			default:
-				throw new MDTInstanceManagerException("Unknown MDTInstanceManager type: " + conf.getType());
+		AbstractInstanceManager<? extends JpaInstance> instManager = switch ( conf.getType() ) {
+			case "jar" -> new JarInstanceManager(this);
+			case "docker" -> new DockerInstanceManager(this);
+			case "kubernetes" -> new KubernetesInstanceManager(this);
+			default -> throw new MDTInstanceManagerException("Unknown MDTInstanceManager type: " + conf.getType());
+		};
+		
+		if ( s_logger.isInfoEnabled() ) {
+			s_logger.info("use MDTInstanceManager: {}", instManager);
 		}
+		
+		return instManager;
 	}
 
 	@Bean
@@ -99,6 +106,12 @@ public class MDTConfiguration {
 	@ConfigurationProperties(prefix = "docker")
 	public DockerConfiguration getDockerConfiguration() {
 		return new DockerConfiguration();
+	}
+
+	@Bean
+	@ConfigurationProperties(prefix = "harbor")
+	public HarborConfiguration getHarborConfiguration() {
+		return new HarborConfiguration();
 	}
 	
 	@Bean

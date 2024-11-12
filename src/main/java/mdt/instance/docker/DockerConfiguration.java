@@ -10,7 +10,6 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 public class DockerConfiguration {
-	private String dockerHost;
-	private String mountPrefix;
-	private String dockerImageName;
+	private String dockerEndpoint;
+	private String imageName;
 }

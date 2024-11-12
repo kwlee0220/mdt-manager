@@ -15,7 +15,6 @@ import utils.stream.FStream;
 
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.registry.RegistryException;
 
 
 /**
@@ -28,7 +27,7 @@ public class CachingFileMDTSubmodelRegistry implements SubmodelRegistryProvider 
 	private final JsonDeserializer m_jsonDeser = new JsonDeserializer();
     
     @SuppressWarnings({ "rawtypes", "unchecked" })
-	public CachingFileMDTSubmodelRegistry(File storeDir, int cacheSize) throws RegistryException {
+	public CachingFileMDTSubmodelRegistry(File storeDir, int cacheSize) {
     	m_store = new CachingFileBasedRegistry(storeDir, cacheSize, SubmodelDescriptor.class, m_deser);
     }
     
@@ -37,26 +36,24 @@ public class CachingFileMDTSubmodelRegistry implements SubmodelRegistryProvider 
     }
 
 	@Override
-	public SubmodelDescriptor getSubmodelDescriptorById(String submodelId) throws ResourceNotFoundException,
-																					RegistryException {
+	public SubmodelDescriptor getSubmodelDescriptorById(String submodelId) throws ResourceNotFoundException {
 		return m_store.getDescriptorById(submodelId).get();
 	}
 
 	@Override
-	public String getJsonSubmodelDescriptorById(String submodelId) throws ResourceNotFoundException,
-																			RegistryException {
+	public String getJsonSubmodelDescriptorById(String submodelId) throws ResourceNotFoundException {
 		return m_store.getDescriptorById(submodelId).getJson();
 	}
 
 	@Override
-	public List<SubmodelDescriptor> getAllSubmodelDescriptors() throws RegistryException {
+	public List<SubmodelDescriptor> getAllSubmodelDescriptors() {
 		return FStream.from(m_store.getAllDescriptors())
 						.map(LazyDescriptor::get)
 						.toList();
 	}
 
 	@Override
-	public List<SubmodelDescriptor> getAllSubmodelDescriptorsByIdShort(String idShort) throws RegistryException {
+	public List<SubmodelDescriptor> getAllSubmodelDescriptorsByIdShort(String idShort) {
 		return FStream.from(m_store.getAllDescriptorsByShortId(idShort))
 						.map(LazyDescriptor::get)
 						.toList();
@@ -64,34 +61,34 @@ public class CachingFileMDTSubmodelRegistry implements SubmodelRegistryProvider 
 
 	@Override
 	public SubmodelDescriptor postSubmodelDescriptor(SubmodelDescriptor descriptor)
-		throws ResourceAlreadyExistsException, RegistryException {
+		throws ResourceAlreadyExistsException {
 		try {
 			String json = m_jsonSer.write(descriptor);
 			m_store.addDescriptor(descriptor.getId(), new LazyDescriptor<>(descriptor, json));
 			return descriptor;
 		}
 		catch ( SerializationException e ) {
-			throw new RegistryException("Failed to add SubmodelDescriptor: id=" + descriptor.getId()
+			throw new InternalException("Failed to add SubmodelDescriptor: id=" + descriptor.getId()
 										+ ", cause=" + e);
 		}
 	}
 
 	@Override
 	public SubmodelDescriptor putSubmodelDescriptorById(SubmodelDescriptor descriptor)
-		throws ResourceNotFoundException, RegistryException {
+		throws ResourceNotFoundException {
 		try {
 			String json = m_jsonSer.write(descriptor);
 			m_store.updateDescriptor(descriptor.getId(), new LazyDescriptor<>(descriptor, json));
 			return descriptor;
 		}
 		catch ( SerializationException e ) {
-			throw new RegistryException("Failed to update SubmodelDescriptor: id=" + descriptor.getId()
+			throw new InternalException("Failed to update SubmodelDescriptor: id=" + descriptor.getId()
 										+ ", cause=" + e);
 		}
 	}
 
 	@Override
-	public void deleteSubmodelDescriptorById(String submodelId) throws ResourceNotFoundException, RegistryException {
+	public void deleteSubmodelDescriptorById(String submodelId) throws ResourceNotFoundException {
 		m_store.removeDescriptor(submodelId);
 	}
     

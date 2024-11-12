@@ -10,11 +10,11 @@ import org.eclipse.digitaltwin.aas4j.v3.dataformat.json.JsonDeserializer;
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.json.JsonSerializer;
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
 
+import utils.InternalException;
 import utils.stream.FStream;
 
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.registry.RegistryException;
 
 
 /**
@@ -27,7 +27,7 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 	private final JsonDeserializer m_jsonDeser = new JsonDeserializer();
 
     @SuppressWarnings({ "rawtypes", "unchecked" })
-    public CachingFileMDTAASRegistry(File storeDir, int cacheSize) throws RegistryException {
+    public CachingFileMDTAASRegistry(File storeDir, int cacheSize) {
     	m_store = new CachingFileBasedRegistry(storeDir, cacheSize,
     											AssetAdministrationShellDescriptor.class, m_deser);
     }
@@ -37,8 +37,7 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
     }
 
 	@Override
-	public List<AssetAdministrationShellDescriptor> getAllAssetAdministrationShellDescriptors()
-		throws RegistryException {
+	public List<AssetAdministrationShellDescriptor> getAllAssetAdministrationShellDescriptors() {
 		return FStream.from(m_store.getAllDescriptors())
 						.map(LazyDescriptor::get)
 						.toList();
@@ -46,13 +45,13 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 
 	@Override
 	public AssetAdministrationShellDescriptor getAssetAdministrationShellDescriptorById(String aasId)
-														throws ResourceNotFoundException, RegistryException {
+														throws ResourceNotFoundException {
 		return m_store.getDescriptorById(aasId).get();
 	}
 
 	@Override
 	public List<AssetAdministrationShellDescriptor> getAssetAdministrationShellDescriptorByGlobalAssetId(String assetId)
-														throws ResourceNotFoundException, RegistryException {
+														throws ResourceNotFoundException {
 		return FStream.from(m_store.getAllDescriptors())
 						.map(LazyDescriptor::get)
 						.filter(desc -> assetId.equals(desc.getGlobalAssetId()))
@@ -60,14 +59,13 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 	}
 
 	@Override
-	public String getJsonAssetAdministrationShellDescriptorById(String aasId) throws ResourceNotFoundException,
-																					RegistryException {
+	public String getJsonAssetAdministrationShellDescriptorById(String aasId) throws ResourceNotFoundException {
 		return m_store.getDescriptorById(aasId).getJson();
 	}
 
 	@Override
 	public List<AssetAdministrationShellDescriptor>
-	getAllAssetAdministrationShellDescriptorsByIdShort(String idShort) throws RegistryException {
+	getAllAssetAdministrationShellDescriptorsByIdShort(String idShort) {
 		return FStream.from(m_store.getAllDescriptorsByShortId(idShort))
 						.map(LazyDescriptor::get)
 						.toList();
@@ -76,14 +74,14 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 	@Override
 	public AssetAdministrationShellDescriptor
 	postAssetAdministrationShellDescriptor(AssetAdministrationShellDescriptor descriptor)
-		throws ResourceAlreadyExistsException, RegistryException {
+		throws ResourceAlreadyExistsException {
 		try {
 			String json = m_jsonSer.write(descriptor);
 			m_store.addDescriptor(descriptor.getId(), new LazyDescriptor<>(descriptor, json));
 			return descriptor;
 		}
 		catch ( SerializationException e ) {
-			throw new RegistryException("Failed to add AssetAdministrationShellDescriptor: id=" + descriptor.getId()
+			throw new InternalException("Failed to add AssetAdministrationShellDescriptor: id=" + descriptor.getId()
 										+ ", cause=" + e);
 		}
 	}
@@ -91,21 +89,21 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 	@Override
 	public AssetAdministrationShellDescriptor
 	putAssetAdministrationShellDescriptorById(AssetAdministrationShellDescriptor descriptor)
-		throws ResourceNotFoundException, RegistryException {
+		throws ResourceNotFoundException {
 		try {
 			String json = m_jsonSer.write(descriptor);
 			m_store.updateDescriptor(descriptor.getId(), new LazyDescriptor<>(descriptor, json));
 			return descriptor;
 		}
 		catch ( SerializationException e ) {
-			throw new RegistryException("Failed to update AssetAdministrationShellDescriptor: id=" + descriptor.getId()
+			throw new InternalException("Failed to update AssetAdministrationShellDescriptor: id=" + descriptor.getId()
 										+ ", cause=" + e);
 		}
 	}
 
 	@Override
 	public void deleteAssetAdministrationShellDescriptorById(String aasId)
-		throws ResourceNotFoundException, RegistryException {
+		throws ResourceNotFoundException {
 		m_store.removeDescriptor(aasId);
 	}
     
@@ -116,7 +114,7 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 				return m_jsonDeser.read(json, AssetAdministrationShellDescriptor.class);
 			}
 			catch ( DeserializationException e ) {
-				throw new RegistryException("" + e);
+				throw new InternalException("" + e);
 			}
 		}
     };

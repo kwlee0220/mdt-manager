@@ -3,6 +3,7 @@ package mdt.exector.jar;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ProcessBuilder.Redirect;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.time.Instant;
@@ -13,11 +14,11 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
-import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -30,12 +31,13 @@ import utils.func.FOption;
 import utils.func.Try;
 import utils.func.Tuple;
 import utils.func.Unchecked;
+import utils.io.FileUtils;
 import utils.io.LogTailer;
 import utils.stream.FStream;
 
 import mdt.MDTConfiguration.JarExecutorConfiguration;
-import mdt.instance.InstanceStatusChangeEvent;
-import mdt.model.instance.JarExecutionArguments;
+import mdt.instance.jar.JarExecutionArguments;
+import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 
@@ -55,46 +57,6 @@ public class JarInstanceExecutor {
 	private final Guard m_guard = Guard.create();
 	private final Map<String,ProcessDesc> m_runningInstances = Maps.newHashMap();
 	private final Set<JarExecutionListener> m_listeners = Sets.newConcurrentHashSet();
-	
-	public void shutdown() {
-		if ( s_logger.isInfoEnabled() ) {
-			s_logger.info("Shutting down JarInstanceExecutor...");
-		}
-
-		int remains = 0;
-		StopWatch watch = StopWatch.start();
-		remains = m_guard.get(() -> {
-			FStream.from(m_runningInstances.keySet())
-					.forEach(id -> {
-						if ( s_logger.isInfoEnabled() ) {
-							s_logger.info("shutting-down JarInstance: {}", id);
-						}
-						stop(id);
-					});
-			return m_runningInstances.size();
-		});
-		while ( true ) {
-			try {
-				if ( remains == 0 ) {
-					String elapsedStr = watch.stopAndGetElpasedTimeString();
-					if ( s_logger.isInfoEnabled() ) {
-						s_logger.info("elapsed in shutting down instances: {}s", elapsedStr);
-					}
-					
-					return;
-				}
-				if ( watch.getElapsedInMillis() > 5000 ) {
-					if ( s_logger.isInfoEnabled() ) {
-						s_logger.warn("{} MDTInstances are still remains stopping : {}s", remains);
-					}
-					break;
-				}
-				Thread.sleep(100);
-				remains = m_guard.get(() -> m_runningInstances.size());
-			}
-			catch ( InterruptedException expected ) { }
-		}
-	}
 
 	private static class ProcessDesc {
 		private final String m_id;
@@ -126,9 +88,15 @@ public class JarInstanceExecutor {
 		Preconditions.checkNotNull(conf.getWorkspaceDir());
 		
 		m_workspaceDir = conf.getWorkspaceDir();
+		Try.accept(m_workspaceDir, FileUtils::createDirectories);
+		
 		m_sampleInterval = conf.getSampleInterval();
 		m_startTimeout = conf.getStartTimeout();
 		m_heapSize = conf.getHeapSize();
+	}
+	
+	public File getWorkspaceDir() {
+		return m_workspaceDir;
 	}
 	
 	public Tuple<MDTInstanceStatus,Integer> start(String id, String aasId, JarExecutionArguments args)
@@ -152,22 +120,27 @@ public class JarInstanceExecutor {
 		File logDir = new File(jobDir, "logs");
 		
 		// 혹시나 있지 모를 'logs' 디렉토리 삭제.
-    	Try.accept(FileUtils::deleteDirectory, logDir);
+    	Try.accept(logDir, FileUtils::deleteDirectory);
     	
     	String heapSize = FOption.getOrElse(m_heapSize, "512m");
     	String initialHeap = String.format("-Xms%s", heapSize);
     	String maxHeap = String.format("-Xmx%s", heapSize);
-		ProcessBuilder builder = new ProcessBuilder("java",
-													initialHeap, maxHeap,
-													"-jar", args.getJarFile(),
-													"-m", args.getModelFile(),
-													"-c", args.getConfigFile(),
-													"-v");
+    	String encoding = "-Dfile.encoding=UTF-8";
+    	String logLevel = "--loglevel-external=INFO";
+    	
+    	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
+    												"-jar", args.getJarFile(), logLevel);
+    	if ( args.getPort() > 0 ) {
+    		argList.add(String.format("endpoints[0].port=%d", args.getPort()));
+    	}
+    	
+		ProcessBuilder builder = new ProcessBuilder(argList);
 		builder.directory(jobDir);
-		
-		File stdoutLogFile = new File(logDir, id + "_stdout");
-		builder.redirectOutput(Redirect.to(stdoutLogFile));
-		builder.redirectError(new File(logDir, id + "_stderr"));
+
+		builder.redirectErrorStream(true);
+		File stdoutLogFile = new File(logDir, "output.log");
+		builder.redirectOutput(Redirect.appendTo(stdoutLogFile));
+//		builder.redirectError(new File(logDir, id + "_stderr"));
 
 		ProcessDesc procDesc = new ProcessDesc(id, null, MDTInstanceStatus.STARTING, null, stdoutLogFile);
 		m_runningInstances.put(id, procDesc);
@@ -291,6 +264,57 @@ public class JarInstanceExecutor {
 	}
 	public boolean removeExecutionListener(JarExecutionListener listener) {
 		return m_guard.get(() -> m_listeners.remove(listener));
+	}
+	
+	public String getOutputLog(String id) throws IOException {
+		File logDir = new File(new File(m_workspaceDir, id), "logs");
+		File stdoutLogFile = new File(logDir, "output.log");
+		
+		if ( !stdoutLogFile.canRead() ) {
+			throw new IOException("Cannot read stdout log file: path=" + stdoutLogFile.getAbsolutePath());
+		}
+		
+		return Files.readString(stdoutLogFile.toPath(), StandardCharsets.UTF_8);
+	}
+	
+	public void shutdown() {
+		if ( s_logger.isInfoEnabled() ) {
+			s_logger.info("Shutting down JarInstanceExecutor...");
+		}
+
+		int remains = 0;
+		StopWatch watch = StopWatch.start();
+		remains = m_guard.get(() -> {
+			FStream.from(m_runningInstances.keySet())
+					.forEach(id -> {
+						if ( s_logger.isInfoEnabled() ) {
+							s_logger.info("shutting-down JarInstance: {}", id);
+						}
+						stop(id);
+					});
+			return m_runningInstances.size();
+		});
+		while ( true ) {
+			try {
+				if ( remains == 0 ) {
+					String elapsedStr = watch.stopAndGetElpasedTimeString();
+					if ( s_logger.isInfoEnabled() ) {
+						s_logger.info("elapsed in shutting down instances: {}s", elapsedStr);
+					}
+					
+					return;
+				}
+				if ( watch.getElapsedInMillis() > 5000 ) {
+					if ( s_logger.isInfoEnabled() ) {
+						s_logger.warn("{} MDTInstances are still remains stopping : {}s", remains);
+					}
+					break;
+				}
+				Thread.sleep(100);
+				remains = m_guard.get(() -> m_runningInstances.size());
+			}
+			catch ( InterruptedException expected ) { }
+		}
 	}
 	
 	private Tuple<MDTInstanceStatus,Integer> pollingServicePort(final String instId, ProcessDesc procDesc) {

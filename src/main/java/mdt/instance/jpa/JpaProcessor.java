@@ -6,6 +6,7 @@ import java.util.function.Supplier;
 
 import com.google.common.base.Preconditions;
 
+import utils.func.CheckedSupplierX;
 import utils.func.Try;
 
 import jakarta.persistence.EntityManager;
@@ -113,7 +114,7 @@ public class JpaProcessor {
 	}
 	
 	
-	public <J extends JpaModule, T> T get(J jmodule, Supplier<T> task) {
+	public <J extends JpaModule, T,X extends Throwable> T get(J jmodule, CheckedSupplierX<T,X> task) throws X {
 		Preconditions.checkArgument(jmodule == null || jmodule.getEntityManager() == null,
 									"JpaModule has been allocated already: module=" + jmodule);
 		

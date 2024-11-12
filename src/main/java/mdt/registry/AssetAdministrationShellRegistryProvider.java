@@ -1,8 +1,7 @@
 package mdt.registry;
 
+import mdt.aas.AssetAdministrationShellRegistry;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.registry.AssetAdministrationShellRegistry;
-import mdt.model.registry.RegistryException;
 
 
 /**
@@ -11,5 +10,5 @@ import mdt.model.registry.RegistryException;
  */
 public interface AssetAdministrationShellRegistryProvider extends AssetAdministrationShellRegistry {
 	public String getJsonAssetAdministrationShellDescriptorById(String aasId)
-		throws ResourceNotFoundException, RegistryException;
+		throws ResourceNotFoundException;
 }

@@ -8,35 +8,39 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import mdt.exector.jar.JarInstanceExecutor;
-import mdt.instance.AbstractInstance;
+import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.model.instance.JarExecutionArguments;
-import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
-import mdt.model.service.SubmodelService;
+import mdt.model.service.MDTInstance;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class JarInstance extends AbstractInstance implements MDTInstance {
+public class JarInstance extends JpaInstance implements MDTInstance {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstance.class);
 
 	JarInstance(JarInstanceManager manager, JpaInstanceDescriptor desc) {
 		super(manager, desc);
+		
+		setLogger(s_logger);
+	}
+	
+	public File getHomeDir() {
+		return ((JarInstanceManager)m_manager).getInstanceHomeDir(getId());
 	}
 
 	@Override
 	public void startAsync() throws MDTInstanceManagerException {
-		JpaInstanceDescriptor desc = getInstanceDescriptor();
+		JpaInstanceDescriptor desc = asJpaInstanceDescriptor();
 		
 		JarInstanceManager mgr = getInstanceManager();
 		JarExecutionArguments jargs = mgr.parseExecutionArguments(desc.getArguments());
 
 		JarInstanceExecutor exector = getExecutor();
-		if ( s_logger.isDebugEnabled() ) {
-			s_logger.debug("starting...: " + this);
+		if ( getLogger().isDebugEnabled() ) {
+			getLogger().debug("starting...: " + this);
 		}
 		exector.start(getId(), getAasId(), jargs);
 	}
@@ -46,27 +50,35 @@ public class JarInstance extends AbstractInstance implements MDTInstance {
 		getExecutor().stop(getId());
 	}
 	
+	public JarInstanceManager getInstanceManager() {
+		return (JarInstanceManager)m_manager;
+	}
+
+	@Override
+	public String getOutputLog() throws IOException {
+		return getExecutor().getOutputLog(getId());
+	}
+	
 	@Override
 	public String toString() {
-		return String.format("JarInstance[id=%s, aas_id=%s, path=%s]", getId(), getAasId(), getWorkspaceDir());
+		return String.format("JarInstance[id=%s, aas_id=%s, path=%s]", getId(), getAasId(), getHomeDir());
 	}
 
 	@Override
 	protected void uninitialize() {
 		// Instance용 디렉토리를 제거한다.
-		File instanceDir = getInstanceWorkspaceDir();
+		File instanceDir = getHomeDir();
 		
 		try {
 			FileUtils.deleteDirectory(instanceDir);
 		}
 		catch ( IOException e ) {
-			s_logger.warn("Failed to delete MDTInstance workspace: dir={}, cause={}", instanceDir, e);
+			getLogger().warn("Failed to delete MDTInstance workspace: dir={}, cause={}", instanceDir, e);
 			throw new MDTInstanceManagerException("Failed to delete instance directory: dir=" + instanceDir);
 		}
 	}
 	
 	private JarInstanceExecutor getExecutor() {
-		JarInstanceManager mgr = getInstanceManager();
-		return mgr.getInstanceExecutor();
+		return getInstanceManager().getInstanceExecutor();
 	}
 }

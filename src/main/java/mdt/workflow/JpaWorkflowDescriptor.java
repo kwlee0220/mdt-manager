@@ -1,6 +1,10 @@
 package mdt.workflow;
 
+import java.io.IOException;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
+
+import utils.InternalException;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -13,8 +17,8 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import lombok.Getter;
 import lombok.Setter;
-import mdt.model.AASUtils;
-import mdt.model.workflow.descriptor.WorkflowDescriptor;
+import mdt.model.MDTModelSerDe;
+import mdt.workflow.model.WorkflowDescriptor;
 
 
 /**
@@ -41,7 +45,7 @@ public class JpaWorkflowDescriptor {
 	
 	public JpaWorkflowDescriptor(WorkflowDescriptor wfDesc) {
 		id = wfDesc.getId();
-		jsonDescriptor = AASUtils.writeJson(wfDesc);
+		jsonDescriptor = MDTModelSerDe.toJsonString(wfDesc);
 		m_wfDesc = wfDesc;
 	}
 	
@@ -71,12 +75,17 @@ public class JpaWorkflowDescriptor {
 	
 	public WorkflowDescriptor getWorkflowDescriptor() {
 		if ( m_wfDesc == null ) {
-			m_wfDesc = parseJson();
+			try {
+				m_wfDesc = parseJson();
+			}
+			catch ( IOException e ) {
+				throw new InternalException(e);
+			}
 		}
 		return m_wfDesc;
 	}
 	
-	private WorkflowDescriptor parseJson() {
-		return AASUtils.readJson(jsonDescriptor, WorkflowDescriptor.class);
+	private WorkflowDescriptor parseJson() throws IOException {
+		return MDTModelSerDe.readValue(jsonDescriptor, WorkflowDescriptor.class);
 	}
 }

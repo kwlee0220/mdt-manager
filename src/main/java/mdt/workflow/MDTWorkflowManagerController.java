@@ -7,17 +7,28 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.fasterxml.jackson.dataformat.yaml.YAMLGenerator.Feature;
+
+import utils.Throwables;
 import utils.func.Try;
+import utils.http.RESTfulErrorEntity;
 import utils.stream.FStream;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,12 +40,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.persistence.EntityManagerFactory;
-import mdt.MDTController;
 import mdt.instance.jpa.JpaProcessor;
-import mdt.model.AASUtils;
+import mdt.model.MDTModelSerDe;
 import mdt.model.ResourceAlreadyExistsException;
-import mdt.model.workflow.descriptor.TaskTemplateDescriptor;
-import mdt.model.workflow.descriptor.WorkflowDescriptor;
+import mdt.model.ResourceNotFoundException;
+import mdt.workflow.model.WorkflowDescriptor;
+import mdt.workflow.model.argo.ArgoWorkflowDescriptor;
 
 
 /**
@@ -42,11 +53,16 @@ import mdt.model.workflow.descriptor.WorkflowDescriptor;
 * @author Kang-Woo Lee (ETRI)
 */
 @RestController
-@RequestMapping("/workflow-manager")
-public class MDTWorkflowManagerController extends MDTController<WorkflowDescriptor>
-											implements InitializingBean {
+@RequestMapping(value={"/workflow-manager"})
+public class MDTWorkflowManagerController implements InitializingBean {
 	@SuppressWarnings("unused")
 	private final Logger s_logger = LoggerFactory.getLogger(MDTWorkflowManagerController.class);
+
+	@Value("${server.host}")
+	private String m_mdtHost;
+	@Value("${server.port}")
+	private int m_mdtPort;
+	private String m_mdtEndpoint;
 	
 	@Autowired EntityManagerFactory m_emFact;
 	private JpaProcessor m_processor;
@@ -54,6 +70,7 @@ public class MDTWorkflowManagerController extends MDTController<WorkflowDescript
 	@Override
 	public void afterPropertiesSet() throws Exception {
 		m_processor = new JpaProcessor(m_emFact);
+		m_mdtEndpoint = String.format("http://%s:%d", m_mdtHost, m_mdtPort);
 	}
 
     @Operation(summary = "식별자에 해당하는 워크플로우 등록정보를 반환한다.")
@@ -69,10 +86,11 @@ public class MDTWorkflowManagerController extends MDTController<WorkflowDescript
     })
     @GetMapping("/descriptors/{id}")
     @ResponseStatus(HttpStatus.OK)
-    public String getWorkflowDescriptor(@PathVariable("id") String id) {
+    public ResponseEntity<String> getWorkflowDescriptor(@PathVariable("id") String id) {
     	JpaWorkflowDescriptorManager manager = new JpaWorkflowDescriptorManager();
-    	return m_processor.get(manager, () -> manager.getJpaWorkflowDescriptor(id))
-    						.getJsonDescriptor();
+    	String jsonDesc = m_processor.get(manager, () -> manager.getJpaWorkflowDescriptor(id))
+    								.getJsonDescriptor();
+    	return ResponseEntity.ok(jsonDesc);
     }
 
     @Operation(summary = "등록된 모든 워크플로우 등록정보들을 반환한다.")
@@ -87,12 +105,13 @@ public class MDTWorkflowManagerController extends MDTController<WorkflowDescript
     })
     @GetMapping("/descriptors")
     @ResponseStatus(HttpStatus.OK)
-    public String getWorkflowDescriptorAll() {
+    public ResponseEntity<String> getWorkflowDescriptorAll() {
     	JpaWorkflowDescriptorManager manager = new JpaWorkflowDescriptorManager();
     	List<WorkflowDescriptor> wfDescList
     			= m_processor.get(manager, () -> FStream.from(manager.getWorkflowDescriptorAll())
         												.toList());
-    	return AASUtils.writeJson(wfDescList);
+		String descListJson = MDTModelSerDe.toJsonString(wfDescList);
+    	return ResponseEntity.ok(descListJson);
     }
 
     @Operation(summary = "워크플로우 관리자에 주어진 워크플로우 등록정보를 등록시킨다.")
@@ -111,10 +130,12 @@ public class MDTWorkflowManagerController extends MDTController<WorkflowDescript
     })
     @PostMapping({"/descriptors"})
     @ResponseStatus(HttpStatus.CREATED)
-    public String addWorkflowDescriptor(@RequestBody String wfDescJson) throws ResourceAlreadyExistsException {
+    public ResponseEntity<String> addWorkflowDescriptor(@RequestBody String wfDescJson)
+    	throws ResourceAlreadyExistsException {
     	JpaWorkflowDescriptorManager manager = new JpaWorkflowDescriptorManager();
     	String wfId = m_processor.get(manager, () -> manager.addWorkflowDescriptor(wfDescJson));
-    	return AASUtils.writeJson(wfId);
+    	String jsonDesc = MDTModelSerDe.toJsonString(wfId);
+    	return ResponseEntity.ok(jsonDesc);
     }
 
     @Operation(summary = "식별자에 해당하는 워크플로우 등록정보를 삭제한다.")
@@ -143,43 +164,47 @@ public class MDTWorkflowManagerController extends MDTController<WorkflowDescript
     	Try.run(() -> m_processor.run(manager, manager::removeWorkflowDescriptorAll));
     }
 
-    @Operation(summary = "주어진 식별자에 해당하는 태스크 템플릿 등록 정보를 반환한다.")
+    @Operation(summary = "식별자에 해당하는 워크플로우 정보를 Argo 워크플로우 구동 스크립트로 변환하여 반환한다.")
     @Parameters({
-    	@Parameter(name = "id", description = "검색 대상 task template 식별자."),
+    	@Parameter(name = "id", description = "변환시킬 워크플로우 등록 정보 식별자")
     })
     @ApiResponses(value = {
-    	@ApiResponse(responseCode = "201", description = "성공",
-			content = {
-				@Content(schema = @Schema(implementation = TaskTemplateDescriptor.class),
-						mediaType = "application/json")
-			}),
-    	@ApiResponse(responseCode = "404",
-    				description = "식별자에 해당하는 태스크 템플릿 등록정보가 존재하지 않습니다.")
-    })
-    @GetMapping("/builtin-tasks/{id}")
+        	@ApiResponse(responseCode = "200", description = "성공",
+    			content = {
+    				@Content(schema = @Schema(implementation = WorkflowDescriptor.class), mediaType = "application/yaml")
+    			}),
+        	@ApiResponse(responseCode = "404", description = "식별자에 해당하는 워크플로우가 등록되지 않은 경우.")
+        })
+    @GetMapping("/descriptors/{id}/argo")
     @ResponseStatus(HttpStatus.OK)
-    public String getBuiltInTaskTemplate(@PathVariable("id") String id) {
+    public ResponseEntity<String> getArgoWorklfowScript(@PathVariable("id") String id,
+    									@RequestParam(name="client-image", required=true) String clientImage)
+    	throws JsonProcessingException {
     	JpaWorkflowDescriptorManager manager = new JpaWorkflowDescriptorManager();
-    	TaskTemplateDescriptor tmplt = m_processor.get(manager, () -> manager.getBuiltInTaskTemplate(id));
-    	return tmplt.toJsonString();
+    	WorkflowDescriptor wfDesc = m_processor.get(manager, () -> manager.getJpaWorkflowDescriptor(id))
+    											.getWorkflowDescriptor();
+
+		ArgoWorkflowDescriptor argoWfDesc = new ArgoWorkflowDescriptor(wfDesc, m_mdtEndpoint, clientImage);
+		
+		YAMLFactory yamlFact = new YAMLFactory().disable(Feature.WRITE_DOC_START_MARKER);
+//												.enable(Feature.MINIMIZE_QUOTES);
+		String scriptYaml = JsonMapper.builder(yamlFact).build()
+										.writerWithDefaultPrettyPrinter()
+										.writeValueAsString(argoWfDesc);
+		return ResponseEntity.ok(scriptYaml);
     }
     
-    @Operation(summary = "등록된 모든 태스크 템플릿 등록정보들을 반환한다.")
-    @Parameters()
-    @ApiResponses(value = {
-    	@ApiResponse(responseCode = "200", description = "성공",
-    		content = {
-    			@Content(mediaType = "application/json",
-    					array = @ArraySchema(schema=@Schema(implementation = TaskTemplateDescriptor.class)))
-    		}
-    	)
-    })
-    @GetMapping("/builtin-tasks")
-    @ResponseStatus(HttpStatus.OK)
-    public String getBuiltInTaskTemplateAll() {
-    	JpaWorkflowDescriptorManager manager = new JpaWorkflowDescriptorManager();
-    	return m_processor.get(manager, () -> FStream.from(manager.getBuiltInTaskTemplateAll())
-    													.map(TaskTemplateDescriptor::toJsonString)
-        												.join(",", "[", "]"));
+    @ExceptionHandler()
+    public ResponseEntity<RESTfulErrorEntity> handleException(Exception e) {
+		Throwable cause = Throwables.unwrapThrowable(e);
+    	if ( cause instanceof ResourceNotFoundException ) {
+    		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(cause));
+    	}
+    	else if ( cause instanceof ResourceAlreadyExistsException ) {
+    		return ResponseEntity.status(HttpStatus.CONFLICT).body(RESTfulErrorEntity.of(cause));
+    	}
+    	else {
+    		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR) .body(RESTfulErrorEntity.of(cause));
+    	}
     }
 }
