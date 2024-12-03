@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -19,12 +18,6 @@ import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShell;
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.eclipse.digitaltwin.aas4j.v3.model.Reference;
 import org.eclipse.digitaltwin.aas4j.v3.model.Submodel;
-import org.eclipse.paho.client.mqttv3.MqttClient;
-import org.eclipse.paho.client.mqttv3.MqttClientPersistence;
-import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
-import org.eclipse.paho.client.mqttv3.MqttException;
-import org.eclipse.paho.client.mqttv3.MqttMessage;
-import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.mandas.docker.client.DockerClient;
 import org.mandas.docker.client.builder.jersey.JerseyDockerClientBuilder;
 import org.mandas.docker.client.exceptions.DockerException;
@@ -69,7 +62,6 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 import mdt.model.service.MDTInstance;
-
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 
@@ -90,7 +82,7 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 	private final File m_defaultMDTInstanceJarFile;
 	private final String m_repositoryEndpointFormat;
 	private final HarborConfiguration m_harborConf;
-	private final MqttClient m_mqttClient;
+	private final MDTInstanceStatusMqttPublisher m_mqttEventPublisher;
 	
 	private final Guard m_guard = Guard.create();
 	@GuardedBy("m_guard") private final Map<String, Thread> m_installers = Maps.newHashMap();
@@ -124,11 +116,18 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 
 		Globals.EVENT_BUS.register(this);
 		MqttConfiguration mqttConf = conf.getMqttConfiguration();
-		if ( mqttConf.getEndpoint() != null && mqttConf.getClientId() != null ) {
-			m_mqttClient = newConnectedMqttClient(mqttConf);
+		if ( mqttConf.getEndpoint() != null ) {
+			m_mqttEventPublisher = MDTInstanceStatusMqttPublisher.builder()
+															.mqttServerUri(mqttConf.getEndpoint())
+															.clientId(mqttConf.getClientId())
+															.qos(mqttConf.getQos())
+															.reconnectInterval(mqttConf.getReconnectInterval())
+															.build();
+			m_mqttEventPublisher.startAsync();
+			Globals.EVENT_BUS.register(m_mqttEventPublisher);
 		}
 		else {
-			m_mqttClient = null;
+			m_mqttEventPublisher = null;
 		}
 	}
 	
@@ -329,9 +328,9 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 			JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
 			JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(ev.getInstanceId());
 			if ( desc != null ) {
-				switch ( ev.getStatus() ) {
-					case RUNNING:
-						desc.setStatus(ev.getStatus());
+				switch ( ev.getStatusChange() ) {
+					case "RUNNING":
+						desc.setStatus(ev.getInstanceStatus());
 						desc.setBaseEndpoint(ev.getServiceEndpoint());
 						
 						if ( getLogger().isDebugEnabled() ) {
@@ -339,9 +338,9 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 												desc.getId(), ev.getServiceEndpoint());
 						}
 						break;
-					case STOPPED:
-					case FAILED:
-						desc.setStatus(ev.getStatus());
+					case "STOPPED":
+					case "FAILED":
+						desc.setStatus(ev.getInstanceStatus());
 						desc.setBaseEndpoint(null);
 						
 						if ( getLogger().isDebugEnabled() ) {
@@ -350,7 +349,16 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 						break;
 					default: break;
 				}
-				desc.setStatus(ev.getStatus());
+				switch ( ev.getStatusChange() ) {
+					case "ADDING":
+					case "ADD_FAILED":
+						break;
+					default:
+						desc.setStatus(ev.getInstanceStatus());
+				};
+			}
+			else if ( ev.getStatusChange().equals("ADDING") ) {
+				// Todo: 나중에 adding 단계에서 descriptor를 추가할 필요가 있을까?
 			}
 		});
 	}
@@ -404,48 +412,6 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		}
 	}
 	
-	static class InstallWaiter {
-		private final Thread m_thread;
-		private final String m_instanceId;
-		
-		InstallWaiter(Thread thread, String instanceId) {
-			m_thread = thread;
-			m_instanceId = instanceId;
-		}
-	}
-	public void markInstalling(final String instId) throws InterruptedException {
-		m_guard.awaitUntilAndRun(() -> !m_installers.containsKey(instId),
-								() -> m_installers.put(instId, Thread.currentThread()));
-	}
-	public void unmarkInstalling(final String instId) throws InterruptedException {
-		m_guard.runAndSignalAll(() -> m_installers.remove(instId));
-	}
-	
-	private static final String TOPIC_STATUS_CHANGES_FORMAT = "/mdt/manager/instances/%s";
-	private static final int MQTT_QOS = 0;
-	private static final MqttConnectOptions MQTT_OPTIONS;
-	static {
-		MQTT_OPTIONS = new MqttConnectOptions();
-		MQTT_OPTIONS.setCleanSession(true);
-	}
-	
-	@Subscribe
-	public void publishStatusChangeEvent(InstanceStatusChangeEvent ev) {
-		if ( m_mqttClient != null ) {
-			try {
-				String topic = String.format(TOPIC_STATUS_CHANGES_FORMAT, ev.getInstanceId());
-				
-				String jsonStr = m_mapper.writeValueAsString(ev);
-				MqttMessage message = new MqttMessage(jsonStr.getBytes(StandardCharsets.UTF_8));
-				message.setQos(MQTT_QOS);
-				m_mqttClient.publish(topic, message);
-			}
-			catch ( Exception e ) {
-				getLogger().error("Failed to publish event, cause=" + e);
-			}
-		}
-	}
-	
 	@Override
 	public Logger getLogger() {
 		return FOption.getOrElse(m_logger, s_logger);
@@ -491,20 +457,6 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		catch ( Throwable e ) {
 			e.printStackTrace();
 			throw new AssertionError();
-		}
-	}
-	
-	private MqttClient newConnectedMqttClient(MqttConfiguration conf) {
-		try {
-			String clientId = FOption.getOrElse(conf.getClientId(), "MDTInstanceManager");
-			MqttClientPersistence persist = new MemoryPersistence();
-			MqttClient mqttClient = new MqttClient(conf.getEndpoint(), clientId, persist);
-			mqttClient.connect();
-			
-			return mqttClient;
-		}
-		catch ( MqttException e ) {
-			throw new MDTInstanceManagerException("Failed to initialize MQTT client, cause=" + e);
 		}
 	}
 }

@@ -8,22 +8,20 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 
 import utils.InternalException;
 
-import mdt.instance.jpa.JpaModule;
-import mdt.model.ResourceAlreadyExistsException;
-import mdt.model.ResourceNotFoundException;
-import mdt.workflow.model.MDTWorkflowManager;
-import mdt.workflow.model.WorkflowDescriptor;
-
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.TypedQuery;
+import mdt.instance.jpa.JpaModule;
+import mdt.model.ResourceAlreadyExistsException;
+import mdt.model.ResourceNotFoundException;
+import mdt.workflow.model.WorkflowDescriptor;
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class JpaWorkflowDescriptorManager implements MDTWorkflowManager, JpaModule {
+public class JpaWorkflowDescriptorManager implements JpaModule {
 	private volatile EntityManager m_em;
 
 	public JpaWorkflowDescriptorManager() {
@@ -43,12 +41,10 @@ public class JpaWorkflowDescriptorManager implements MDTWorkflowManager, JpaModu
 		m_em = em;
 	}
 
-	@Override
 	public WorkflowDescriptor getWorkflowDescriptor(String id) throws ResourceNotFoundException {
 		return getJpaWorkflowDescriptor(id).getWorkflowDescriptor();
 	}
 
-	@Override
 	public List<WorkflowDescriptor> getWorkflowDescriptorAll() {
 		return m_em.createQuery("select d from JpaWorkflowDescriptor d", JpaWorkflowDescriptor.class)
 					.getResultStream()
@@ -56,7 +52,6 @@ public class JpaWorkflowDescriptorManager implements MDTWorkflowManager, JpaModu
 					.toList();
 	}
 
-	@Override
 	public String addWorkflowDescriptor(WorkflowDescriptor desc) throws ResourceAlreadyExistsException {
 		try {
 			m_em.persist(new JpaWorkflowDescriptor(desc));
@@ -65,6 +60,19 @@ public class JpaWorkflowDescriptorManager implements MDTWorkflowManager, JpaModu
 		catch ( EntityExistsException e ) {
 			throw new ResourceAlreadyExistsException("WorkflowDescriptor", "id=" + desc.getId());
 		}
+	}
+	
+	public String addOrUpdateWorkflowDescriptor(WorkflowDescriptor desc) throws ResourceAlreadyExistsException {
+		JpaWorkflowDescriptor newOne = new JpaWorkflowDescriptor(desc);
+		try {
+			JpaWorkflowDescriptor prev = getJpaWorkflowDescriptor(desc.getId());
+			prev.setJsonDescriptor(newOne.getJsonDescriptor());
+		}
+		catch ( ResourceNotFoundException expected ) {
+			m_em.persist(newOne);
+		}
+
+		return desc.getId();
 	}
 	
 	public String addWorkflowDescriptor(String jsonDesc) throws ResourceAlreadyExistsException {
@@ -93,7 +101,6 @@ public class JpaWorkflowDescriptorManager implements MDTWorkflowManager, JpaModu
 		}
 	}
 
-	@Override
 	public void removeWorkflowDescriptor(String id) throws ResourceNotFoundException {
 		JpaWorkflowDescriptor jdesc = getJpaWorkflowDescriptor(id);
 		if ( jdesc != null ) {
@@ -118,10 +125,5 @@ public class JpaWorkflowDescriptorManager implements MDTWorkflowManager, JpaModu
 		catch ( NoResultException expected ) {
 			throw new ResourceNotFoundException("WorkflowDescriptor", "id=" + id);
 		}
-	}
-	
-	@Override
-	public String getArgoWorkflowDescriptor(String id, String clientImage) throws ResourceNotFoundException {
-		throw new UnsupportedOperationException();
 	}
 }

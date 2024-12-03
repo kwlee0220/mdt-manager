@@ -14,11 +14,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Maps;
 
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
+
+import utils.UnitUtils;
+import utils.func.FOption;
 
 import mdt.client.HttpServiceFactory;
 import mdt.instance.AbstractInstanceManager;
@@ -98,6 +102,7 @@ public class MDTConfiguration {
 		private File workspaceDir;
 		private Duration sampleInterval;
 		private Duration startTimeout;
+		private int startConcurrency = 7;
 		private File defaultMDTInstanceJarFile;
 		private String heapSize;
 	}
@@ -123,6 +128,13 @@ public class MDTConfiguration {
 	public static class MqttConfiguration {
 		@Nullable private String clientId = null;
 		private String endpoint;
+		private int qos = 0;
+		private Duration reconnectInterval = Duration.ofSeconds(5);
+		
+		@JsonProperty("reconnectInterval")
+		public void setReconnectRetryIntervalForJackson(String durStr) {
+			reconnectInterval = FOption.map(durStr, UnitUtils::parseDuration);
+		}
 	}
 	
 	

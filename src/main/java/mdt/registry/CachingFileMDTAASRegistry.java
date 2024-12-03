@@ -44,13 +44,13 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 	}
 
 	@Override
-	public AssetAdministrationShellDescriptor getAssetAdministrationShellDescriptorById(String aasId)
+	public AssetAdministrationShellDescriptor getAssetAdministrationShellDescriptorById(String shellId)
 														throws ResourceNotFoundException {
-		return m_store.getDescriptorById(aasId).get();
+		return m_store.getDescriptorById(shellId).get();
 	}
 
 	@Override
-	public List<AssetAdministrationShellDescriptor> getAssetAdministrationShellDescriptorByGlobalAssetId(String assetId)
+	public List<AssetAdministrationShellDescriptor> getAllAssetAdministrationShellDescriptorByAssetId(String assetId)
 														throws ResourceNotFoundException {
 		return FStream.from(m_store.getAllDescriptors())
 						.map(LazyDescriptor::get)
@@ -73,7 +73,7 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 
 	@Override
 	public AssetAdministrationShellDescriptor
-	postAssetAdministrationShellDescriptor(AssetAdministrationShellDescriptor descriptor)
+	addAssetAdministrationShellDescriptor(AssetAdministrationShellDescriptor descriptor)
 		throws ResourceAlreadyExistsException {
 		try {
 			String json = m_jsonSer.write(descriptor);
@@ -88,7 +88,7 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 
 	@Override
 	public AssetAdministrationShellDescriptor
-	putAssetAdministrationShellDescriptorById(AssetAdministrationShellDescriptor descriptor)
+	updateAssetAdministrationShellDescriptor(AssetAdministrationShellDescriptor descriptor)
 		throws ResourceNotFoundException {
 		try {
 			String json = m_jsonSer.write(descriptor);
@@ -102,7 +102,7 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 	}
 
 	@Override
-	public void deleteAssetAdministrationShellDescriptorById(String aasId)
+	public void removeAssetAdministrationShellDescriptorById(String aasId)
 		throws ResourceNotFoundException {
 		m_store.removeDescriptor(aasId);
 	}

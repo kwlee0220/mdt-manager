@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.base.Preconditions;
 
 import utils.InternalException;
 import utils.func.Tuple;
@@ -102,8 +103,9 @@ public class JarInstanceManager extends AbstractInstanceManager<JpaInstance> {
 	@Override
 	public InstanceDescriptor addInstance(String id, int faaastPort, File bundleDir)
 		throws ModelValidationException, IOException {
+		Preconditions.checkArgument(faaastPort > 0);
+		
 		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
-
 		try {
 			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
 			// instances 디렉토리로 이동시킨다.
@@ -124,6 +126,11 @@ public class JarInstanceManager extends AbstractInstanceManager<JpaInstance> {
 			
 			InstanceDescriptor desc = addInstanceDescriptor(id, modelFile, arguments);
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
+			
+			if ( getLogger().isInfoEnabled() ) {
+				getLogger().info("added JarInstance: id={}, port={}, instanceDir={}",
+									desc.getId(), faaastPort, instDir);
+			}
 			
 			return desc;
 		}

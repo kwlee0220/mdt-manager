@@ -46,7 +46,7 @@ public class MDTManagerController implements InitializingBean {
     				content = {@Content(mediaType = "text/plain", schema = @Schema(type = "string"))}
     	)
     })
-    @GetMapping("/ping")
+    @GetMapping("/health")
     @ResponseStatus(HttpStatus.OK)
     public String ping() {
     	return "ok";

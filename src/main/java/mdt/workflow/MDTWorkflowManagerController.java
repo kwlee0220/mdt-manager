@@ -9,6 +9,7 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -90,7 +91,9 @@ public class MDTWorkflowManagerController implements InitializingBean {
     	JpaWorkflowDescriptorManager manager = new JpaWorkflowDescriptorManager();
     	String jsonDesc = m_processor.get(manager, () -> manager.getJpaWorkflowDescriptor(id))
     								.getJsonDescriptor();
-    	return ResponseEntity.ok(jsonDesc);
+		return ResponseEntity.ok()
+								.contentType(MediaType.APPLICATION_JSON)
+								.body(jsonDesc);
     }
 
     @Operation(summary = "등록된 모든 워크플로우 등록정보들을 반환한다.")
@@ -111,7 +114,9 @@ public class MDTWorkflowManagerController implements InitializingBean {
     			= m_processor.get(manager, () -> FStream.from(manager.getWorkflowDescriptorAll())
         												.toList());
 		String descListJson = MDTModelSerDe.toJsonString(wfDescList);
-    	return ResponseEntity.ok(descListJson);
+		return ResponseEntity.ok()
+								.contentType(MediaType.APPLICATION_JSON)
+								.body(descListJson);
     }
 
     @Operation(summary = "워크플로우 관리자에 주어진 워크플로우 등록정보를 등록시킨다.")
@@ -130,12 +135,14 @@ public class MDTWorkflowManagerController implements InitializingBean {
     })
     @PostMapping({"/descriptors"})
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<String> addWorkflowDescriptor(@RequestBody String wfDescJson)
+    public String addWorkflowDescriptor(@RequestBody WorkflowDescriptor wfDesc,
+    									@RequestParam("updateIfExists") boolean updateIfExists)
     	throws ResourceAlreadyExistsException {
     	JpaWorkflowDescriptorManager manager = new JpaWorkflowDescriptorManager();
-    	String wfId = m_processor.get(manager, () -> manager.addWorkflowDescriptor(wfDescJson));
-    	String jsonDesc = MDTModelSerDe.toJsonString(wfId);
-    	return ResponseEntity.ok(jsonDesc);
+    	String wfId = m_processor.get(manager,
+    								() -> (updateIfExists) ? manager.addOrUpdateWorkflowDescriptor(wfDesc)
+    														: manager.addWorkflowDescriptor(wfDesc));
+    	return wfId;
     }
 
     @Operation(summary = "식별자에 해당하는 워크플로우 등록정보를 삭제한다.")

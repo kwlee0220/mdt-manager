@@ -21,7 +21,6 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 import mdt.model.service.MDTInstance;
-
 import io.fabric8.kubernetes.api.model.Node;
 import io.fabric8.kubernetes.api.model.NodeAddress;
 import io.fabric8.kubernetes.api.model.Pod;

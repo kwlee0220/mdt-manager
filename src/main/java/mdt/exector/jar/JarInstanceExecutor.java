@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
 
 import javax.annotation.Nullable;
 
@@ -53,6 +54,7 @@ public class JarInstanceExecutor {
 	private final Duration m_sampleInterval;
 	@Nullable private final Duration m_startTimeout;
 	private final String m_heapSize;
+	private final Semaphore m_startSemaphore;
 	
 	private final Guard m_guard = Guard.create();
 	private final Map<String,ProcessDesc> m_runningInstances = Maps.newHashMap();
@@ -92,6 +94,7 @@ public class JarInstanceExecutor {
 		
 		m_sampleInterval = conf.getSampleInterval();
 		m_startTimeout = conf.getStartTimeout();
+		m_startSemaphore = new Semaphore(conf.getStartConcurrency());
 		m_heapSize = conf.getHeapSize();
 	}
 	
@@ -101,6 +104,19 @@ public class JarInstanceExecutor {
 	
 	public Tuple<MDTInstanceStatus,Integer> start(String id, String aasId, JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
+		try {
+			m_startSemaphore.acquire();
+			if ( s_logger.isInfoEnabled() ) {
+				s_logger.info("acquired start semaphone: thead=" + Thread.currentThread().getName());
+			}
+			
+			// semaphore의 release는 인스턴스 프로세스가 성공적으로 시작되거나
+			// 실패하는 경우 release 시킨다.
+		}
+		catch ( InterruptedException e ) {
+			throw new MDTInstanceExecutorException("" + e);
+		}
+		
 		return m_guard.get(() -> startInGuard(id, aasId, args));
 	}
 	
@@ -111,6 +127,13 @@ public class JarInstanceExecutor {
 	    	switch ( desc.m_status ) {
 	    		case RUNNING:
 	    		case STARTING:
+	    			// 실제 인스턴스용 프로세스가 시작되기 전이기 때문에
+	    			// 지금 return하는 경우에는 startSemaphore를 반환한다.
+	    			if ( s_logger.isInfoEnabled() ) {
+	    				s_logger.info("releasing a start semaphone before create process: thead="
+	    								+ Thread.currentThread().getName());
+	    			}
+	    			m_startSemaphore.release();
 	    			return Tuple.of(desc.m_status, desc.m_repoPort);
 	    		default: break;
 	    	}
@@ -127,6 +150,7 @@ public class JarInstanceExecutor {
     	String maxHeap = String.format("-Xmx%s", heapSize);
     	String encoding = "-Dfile.encoding=UTF-8";
     	String logLevel = "--loglevel-external=INFO";
+//    	String noValid = "--no-validation";
     	
     	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
     												"-jar", args.getJarFile(), logLevel);
@@ -139,8 +163,8 @@ public class JarInstanceExecutor {
 
 		builder.redirectErrorStream(true);
 		File stdoutLogFile = new File(logDir, "output.log");
+		
 		builder.redirectOutput(Redirect.appendTo(stdoutLogFile));
-//		builder.redirectError(new File(logDir, id + "_stderr"));
 
 		ProcessDesc procDesc = new ProcessDesc(id, null, MDTInstanceStatus.STARTING, null, stdoutLogFile);
 		m_runningInstances.put(id, procDesc);
@@ -152,9 +176,6 @@ public class JarInstanceExecutor {
 			procDesc.m_process = builder.start();
 			procDesc.m_process.onExit()
 								.whenCompleteAsync((proc, error) -> onProcessTerminated(procDesc, error));
-			Executions.runAsync(() -> pollingServicePort(id, procDesc));
-			
-			return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
 		}
 		catch ( IOException e ) {
 			procDesc.m_status = MDTInstanceStatus.FAILED;
@@ -162,9 +183,18 @@ public class JarInstanceExecutor {
 				s_logger.warn("failed to start jar application: cause=" + e);
 			}
 			notifyStatusChanged(procDesc);
+
+			if ( s_logger.isInfoEnabled() ) {
+				s_logger.info("releasing a start semaphone due to failure: thead="
+								+ Thread.currentThread().getName());
+			}
+			m_startSemaphore.release();
 			
 			return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
 		}
+		
+		Executions.runAsync(() -> pollingServicePort(id, procDesc));
+		return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
 	}
 	
 	public Tuple<MDTInstanceStatus,Integer> waitWhileStarting(String id) throws InterruptedException {
@@ -322,7 +352,7 @@ public class JarInstanceExecutor {
 		
 		LogTailer tailer = LogTailer.builder()
 									.file(procDesc.m_stdoutLogFile)
-									.startAtBeginning(false)
+									.startAtBeginning(true)
 									.sampleInterval(this.m_sampleInterval)
 									.timeout(this.m_startTimeout)
 									.build();
@@ -380,6 +410,12 @@ public class JarInstanceExecutor {
 	    	notifyStatusChanged(procDesc);
 	    	
 			return Tuple.of(MDTInstanceStatus.FAILED, -1);
+		}
+		finally {
+			if ( s_logger.isInfoEnabled() ) {
+				s_logger.info("releasing a start semaphone: thead=" + Thread.currentThread().getName());
+			}
+			m_startSemaphore.release();
 		}
 	}
     

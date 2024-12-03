@@ -46,7 +46,7 @@ import mdt.model.ResourceNotFoundException;
 * @author Kang-Woo Lee (ETRI)
 */
 @RestController
-@RequestMapping(value={"/submodel-registry/submodel-descriptors"})
+@RequestMapping(value={"/submodel-registry"})
 public class JpaSubmodelRegistryController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(JpaSubmodelRegistryController.class);
 
@@ -74,7 +74,7 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     		}
     	)
     })
-    @GetMapping({""})
+    @GetMapping({"/submodel-descriptors"})
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getAllSubmodelDescriptorsByidShort(@RequestParam(name="idShort", required=false) String idShort)
     	throws SerializationException {
@@ -105,7 +105,7 @@ public class JpaSubmodelRegistryController implements InitializingBean {
 			}),
     	@ApiResponse(responseCode = "404", description = "식별자에 해당하는 Submodel이 등록되어 있지 않습니다.")
     })
-    @GetMapping(value = "/{submodelId}")
+    @GetMapping(value = "/submodel-descriptors/{submodelId}")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getSubmodelDescriptorById(@PathVariable("submodelId") String submodelId)
     	throws SerializationException {
@@ -148,7 +148,7 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     							+ "식별자에 해당하는 서브모델 등록정보가 이미 존재합니다."),
     	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
     })
-    @PostMapping({""})
+    @PostMapping({"/submodel-descriptors"})
     @ResponseStatus(HttpStatus.CREATED)
     public ResponseEntity<String> addSubmodelDescriptor(@RequestBody String submodelJson)
     	throws SerializationException, DeserializationException {
@@ -174,7 +174,7 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     				description = "식별자에 해당하는 Submodel 등록 정보가 존재하지 않습니다."),
     	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
     })
-    @DeleteMapping(value = "/{submodelId}")
+    @DeleteMapping(value = "/submodel-descriptors/{submodelId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeSubmodelDescriptor(@PathVariable("submodelId") String submodelId)
     	throws SerializationException {
@@ -200,7 +200,7 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     				description = "식별자에 해당하는 Submodel 등록 정보가 존재하지 않습니다."),
     	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
     })
-    @PutMapping("")
+    @PutMapping("/submodel-descriptors")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void updateSubmodelDescriptor(@RequestBody String submodelJson) throws IOException {
     	SubmodelDescriptor smDesc = MDTModelSerDe.readValue(submodelJson, SubmodelDescriptor.class);

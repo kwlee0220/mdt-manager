@@ -39,8 +39,8 @@ public class JarInstance extends JpaInstance implements MDTInstance {
 		JarExecutionArguments jargs = mgr.parseExecutionArguments(desc.getArguments());
 
 		JarInstanceExecutor exector = getExecutor();
-		if ( getLogger().isDebugEnabled() ) {
-			getLogger().debug("starting...: " + this);
+		if ( getLogger().isInfoEnabled() ) {
+			getLogger().info("starting: {}, port={}...", this, jargs.getPort());
 		}
 		exector.start(getId(), getAasId(), jargs);
 	}
@@ -61,7 +61,7 @@ public class JarInstance extends JpaInstance implements MDTInstance {
 	
 	@Override
 	public String toString() {
-		return String.format("JarInstance[id=%s, aas_id=%s, path=%s]", getId(), getAasId(), getHomeDir());
+		return String.format("JarInstance[id=%s, path=%s]", getId(), getHomeDir());
 	}
 
 	@Override

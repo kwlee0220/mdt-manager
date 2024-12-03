@@ -120,7 +120,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 
 	@Override
 	public void start(@Nullable Duration pollInterval, @Nullable Duration timeout)
-		throws MDTInstanceManagerException, TimeoutException, InterruptedException, InvalidResourceStatusException {
+		throws TimeoutException, InterruptedException, InvalidResourceStatusException, ExecutionException {
 		MDTInstanceStatus status = m_desc.get().getStatus(); 
 		if ( status != MDTInstanceStatus.STOPPED && status != MDTInstanceStatus.FAILED ) {
 			throw new InvalidResourceStatusException("MDTInstance", getId(), status);
@@ -302,7 +302,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	public void waitWhileStatus(Predicate<MDTInstanceStatus> waitCond, Duration pollInterval, Duration timeout)
 		throws TimeoutException, InterruptedException, ExecutionException {
 		StateChangePoller.pollWhile(() -> waitCond.test(reloadStatus()))
-						.interval(pollInterval)
+						.pollInterval(pollInterval)
 						.timeout(timeout)
 						.build()
 						.run();

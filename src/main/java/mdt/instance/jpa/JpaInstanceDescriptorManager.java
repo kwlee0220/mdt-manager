@@ -6,13 +6,14 @@ import java.util.stream.Stream;
 
 import org.hibernate.exception.ConstraintViolationException;
 
+import mdt.instance.InstanceDescriptorManager;
+import mdt.model.ResourceAlreadyExistsException;
+import mdt.model.instance.MDTInstanceManagerException;
+
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.TypedQuery;
-import mdt.instance.InstanceDescriptorManager;
-import mdt.model.ResourceAlreadyExistsException;
-import mdt.model.instance.MDTInstanceManagerException;
 
 /**
  *
@@ -79,6 +80,13 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 		String jpql = "select d from JpaInstanceDescriptor d where d.aasIdShort = ?1";
 		return m_em.createQuery(jpql, JpaInstanceDescriptor.class)
 					.setParameter(1, aasIdShort)
+					.getResultList();
+	}
+	public List<JpaInstanceDescriptor> getInstanceDescriptorAllByAssetId(String assetId)
+		throws MDTInstanceManagerException {
+		String jpql = "select d from JpaInstanceDescriptor d where d.globalAssetId = ?1";
+		return m_em.createQuery(jpql, JpaInstanceDescriptor.class)
+					.setParameter(1, assetId)
 					.getResultList();
 	}
 
