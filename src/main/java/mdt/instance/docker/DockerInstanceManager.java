@@ -116,10 +116,7 @@ public class DockerInstanceManager extends AbstractInstanceManager<JpaInstance> 
 		String repoName = deployInstanceDockerImage(id, bundleDir, m_dockerConf.getDockerEndpoint(),
 													m_harborConf);
 		
-		DockerExecutionArguments args = DockerExecutionArguments.builder()
-																.imageRepoName(repoName)
-																.faaastPort(faaastPort)
-																.build();
+		DockerExecutionArguments args = new DockerExecutionArguments(repoName, faaastPort);
 		try {
 			File modelFile = FileUtils.path(bundleDir, MODEL_FILE_NAME);
 			String arguments = m_mapper.writeValueAsString(args);
@@ -181,15 +178,15 @@ public class DockerInstanceManager extends AbstractInstanceManager<JpaInstance> 
 	private Container findContainerByInstanceId(DockerClient docker, String instanceId)
 		throws DockerException, InterruptedException, ContainerNotFoundException {
 		List<Container> containers = docker.listContainers(ListContainersParam.allContainers(),
-												ListContainersFilterParam.filter("name", instanceId));
+															ListContainersFilterParam.filter("name", instanceId));
 		if ( containers.size() == 0 ) {
-			throw new ContainerNotFoundException(instanceId);
+			throw new ContainerNotFoundException("container-id=" + instanceId);
 		}
 		else if ( containers.size() == 1 ) {
 			return containers.get(0);
 		}
 		else {
-			throw new MDTInstanceManagerException("Duplicate DockerInstances: id=" + instanceId);
+			throw new InternalException("Duplicate DockerInstances: id=" + instanceId);
 		}
 	}
 

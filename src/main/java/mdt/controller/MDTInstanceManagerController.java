@@ -35,10 +35,10 @@ import utils.http.RESTfulErrorEntity;
 import utils.io.FileUtils;
 import utils.io.IOUtils;
 import utils.io.ZipFile;
+import utils.stream.FStream;
 
 import mdt.MDTConfiguration.MDTInstanceManagerConfiguration;
 import mdt.client.instance.InstanceDescriptorSerDe;
-import mdt.controller.DockerCommandUtils.StandardOutputHandler;
 import mdt.instance.AbstractInstance;
 import mdt.instance.AbstractInstanceManager;
 import mdt.instance.jpa.JpaInstanceDescriptor;
@@ -48,8 +48,10 @@ import mdt.model.InvalidResourceStatusException;
 import mdt.model.MDTModelSerDe;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
+import mdt.model.instance.DefaultMDTInstanceInfo;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.MDTInstanceManager;
+import mdt.model.service.MDTInstance;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -140,7 +142,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     @GetMapping("/instances")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getInstanceAll(@RequestParam(name="filter", required=false) String filter,
-    												@RequestParam(name="aggregate", required=false) String aggregate) {
+    											@RequestParam(name="aggregate", required=false) String aggregate) {
 		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager();
     	return m_processor.get(instDescMgr, () -> {
         	List<JpaInstanceDescriptor> matches;
@@ -160,6 +162,47 @@ public class MDTInstanceManagerController implements InitializingBean {
     		}
     		
     		return ResponseEntity.ok(m_serde.toJson(matches));
+    	});
+    }
+
+    @GetMapping("/instances/{id}/info")
+    @ResponseStatus(HttpStatus.OK)
+    public ResponseEntity<String> getInstanceInfo(@PathVariable("id") String id) {
+    	return m_processor.get(m_instanceManager, () -> {
+    		JpaInstanceDescriptorManager instDescMgr = m_instanceManager.getInstanceDescriptorManager();
+    		JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
+    		if ( desc != null ) {
+        		AbstractInstance inst = m_instanceManager.getInstance(id);
+        		DefaultMDTInstanceInfo instInfo = DefaultMDTInstanceInfo.builder(inst).build();
+        		return ResponseEntity.ok(MDTModelSerDe.toJsonString(instInfo));
+    		}
+        	else {
+        		throw new ResourceNotFoundException("MDTInstance", "id=" + id);
+        	}
+    	});
+    }
+    
+    @GetMapping("/instance-infos")
+    @ResponseStatus(HttpStatus.OK)
+    public ResponseEntity<String> getInstanceInfoAll(@RequestParam(name="filter", required=false) String filter) {
+    	return m_processor.get(m_instanceManager, () -> {
+    		JpaInstanceDescriptorManager instDescMgr = m_instanceManager.getInstanceDescriptorManager();
+        	List<JpaInstanceDescriptor> matches;
+    		if ( filter != null ) {
+    			matches = instDescMgr.findInstanceDescriptorAll(filter);
+    		}
+    		else {
+    			matches = instDescMgr.getInstanceDescriptorAll();
+    		};
+    		
+    		List<DefaultMDTInstanceInfo> infoList
+	    				= FStream.from(matches)
+								.map(desc -> {
+									MDTInstance inst = m_instanceManager.getInstance(desc.getId());
+						    		return DefaultMDTInstanceInfo.builder(inst).build();
+								})
+								.toList();
+        	return ResponseEntity.ok(MDTModelSerDe.toJsonString(infoList));
     	});
     }
 
@@ -232,8 +275,6 @@ public class MDTInstanceManagerController implements InitializingBean {
 								@RequestParam(name="initialModel", required=false) MultipartFile mpfModel,
 								@RequestParam(name="instanceConf", required=false) MultipartFile mpfConf)
 		throws IOException, InterruptedException {
-		// TODO: 동시에 동일 식별자에 대한 addInstance가 호출될 수 있기 때문에
-    	// 이에 대한 처리가 필요하지만 시간이 부족하여 당분간 무시하기로 한다.
     	// TODO: 동일 instance에 대해 add/get/delete 연산들이 동시에 입력되는 경우
     	// 동시성 제어를 해야 하지만 시간이 부족하여 당분간 무시하도록 한다.
     	// TODO: add/start instance 연산의 경우 수행 소요시간이 장시간이 가능하여
@@ -518,22 +559,6 @@ public class MDTInstanceManagerController implements InitializingBean {
 			throw e;
 		}
 	}
-    
-    private String buildDockerImage(String id, File bundleDir) {
-		// bundleDir에 포함된 데이터를 이용하여 docker image를 생성한다.
-		if ( s_logger.isInfoEnabled() ) {
-			s_logger.info("Building docker image: instance=" + id + ", bundleDir=" + bundleDir);
-		}
-		StandardOutputHandler outputHandler = new DockerCommandUtils.RedirectOutput(
-																				new File(bundleDir, "stdout.log"),
-																				new File(bundleDir, "stderr.log"));
-		String imageName = DockerCommandUtils.buildDockerImage(id, bundleDir, outputHandler);
-		if ( s_logger.isInfoEnabled() ) {
-			s_logger.info("Done: docker image: repo=" + imageName);
-		}
-		
-		return imageName;
-    }
     
     private File downloadFile(File topDir, String fileName, MultipartFile mpf) throws IOException {
 		File file = new File(topDir, fileName);

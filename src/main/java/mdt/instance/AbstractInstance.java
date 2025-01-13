@@ -27,8 +27,11 @@ import utils.stream.FStream;
 
 import mdt.model.DescriptorUtils;
 import mdt.model.InvalidResourceStatusException;
+import mdt.model.ModelValidationException;
 import mdt.model.ResourceNotFoundException;
+import mdt.model.instance.DefaultMDTInstanceInfo;
 import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.MDTInstanceInfo;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 import mdt.model.service.AssetAdministrationShellService;
@@ -116,6 +119,11 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public AssetKind getAssetKind() {
 		return m_desc.get().getAssetKind();
+	}
+
+	@Override
+	public MDTInstanceInfo getInfo() {
+		return DefaultMDTInstanceInfo.builder(this).build();
 	}
 
 	@Override
@@ -223,11 +231,18 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		return m_infoModel.updateAndGet(p -> FOption.getOrElse(p, this::loadInformationModel));
 	}
 	private InformationModel loadInformationModel() throws ResourceNotFoundException {
-		List<SubmodelService> found = getAllSubmodelServiceBySemanticId(InformationModel.SEMANTIC_ID);
-		SubmodelService svc = Funcs.getFirst(found).getOrThrow(() -> new ResourceNotFoundException("InformationModel",
-																		"semanticId=" + InformationModel.SEMANTIC_ID));
+		List<SubmodelService> svcList = getAllSubmodelServiceBySemanticId(InformationModel.SEMANTIC_ID);
+		if ( svcList.size() == 0 ) {
+			throw new ResourceNotFoundException("InformationModel", "semanticId=" + InformationModel.SEMANTIC_ID);
+		}
+		else if ( svcList.size() > 1 ) {
+			String msg = String.format("Too many InformationModel is found in MDTInstance: %s, count=%d",
+										m_desc.get().getId(), svcList.size());
+			throw new ModelValidationException(msg);
+		}
+		
 		DefaultInformationModel infoModel = new DefaultInformationModel();
-		infoModel.updateFromAasModel(svc.getSubmodel());
+		infoModel.updateFromAasModel(svcList.get(0).getSubmodel());
 		return infoModel;
 	}
 

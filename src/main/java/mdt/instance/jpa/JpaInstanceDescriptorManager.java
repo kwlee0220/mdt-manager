@@ -15,6 +15,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.TypedQuery;
 
+
 /**
  *
  * @author Kang-Woo Lee (ETRI)
@@ -41,12 +42,16 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 
 	@Override
 	public long count() {
+		checkEntityManager();
+		
 		String jpql = "select count(d) from JpaInstanceDescriptor d";
 		return m_em.createQuery(jpql, Long.class).getSingleResult();
 	}
 
 	@Override
 	public JpaInstanceDescriptor getInstanceDescriptor(String id) throws MDTInstanceManagerException {
+		checkEntityManager();
+		
 		String sql = "select d from JpaInstanceDescriptor d where id = :id";
 		TypedQuery<JpaInstanceDescriptor> query = m_em.createQuery(sql, JpaInstanceDescriptor.class);
 		query.setParameter("id", id);
@@ -60,11 +65,15 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 
 	@Override
 	public List<JpaInstanceDescriptor> getInstanceDescriptorAll() throws MDTInstanceManagerException {
+		checkEntityManager();
+		
 		return m_em.createQuery("select d from JpaInstanceDescriptor d",
 								JpaInstanceDescriptor.class).getResultList();
 	}
 	
 	public JpaInstanceDescriptor getInstanceDescriptorByAasId(String aasId) throws MDTInstanceManagerException {
+		checkEntityManager();
+		
 		String jpql = "select d from JpaInstanceDescriptor d where d.aasId = :aasId";
 		TypedQuery<JpaInstanceDescriptor> query =  m_em.createQuery(jpql, JpaInstanceDescriptor.class);
 		query.setParameter("aasId", aasId);
@@ -84,6 +93,8 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 	}
 	public List<JpaInstanceDescriptor> getInstanceDescriptorAllByAssetId(String assetId)
 		throws MDTInstanceManagerException {
+		checkEntityManager();
+		
 		String jpql = "select d from JpaInstanceDescriptor d where d.globalAssetId = ?1";
 		return m_em.createQuery(jpql, JpaInstanceDescriptor.class)
 					.setParameter(1, assetId)
@@ -92,6 +103,8 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 
 	@Override
 	public List<JpaInstanceDescriptor> findInstanceDescriptorAll(String filterExpr) {
+		checkEntityManager();
+		
 		boolean containsSubmodelExpr = filterExpr.toLowerCase().contains("submodel.");
 		String sql = (containsSubmodelExpr)
 					? "select distinct instance from JpaInstanceDescriptor instance "
@@ -103,6 +116,8 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 
 	@Override
 	public <S> List<S> query(SearchCondition cond, InstanceDescriptorTransform<S> transform) {
+		checkEntityManager();
+		
 		return transform.apply(cond.apply(m_em));
 	}
 	
@@ -110,6 +125,8 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 	@Override
 	public void addInstanceDescriptor(JpaInstanceDescriptor desc)
 		throws MDTInstanceManagerException, ResourceAlreadyExistsException {
+		checkEntityManager();
+		
 		try {
 			m_em.persist(desc);
 		}
@@ -120,6 +137,8 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 
 	@Override
 	public void removeInstanceDescriptor(String id) throws MDTInstanceManagerException {
+		checkEntityManager();
+		
 		JpaInstanceDescriptor desc = getInstanceDescriptor(id);
 		m_em.remove(desc);
 	}

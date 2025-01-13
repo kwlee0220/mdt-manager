@@ -17,13 +17,13 @@ import org.springframework.context.annotation.Configuration;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Maps;
 
-import lombok.Data;
-import lombok.Getter;
-import lombok.Setter;
-
 import utils.UnitUtils;
 import utils.func.FOption;
 
+import jakarta.persistence.EntityManagerFactory;
+import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import mdt.client.HttpServiceFactory;
 import mdt.instance.AbstractInstanceManager;
 import mdt.instance.JpaInstance;
@@ -34,8 +34,6 @@ import mdt.instance.jar.JarInstanceManager;
 import mdt.instance.jpa.InstancePersistenceUnitInfo;
 import mdt.instance.k8s.KubernetesInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
-
-import jakarta.persistence.EntityManagerFactory;
 
 /**
  *
@@ -60,13 +58,52 @@ public class MDTConfiguration {
 	// MDTInstanceManager
 	//
 
-	@Data
 	public class MDTInstanceManagerConfiguration {
-		private String type;
-		private File homeDir;
-		private File bundlesDir;
-		private File defaultMDTInstanceJarFile;
-		private String repositoryEndpointFormat;
+		private String m_type;		// "jar", "docker", "kubernetes"
+		private File m_homeDir;		// MDTInstanceManager home 디렉토리.
+		private File m_bundlesDir;   // MDTInstanceManager bundle 디렉토리.
+		private File m_defaultMDTInstanceJarFile;	// MDTInstance 수행을 위한 기본 jar 파일
+		private String m_repositoryEndpointFormat;	// MDTInstance 접속을 위한 URL 포맷
+		
+		public String getType() {
+			return m_type;
+		}
+
+		public void setType(String type) {
+			m_type = type;
+		}
+		
+		public File getHomeDir() {
+			return m_homeDir;
+		}
+		
+		public void setHomeDir(File homeDir) {
+			m_homeDir = homeDir;
+		}
+		
+		public File getBundlesDir() {
+			return m_bundlesDir;
+		}
+		
+		public void setBundlesDir(File bundlesDir) {
+			m_bundlesDir = bundlesDir;
+		}
+		
+		public File getDefaultMDTInstanceJarFile() {
+			return m_defaultMDTInstanceJarFile;
+		}
+		
+		public void setDefaultMDTInstanceJarFile(File jarFile) {
+			m_defaultMDTInstanceJarFile = jarFile;
+		}
+		
+		public String getRepositoryEndpointFormat() {
+			return m_repositoryEndpointFormat;
+		}
+		
+		public void setRepositoryEndpointFormat(String format) {
+			m_repositoryEndpointFormat = format;
+		}
 	}
 	@Bean
 	@ConfigurationProperties(prefix = "instance-manager")

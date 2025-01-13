@@ -1,15 +1,32 @@
 package mdt.instance.docker;
 
-import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import lombok.NoArgsConstructor;
+
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@Data
 @NoArgsConstructor
 public class DockerConfiguration {
-	private String dockerEndpoint;
-	private String imageName;
+	@JsonProperty("dockerEndpoint")  private String m_dockerEndpoint;
+	@JsonProperty("imageName") private String m_imageName;
+	
+	public String getDockerEndpoint() {
+		return m_dockerEndpoint;
+	}
+	
+	public void setDockerEndpoint(String endpoint) {
+		m_dockerEndpoint = endpoint;
+	}
+	
+	public String getImageName() {
+		return m_imageName;
+	}
+	
+	public void setImageName(String name) {
+		m_imageName = name;
+	}
 }

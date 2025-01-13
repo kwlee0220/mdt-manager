@@ -5,12 +5,10 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
 import javax.annotation.Nullable;
-import javax.annotation.concurrent.GuardedBy;
 
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.json.JsonDeserializer;
@@ -28,16 +26,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
 
 import utils.LoggerSettable;
-import utils.async.Guard;
 import utils.func.FOption;
 import utils.func.Try;
 import utils.stream.FStream;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import mdt.Globals;
 import mdt.MDTConfiguration;
 import mdt.MDTConfiguration.MDTInstanceManagerConfiguration;
@@ -62,8 +60,6 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 import mdt.model.service.MDTInstance;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityManagerFactory;
 
 
 /**
@@ -81,11 +77,7 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 	private final MDTInstanceManagerConfiguration m_conf;
 	private final File m_defaultMDTInstanceJarFile;
 	private final String m_repositoryEndpointFormat;
-	private final HarborConfiguration m_harborConf;
 	private final MDTInstanceStatusMqttPublisher m_mqttEventPublisher;
-	
-	private final Guard m_guard = Guard.create();
-	@GuardedBy("m_guard") private final Map<String, Thread> m_installers = Maps.newHashMap();
 	
 	protected final JsonMapper m_mapper = MDTModelSerDe.getJsonMapper();
 	private Logger m_logger = s_logger;
@@ -96,7 +88,6 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 	protected AbstractInstanceManager(MDTConfiguration conf) throws MDTInstanceManagerException {
 		m_conf = conf.getMDTInstanceManagerConfiguration();
 		m_defaultMDTInstanceJarFile = m_conf.getDefaultMDTInstanceJarFile();
-		m_harborConf = conf.getHarborConfiguration();
 		
 		String epFormat = m_conf.getRepositoryEndpointFormat();
 		if ( epFormat == null ) {
@@ -201,8 +192,8 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		return m_conf.getBundlesDir();
 	}
 	
-	public HarborConfiguration getHarborConfiguration() {
-		return m_harborConf;
+	public JpaInstanceDescriptorManager getInstanceDescriptorManager() {
+		return new JpaInstanceDescriptorManager(m_emLocal.get());
 	}
 
 	@Override
@@ -248,10 +239,8 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		return instDescMgr.query(cond, transform);
 	}
 	
-	protected JpaInstanceDescriptor addInstanceDescriptor(String id, File modelFile, String arguments)
+	private JpaInstanceDescriptor addInstanceDescriptor(String id, Environment env, String arguments)
 		throws ModelValidationException, IOException {
-		Environment env = readEnvironment(modelFile);
-		
 		AssetAdministrationShell aas = env.getAssetAdministrationShells().get(0);
 		
 		JpaInstanceDescriptor desc = JpaInstanceDescriptor.from(id, aas, env.getSubmodels());
@@ -265,6 +254,11 @@ public abstract class AbstractInstanceManager<T extends AbstractInstance>
 		instDescMgr.addInstanceDescriptor(desc);
 		
 		return desc;
+	}
+	
+	protected JpaInstanceDescriptor addInstanceDescriptor(String id, File modelFile, String arguments)
+		throws ModelValidationException, IOException {
+		return addInstanceDescriptor(id, readEnvironment(modelFile), arguments);
 	}
 	
 	@Override

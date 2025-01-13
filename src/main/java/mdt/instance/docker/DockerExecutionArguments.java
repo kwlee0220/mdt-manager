@@ -1,30 +1,34 @@
 package mdt.instance.docker;
 
-import javax.annotation.Nullable;
-
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
-
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 @JsonInclude(Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class DockerExecutionArguments {
-	@Nullable private String imageRepoName;
-//	@Nullable private String modelFile;
-//	@Nullable private String configFile;
-	@Nullable private int faaastPort;
+	@JsonProperty("imageRepoName") private final String m_imageRepoName;
+	@JsonProperty("faaastPort") private final int m_faaastPort;
+	
+	@JsonCreator
+	public DockerExecutionArguments(@JsonProperty("imageRepoName") String imageRepoName,
+									@JsonProperty("faaastPort") int faaastPort) {
+		this.m_imageRepoName = imageRepoName;
+		this.m_faaastPort = faaastPort;
+	}
+	
+	public String getImageRepoName() {
+		return m_imageRepoName;
+	}
+	
+	public int getFaaastPort() {
+		return m_faaastPort;
+	}
 }

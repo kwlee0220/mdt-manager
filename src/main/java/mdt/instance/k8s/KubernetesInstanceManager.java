@@ -44,7 +44,7 @@ public class KubernetesInstanceManager extends AbstractInstanceManager<Kubernete
 		
 		DockerConfiguration dockerConf = conf.getDockerConfiguration();
 		Preconditions.checkNotNull(dockerConf.getDockerEndpoint());
-		
+
 		m_dockerEndpoint = dockerConf.getDockerEndpoint();
 		m_harborConf = conf.getHarborConfiguration();
 		Preconditions.checkNotNull(m_harborConf);
@@ -54,6 +54,10 @@ public class KubernetesInstanceManager extends AbstractInstanceManager<Kubernete
 
 	@Override
 	public void initialize(InstanceDescriptorManager instDescManager) throws MDTInstanceManagerException {
+	}
+	
+	public HarborConfiguration getHarborConfiguration() {
+		return m_harborConf;
 	}
 
 	@Override

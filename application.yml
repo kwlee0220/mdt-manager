@@ -47,9 +47,10 @@ jpa:
 #  endpoint: tcp://localhost:1883
    
 executor:
-  workspaceDir: ${rootDir}/instances
+  workspaceDir: ${instanceManager.instancesDir}
   sampleInterval: 2s
   startTimeout: 1m
+  startConcurrency: 3
   defaultMDTInstanceJarFile: ${executor.workspaceDir}/faaast-starter-all.jar
   heapSize: 256m
       
