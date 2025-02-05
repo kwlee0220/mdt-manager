@@ -21,8 +21,6 @@ public interface InstanceDescriptorManager {
 	public void addInstanceDescriptor(JpaInstanceDescriptor desc) throws MDTInstanceManagerException,
 																		ResourceAlreadyExistsException;
 	public void removeInstanceDescriptor(String id) throws MDTInstanceManagerException;
-	public JpaInstanceDescriptor updateInstanceDescriptor(JpaInstanceDescriptor desc)
-		throws MDTInstanceManagerException;
 	
 	public long count();
 

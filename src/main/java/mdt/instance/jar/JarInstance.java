@@ -10,8 +10,8 @@ import org.slf4j.LoggerFactory;
 import mdt.exector.jar.JarInstanceExecutor;
 import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
-import mdt.model.service.MDTInstance;
 
 
 /**

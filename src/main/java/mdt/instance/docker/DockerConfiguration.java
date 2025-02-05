@@ -2,14 +2,11 @@ package mdt.instance.docker;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import lombok.NoArgsConstructor;
-
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@NoArgsConstructor
 public class DockerConfiguration {
 	@JsonProperty("dockerEndpoint")  private String m_dockerEndpoint;
 	@JsonProperty("imageName") private String m_imageName;

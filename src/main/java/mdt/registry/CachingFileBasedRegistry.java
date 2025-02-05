@@ -36,6 +36,7 @@ public class CachingFileBasedRegistry<D> {
 	private final String m_resourceName;
 	private final CachingFileObjectStore<String, LazyDescriptor<D>> m_store;
 	private final Method m_getIdShort;
+	private final Method m_getSemanticId;
 	private final int m_cacheSize;
 	
 	public CachingFileBasedRegistry(File storeDir, int cacheSize, Class<D> descCls, Function<String,D> deser) {
@@ -61,6 +62,14 @@ public class CachingFileBasedRegistry<D> {
 				method = null;
 			}
 			m_getIdShort = method;
+			
+			try {
+				method = descCls.getDeclaredMethod("getSemanticId");
+			}
+			catch ( Exception expected ) {
+				method = null;
+			}
+			m_getSemanticId = method;
 		}
 		catch ( IOException e ) {
 			throw new InternalException("" + e);
@@ -120,6 +129,25 @@ public class CachingFileBasedRegistry<D> {
 			FStream<LazyDescriptor<D>> stream = FStream.from(m_store.getFileObjectAll());
 			if ( idShort != null ) {
 				stream = stream.filter(desc -> filterByShortId(desc, idShort));
+			}
+			return stream.toList();
+		}
+		catch ( IOException e ) {
+			throw new InternalException("" + e);
+		}
+		catch ( ExecutionException e ) {
+			Throwable cause = Throwables.unwrapThrowable(e);
+			throw new InternalException("" + cause);
+		}
+	}
+
+	public List<LazyDescriptor<D>> getAllDescriptorsBySemanticId(String semanticId) {
+		Preconditions.checkNotNull(semanticId, m_resourceName + " semanticId");
+		
+		try {
+			FStream<LazyDescriptor<D>> stream = FStream.from(m_store.getFileObjectAll());
+			if ( semanticId != null ) {
+				stream = stream.filter(desc -> filterBySemanticId(desc, semanticId));
 			}
 			return stream.toList();
 		}
@@ -233,6 +261,16 @@ public class CachingFileBasedRegistry<D> {
 		try {
 			Object ret = m_getIdShort.invoke(desc.get());
 			return idShort.equals(ret);
+		}
+		catch ( Exception e ) {
+			return false;
+		}
+	}
+	
+	private boolean filterBySemanticId(LazyDescriptor<D> desc, String semanticId) {
+		try {
+			Object ret = m_getSemanticId.invoke(desc.get());
+			return semanticId.equals(ret);
 		}
 		catch ( Exception e ) {
 			return false;

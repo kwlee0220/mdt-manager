@@ -3,36 +3,45 @@ package mdt.instance.k8s;
 import java.io.File;
 import java.io.IOException;
 
+import javax.annotation.Nullable;
+
+import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
+import org.mandas.docker.client.DockerClient;
+import org.mandas.docker.client.builder.jersey.JerseyDockerClientBuilder;
+import org.mandas.docker.client.exceptions.DockerException;
+import org.mandas.docker.client.messages.Image;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
 
+import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.Service;
+
 import utils.InternalException;
-import utils.func.Try;
 import utils.io.FileUtils;
 
 import mdt.MDTConfiguration;
-import mdt.instance.AbstractInstanceManager;
-import mdt.instance.InstanceDescriptorManager;
+import mdt.controller.DockerCommandUtils;
+import mdt.controller.DockerCommandUtils.StandardOutputHandler;
+import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.docker.DockerConfiguration;
+import mdt.instance.docker.DockerUtils;
 import mdt.instance.docker.HarborConfiguration;
 import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
-import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
-
-import io.fabric8.kubernetes.api.model.Pod;
-import io.fabric8.kubernetes.api.model.Service;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class KubernetesInstanceManager extends AbstractInstanceManager<KubernetesInstance> {
+public class KubernetesInstanceManager extends AbstractJpaInstanceManager<KubernetesInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(KubernetesInstanceManager.class);
 	public static final String NAMESPACE = "mdt-instance";
 	
@@ -50,10 +59,6 @@ public class KubernetesInstanceManager extends AbstractInstanceManager<Kubernete
 		Preconditions.checkNotNull(m_harborConf);
 		
 		setLogger(s_logger);
-	}
-
-	@Override
-	public void initialize(InstanceDescriptorManager instDescManager) throws MDTInstanceManagerException {
 	}
 	
 	public HarborConfiguration getHarborConfiguration() {
@@ -113,7 +118,8 @@ public class KubernetesInstanceManager extends AbstractInstanceManager<Kubernete
 	}
 
 	@Override
-	public InstanceDescriptor addInstance(String id, int faaastPort, File bundleDir) throws ModelValidationException, IOException {
+	public MDTInstance addInstance(String id, int faaastPort, File bundleDir)
+		throws ModelValidationException, IOException {
 		String repoName = deployInstanceDockerImage(id, bundleDir, m_dockerEndpoint, getHarborConfiguration());
 		
 		KubernetesExecutionArguments args = KubernetesExecutionArguments.builder()
@@ -121,16 +127,14 @@ public class KubernetesInstanceManager extends AbstractInstanceManager<Kubernete
 																		.build();
 		try {
 			File modelFile = FileUtils.path(bundleDir, MODEL_FILE_NAME);
+			Environment env = AASUtils.readEnvironment(modelFile);
 			String arguments = m_mapper.writeValueAsString(args);
 			
-			return addInstanceDescriptor(id, modelFile, arguments);
+			JpaInstanceDescriptor desc = addInstanceDescriptor(id, env, arguments);
+			return toInstance(desc);
 		}
 		catch ( JsonProcessingException e ) {
 			throw new InternalException("Failed to serialize JarExecutionArguments, cause=" + e);
-		}
-		finally {
-	    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
-	    	Try.accept(bundleDir, FileUtils::deleteDirectory);
 		}
 	}
 	
@@ -141,5 +145,54 @@ public class KubernetesInstanceManager extends AbstractInstanceManager<Kubernete
 
 	KubernetesRemote newKubernetesRemote() {
 		return KubernetesRemote.connect();
+	}
+	
+	private String deployInstanceDockerImage(String id, File bundleDir, String dockerEndpoint,
+													@Nullable HarborConfiguration harborConf) {
+		try ( DockerClient docker = new JerseyDockerClientBuilder().uri(dockerEndpoint).build() ) {
+			// 동일 image id의 docker image가 존재할 수 있기 때문에 이를 먼저 삭제한다.
+			DockerUtils.removeInstanceImage(docker, id);
+			
+			// bundleDir에 포함된 데이터를 이용하여 docker image를 생성한다.
+			if ( getLogger().isInfoEnabled() ) {
+				getLogger().info("Start building docker image: instance=" + id + ", bundleDir=" + bundleDir);
+			}
+			
+			StandardOutputHandler outputHandler = new DockerCommandUtils.RedirectOutput(
+																			new File(bundleDir, "stdout.log"),
+																			new File(bundleDir, "stderr.log"));
+			String repoName = DockerCommandUtils.buildDockerImage(id, bundleDir, outputHandler);
+			if ( s_logger.isInfoEnabled() ) {
+				s_logger.info("Done: docker image: repo=" + repoName);
+			}
+	    	
+			if ( harborConf != null && harborConf.getEndpoint() != null ) {  	
+				// Harbor로 push하기 위한 tag를 부여한다.
+				Image image = DockerUtils.getInstanceImage(docker, id).getUnchecked();
+				String harborRepoName = DockerUtils.tagImageForHarbor(docker, image, harborConf, "latest");
+
+				if ( getLogger().isInfoEnabled() ) {
+					getLogger().info("Pusing docker image to Harbor: instance={}, repo={}", id, harborRepoName);
+				}
+				DockerUtils.pushImage(docker, harborRepoName, harborConf);
+				if ( s_logger.isInfoEnabled() ) {
+					s_logger.info("Done: push to Harbor: repo=" + harborRepoName);
+				}
+				
+		    	// Harbor로 push하고 나서는 tag되기 이전 image를 삭제한다.
+				docker.removeImage(repoName);
+				
+				// harbor로 push된 경우에는 harbor의 docker image를 사용한다.
+				repoName = harborRepoName;
+			}
+			
+			return repoName;
+		}
+		catch ( DockerException e ) {
+			throw new MDTInstanceManagerException("Failed to add a DockerInstance: id=" + id, e);
+		}
+		catch ( InterruptedException e ) {
+			throw new MDTInstanceManagerException("MDTInstance addition has been interrupted");
+		}
 	}
 }

@@ -1,6 +1,6 @@
 package mdt.repository;
 
-import mdt.model.service.AssetAdministrationShellService;
+import mdt.model.AssetAdministrationShellService;
 
 /**
  *

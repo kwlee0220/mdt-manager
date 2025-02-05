@@ -76,12 +76,20 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     })
     @GetMapping({"/submodel-descriptors"})
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<String> getAllSubmodelDescriptorsByidShort(@RequestParam(name="idShort", required=false) String idShort)
+    public ResponseEntity<String> getAllSubmodelDescriptorsByidShort(
+    												@RequestParam(name="idShort", required=false) String idShort,
+    												@RequestParam(name="semanticId", required=false) String semanticId)
     	throws SerializationException {
-    	String jpql = ( idShort != null )
-    				? String.format("select s from JpaInstanceSubmodelDescriptor s "
-    								+ "where s.idShort = '%s'", idShort)
-    				: "select s from JpaInstanceSubmodelDescriptor s";
+    	String jpql;
+		if ( idShort != null ) {
+			jpql = String.format("select s from JpaInstanceSubmodelDescriptor s where s.idShort = '%s'", idShort);
+		}
+		else if ( semanticId != null ) {
+			jpql = String.format("select s from JpaInstanceSubmodelDescriptor s where s.semanticId = '%s'", semanticId);
+		}
+		else {
+			jpql = "select s from JpaInstanceSubmodelDescriptor s";
+		}
 		List<SubmodelDescriptor> smDescList = m_jpaProcessor.get(em -> {
 			TypedQuery<JpaInstanceSubmodelDescriptor> query
 											= em.createQuery(jpql, JpaInstanceSubmodelDescriptor.class);

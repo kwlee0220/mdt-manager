@@ -90,7 +90,7 @@ public class JarInstanceExecutor {
 		Preconditions.checkNotNull(conf.getWorkspaceDir());
 		
 		m_workspaceDir = conf.getWorkspaceDir();
-		Try.accept(m_workspaceDir, FileUtils::createDirectories);
+		Try.accept(m_workspaceDir, FileUtils::createDirectory);
 		
 		m_sampleInterval = conf.getSampleInterval();
 		m_startTimeout = conf.getStartTimeout();
@@ -193,7 +193,7 @@ public class JarInstanceExecutor {
 			return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
 		}
 		
-		Executions.runAsync(() -> pollingServicePort(id, procDesc));
+		Executions.toExecution(() -> pollingServicePort(id, procDesc)).start();
 		return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
 	}
 	
@@ -211,7 +211,7 @@ public class JarInstanceExecutor {
 					case REMOVED:
 						return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
 					default:
-						m_guard.await();
+						m_guard.awaitInGuard();
 				}
 			}
 		});
@@ -257,7 +257,7 @@ public class JarInstanceExecutor {
                 		
 //            			Executions.runAsync(() -> waitWhileStopping(instanceId, desc));
 //                		desc.m_process.destroy();
-                		Executions.runAsync(() -> desc.m_process.destroy());
+                		Executions.toExecution(() -> desc.m_process.destroy()).start();
                 		break;
                 	default:
                 		return null;
@@ -378,7 +378,7 @@ public class JarInstanceExecutor {
 				    		s_logger.info("started MDTInstance: id={}, port={}, elapsed={}",
 				    						instId, procDesc.m_repoPort, elapsedStr);
 				    	}
-				    	m_guard.signalAll();
+				    	m_guard.signalAllInGuard();
 				    	notifyStatusChanged(procDesc);
 				    	
 						return procDesc.toResult();
@@ -391,7 +391,7 @@ public class JarInstanceExecutor {
 						procDesc.m_status = MDTInstanceStatus.FAILED;
 				    	// 프로세스가 수행 중인 상태이기 때문에 강제로 프로세스를 강제로 종료시킨다.
 				    	procDesc.m_process.destroyForcibly();
-				    	m_guard.signalAll();
+				    	m_guard.signalAllInGuard();
 				    	notifyStatusChanged(procDesc);
 				    	
 						return procDesc.toResult();

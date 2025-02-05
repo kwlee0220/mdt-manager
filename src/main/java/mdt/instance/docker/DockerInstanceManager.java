@@ -3,7 +3,9 @@ package mdt.instance.docker;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
+import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.mandas.docker.client.DockerClient;
 import org.mandas.docker.client.DockerClient.ListContainersFilterParam;
 import org.mandas.docker.client.DockerClient.ListContainersParam;
@@ -19,19 +21,21 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 
 import utils.InternalException;
+import utils.Throwables;
 import utils.func.Try;
 import utils.func.Tuple;
 import utils.io.FileUtils;
 
 import mdt.MDTConfiguration;
-import mdt.instance.AbstractInstanceManager;
-import mdt.instance.InstanceDescriptorManager;
-import mdt.instance.JpaInstance;
+import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
-import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.MDTInstance;
+import mdt.model.instance.MDTInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 
@@ -40,12 +44,13 @@ import mdt.model.instance.MDTInstanceStatus;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class DockerInstanceManager extends AbstractInstanceManager<JpaInstance> {
+public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(DockerInstanceManager.class);
-	private static final String LABEL_NAME_MDT_TWIN_ID = "mdt-twin-id";
+	static final String LABEL_NAME_MDT_TWIN_ID = "mdt-twin-id";
 
 	private final DockerConfiguration m_dockerConf;
 	private final HarborConfiguration m_harborConf;
+	private final Map<String,MDTInstanceStatus> m_instanceStatus = Maps.newHashMap();
 	
 	public DockerInstanceManager(MDTConfiguration conf) {
 		super(conf);
@@ -57,36 +62,40 @@ public class DockerInstanceManager extends AbstractInstanceManager<JpaInstance> 
 		m_harborConf = conf.getHarborConfiguration();
 	}
 
-	@Override
-	public void initialize(InstanceDescriptorManager instDescManager) throws MDTInstanceManagerException {
-	}
-
-	Tuple<MDTInstanceStatus,String> getInstanceState(DockerClient docker, String containerId) {
+	Tuple<MDTInstanceStatus,String> getInstanceState(String instanceId, DockerClient docker, Container container) {
 		try {
-			ContainerInfo info = docker.inspectContainer(containerId);
+			ContainerInfo info = docker.inspectContainer(container.id());
 			if ( info.state().running() ) {
-				return Tuple.of(MDTInstanceStatus.RUNNING, toServiceEndpoint(getRepositoryPort(info)));
+				MDTInstanceStatus lastStatus = getContainerStatus(instanceId);
+				if ( lastStatus == MDTInstanceStatus.STOPPED || lastStatus == MDTInstanceStatus.FAILED ) {
+					putContainerStatus(instanceId, MDTInstanceStatus.RUNNING);
+				}
+				return Tuple.of(lastStatus, toServiceEndpoint(getRepositoryPort(info)));
 			}
 			else if ( info.state().error().length() > 0 ) {
+				putContainerStatus(instanceId, MDTInstanceStatus.FAILED);
 				return Tuple.of(MDTInstanceStatus.FAILED, null);
 			}
 			else {
+				putContainerStatus(instanceId, MDTInstanceStatus.STOPPED);
 				return Tuple.of(MDTInstanceStatus.STOPPED, null);
 			}
 		}
 		catch ( ContainerNotFoundException e ) {
+			putContainerStatus(instanceId, MDTInstanceStatus.STOPPED);
 			return Tuple.of(MDTInstanceStatus.STOPPED, null);
 		}
 		catch ( InterruptedException | DockerException e ) {
 			throw new MDTInstanceManagerException("" + e);
 		}
 	}
+	
 
 	@Override
 	public MDTInstanceStatus getInstanceStatus(String id) {
 		try ( DockerClient docker = newDockerClient() ) {
 			Container container = findContainerByInstanceId(docker, id);
-			return getInstanceState(docker, container.id())._1;
+			return getInstanceState(id, docker, container)._1;
 		}
 		catch ( ContainerNotFoundException e ) {
 			return MDTInstanceStatus.STOPPED;
@@ -100,7 +109,7 @@ public class DockerInstanceManager extends AbstractInstanceManager<JpaInstance> 
 	public String getInstanceServiceEndpoint(String id) {
 		try ( DockerClient docker = newDockerClient() ) {
 			Container container = findContainerByInstanceId(docker, id);
-			return getInstanceState(docker, container.id())._2;
+			return getInstanceState(id, docker, container)._2;
 		}
 		catch ( ContainerNotFoundException e ) {
 			return null;
@@ -111,36 +120,70 @@ public class DockerInstanceManager extends AbstractInstanceManager<JpaInstance> 
 	}
 
 	@Override
-	public InstanceDescriptor addInstance(String id, int faaastPort, File bundleDir)
-		throws ModelValidationException, IOException {
-		String repoName = deployInstanceDockerImage(id, bundleDir, m_dockerConf.getDockerEndpoint(),
-													m_harborConf);
+	public MDTInstance addInstance(String id, int faaastPort, File bundleDir)
+		throws ModelValidationException, IOException, MDTInstanceManagerException {
+		String repoName = "kwlee0220/faaast-starter:latest";
 		
 		DockerExecutionArguments args = new DockerExecutionArguments(repoName, faaastPort);
 		try {
-			File modelFile = FileUtils.path(bundleDir, MODEL_FILE_NAME);
-			String arguments = m_mapper.writeValueAsString(args);
-			
-			JpaInstanceDescriptor desc = addInstanceDescriptor(id, modelFile, arguments);
-			if ( s_logger.isInfoEnabled() ) {
-				s_logger.info("Added JpaInstanceDescriptor=" + desc);
+			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
+			// instances 디렉토리로 이동시킨다.
+			File instDir = getInstanceHomeDir(id);
+			FileUtils.deleteDirectory(instDir);
+			FileUtils.move(bundleDir, instDir);
+
+			// Global 설정 파일이 없는 경우에는 default 설정 파일을 사용한다.
+			File globalConfFile = new File(instDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
+			if ( !globalConfFile.exists() ) {
+				File defaultGlobalConfFile = new File(getHomeDir(), MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
+				if ( !defaultGlobalConfFile.exists()) {
+					throw new IllegalStateException("No default global configuration file exists: path="
+														+ defaultGlobalConfFile);
+				}
+				FileUtils.copy(defaultGlobalConfFile, globalConfFile);
 			}
 			
-			return desc;
+			// Certificate 파일이 없는 instDir default 파일을 사용한다.
+			File certFile = new File(instDir, MDTInstanceManager.CERT_FILE_NAME);
+			if ( !certFile.exists() ) {
+				File defaultCertFile = new File(getHomeDir(), MDTInstanceManager.CERT_FILE_NAME);
+				if ( !defaultCertFile.exists() ) {
+					throw new IllegalStateException("No default certificate file exists: path=" + defaultCertFile);
+				}
+				FileUtils.copy(defaultCertFile, certFile);
+			}
+
+			File modelFile = FileUtils.path(instDir, MODEL_AASX_NAME);
+			if ( !modelFile.canRead() ) {
+				modelFile = FileUtils.path(instDir, MODEL_FILE_NAME);
+			}
+			Environment env = AASUtils.readEnvironment(modelFile);
+			String arguments = m_mapper.writeValueAsString(args);
+			
+			JpaInstanceDescriptor desc = addInstanceDescriptor(id, env, arguments);
+			if ( getLogger().isInfoEnabled() ) {
+				getLogger().info("added DockerInstance: id={}, port={}, instanceDir={}",
+									desc.getId(), faaastPort, instDir);
+			}
+			
+			return toInstance(desc);
 		}
 		catch ( JsonProcessingException e ) {
-			throw new InternalException(e);
+			throw new IOException(e);
 		}
-		finally {
-	    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
-	    	Try.accept(bundleDir, FileUtils::deleteDirectory);
+		catch ( ModelValidationException |  IOException | MDTInstanceManagerException e ) {
+			throw e;
+		}
+		catch ( Throwable e ) {
+			Throwable cause = Throwables.unwrapThrowable(e);
+			throw new MDTInstanceManagerException("fails to add instance: id=" + id, cause);
 		}
 	}
 
 	@Override
-	public void removeAllInstances() throws MDTInstanceManagerException {
+	public void removeInstanceAll() throws MDTInstanceManagerException {
 		try ( DockerClient docker = newDockerClient() ) {
-			Try.run(() -> super.removeAllInstances());
+			Try.run(() -> super.removeInstanceAll());
 			
 			// Remove all dangling MDTInstance docker containers
 			for ( Container container: docker.listContainers(ListContainersParam.allContainers()) ) {
@@ -170,12 +213,25 @@ public class DockerInstanceManager extends AbstractInstanceManager<JpaInstance> 
 
 	@Override
 	protected DockerInstance toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException {
-		descriptor.setStatus(getInstanceStatus(descriptor.getId()));
-		descriptor.setBaseEndpoint(getInstanceServiceEndpoint(descriptor.getId()));
+		String instanceId = descriptor.getId();
+		try ( DockerClient docker = newDockerClient() ) {
+			Container container = findContainerByInstanceId(docker, instanceId);
+			Tuple<MDTInstanceStatus,String> tup =  getInstanceState(instanceId, docker, container);
+			descriptor.setStatus(tup._1);
+			descriptor.setBaseEndpoint(tup._2);
+		}
+		catch ( ContainerNotFoundException e ) {
+			descriptor.setStatus(MDTInstanceStatus.STOPPED);
+			descriptor.setBaseEndpoint(null);
+		}
+		catch ( InterruptedException | DockerException e ) {
+			throw new MDTInstanceManagerException("" + e);
+		}
+		
 		return new DockerInstance(this, descriptor);
 	}
 
-	private Container findContainerByInstanceId(DockerClient docker, String instanceId)
+	Container findContainerByInstanceId(DockerClient docker, String instanceId)
 		throws DockerException, InterruptedException, ContainerNotFoundException {
 		List<Container> containers = docker.listContainers(ListContainersParam.allContainers(),
 															ListContainersFilterParam.filter("name", instanceId));
@@ -188,6 +244,13 @@ public class DockerInstanceManager extends AbstractInstanceManager<JpaInstance> 
 		else {
 			throw new InternalException("Duplicate DockerInstances: id=" + instanceId);
 		}
+	}
+	
+	MDTInstanceStatus getContainerStatus(String instanceId) {
+		return m_instanceStatus.computeIfAbsent(instanceId, id -> MDTInstanceStatus.STOPPED);
+	}
+	void putContainerStatus(String instanceId, MDTInstanceStatus status) {
+		m_instanceStatus.put(instanceId, status);
 	}
 
 //	@SuppressWarnings("unused")

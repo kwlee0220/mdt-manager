@@ -27,14 +27,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import utils.stream.FStream;
 
-import mdt.instance.AbstractInstanceManager;
+import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
 import mdt.instance.jpa.JpaProcessor;
 import mdt.model.AASUtils;
 import mdt.model.MDTModelSerDe;
-import mdt.model.service.MDTInstance;
+import mdt.model.instance.MDTInstance;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -55,7 +56,7 @@ import jakarta.persistence.EntityManagerFactory;
 public class JpaShellRegistryController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(JpaShellRegistryController.class);
 	
-	@Autowired AbstractInstanceManager<? extends JpaInstance> m_instanceManager;
+	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
 	@Autowired EntityManagerFactory m_emFact;
 	private JpaProcessor m_jpaProcessor;
 

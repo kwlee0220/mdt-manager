@@ -6,6 +6,9 @@ import jakarta.persistence.EntityManager;
 
 
 /**
+ * JPA 모듈의 기본 기능을 정의한 인터페이스.
+ * <p>
+ * {@link EntityManager}를 이용하는 기능이 필요한 클래스는 이 인터페이스를 구현한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

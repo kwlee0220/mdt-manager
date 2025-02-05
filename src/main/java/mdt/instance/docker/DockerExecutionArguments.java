@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.Objects;
 
 
 /**
@@ -30,5 +31,24 @@ public class DockerExecutionArguments {
 	
 	public int getFaaastPort() {
 		return m_faaastPort;
+	}
+	
+	@Override
+	public String toString() {
+		return String.format("dockerImage=%s, faaastPort=%d", m_imageRepoName, m_faaastPort);
+	}
+	
+	@Override
+	public boolean equals(Object obj) {
+		if ( this == obj ) {
+			return true;
+		}
+		else if ( obj == null || getClass() != obj.getClass() ) {
+			return false;
+		}
+		
+		DockerExecutionArguments other = (DockerExecutionArguments)obj;
+		return Objects.equal(m_imageRepoName, other.m_imageRepoName)
+				&& m_faaastPort == other.m_faaastPort;
 	}
 }

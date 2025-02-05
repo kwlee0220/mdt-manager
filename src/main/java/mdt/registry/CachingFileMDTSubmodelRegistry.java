@@ -60,6 +60,13 @@ public class CachingFileMDTSubmodelRegistry implements SubmodelRegistryProvider 
 	}
 
 	@Override
+	public List<SubmodelDescriptor> getAllSubmodelDescriptorsBySemanticId(String semanticId) {
+		return FStream.from(m_store.getAllDescriptorsBySemanticId(semanticId))
+						.map(LazyDescriptor::get)
+						.toList();
+	}
+
+	@Override
 	public SubmodelDescriptor postSubmodelDescriptor(SubmodelDescriptor descriptor)
 		throws ResourceAlreadyExistsException {
 		try {

@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 import utils.stream.FStream;
 
 import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.instance.InstanceDescriptor;
 
 
 /**
@@ -21,19 +21,20 @@ import mdt.model.instance.MDTInstanceStatus;
 public abstract class JpaInstance extends AbstractInstance {
 	private static final Logger s_logger = LoggerFactory.getLogger(JpaInstance.class);
 	
-	protected JpaInstance(AbstractInstanceManager<? extends JpaInstance> manager,
-								JpaInstanceDescriptor desc) {
+	protected JpaInstance(AbstractJpaInstanceManager<? extends JpaInstance> manager,
+							JpaInstanceDescriptor desc) {
 		super(manager, desc);
 		
 		setLogger(s_logger);
 	}
-	
-	public JpaInstance reload() {
-		JpaInstanceDescriptor newDesc = m_manager.getEntityManager()
+
+	@Override
+	protected InstanceDescriptor reloadInstanceDescriptor() {
+		JpaInstanceDescriptor desc = m_manager.getEntityManager()
 												.find(JpaInstanceDescriptor.class, asJpaInstanceDescriptor().getRowId());
-		m_desc.set(newDesc);
+		m_desc.set(desc);
 		
-		return this;
+		return desc;
 	}
 
 	@Override
@@ -42,7 +43,7 @@ public abstract class JpaInstance extends AbstractInstance {
 	}
 
 	@Override
-	public List<SubmodelDescriptor> getAllSubmodelDescriptors() {
+	public List<SubmodelDescriptor> getSubmodelDescriptorAll() {
 		return FStream.from(asJpaInstanceDescriptor().getSubmodels())
 						.map(ismd -> ismd.getInstance().toSubmodelDescriptor(ismd))
 						.toList();
@@ -50,11 +51,6 @@ public abstract class JpaInstance extends AbstractInstance {
 
 	public String getExecutionArguments() {
 		return ((JpaInstanceDescriptor)m_desc.get()).getArguments();
-	}
-
-	@Override
-	protected MDTInstanceStatus reloadStatus() {
-		return reload().m_desc.get().getStatus();
 	}
 	
 	protected JpaInstanceDescriptor asJpaInstanceDescriptor() {

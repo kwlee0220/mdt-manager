@@ -15,6 +15,8 @@ import org.mandas.docker.client.messages.Image;
 import org.mandas.docker.client.messages.RegistryAuth;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.Preconditions;
+
 import utils.KeyValue;
 import utils.Utilities;
 import utils.func.FOption;
@@ -23,9 +25,10 @@ import utils.func.Unchecked;
 import utils.io.FileUtils;
 import utils.stream.FStream;
 
+import mdt.model.instance.MDTInstanceManagerException;
+
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
-import mdt.model.instance.MDTInstanceManagerException;
 
 /**
  *
@@ -46,6 +49,12 @@ public class DockerUtils {
 		logger.setLevel(Level.WARN);
 	}
 	
+	/**
+	 * Docker daemon에 연결된 도커 이미지들 중에서 'mdt-twin-id' label이 설정된 이미지들의 리스트를 반환한다.
+	 *
+	 * @param docker	도커 클라이언트 객체
+	 * @return	'mdt-twin-id' label이 설정된 이미지들의 리스트.
+	 */
 	public static List<Image> getInstanceImageAll(DockerClient docker) {
 		try {
 			return FStream.from(docker.listImages(ListImagesParam.allImages()))
@@ -57,6 +66,15 @@ public class DockerUtils {
 		}
 	}
 	
+	/**
+	 * 주어진 instance 식별자에 해당하는 도커 이미지를 반환한다.
+	 *
+	 * @param docker	도커 클라이언트 객체
+	 * @param instId	검색 대상 instance 식별	자. 
+	 * @return	instance 식별자에 해당하는 도커 이미지. 이미지가 존재하지 않는 경우는 {@link FOption#empty()}.
+	 * @throws DockerException		도커 이미지 조회 중 오류가 발생한 경우.
+	 * @throws InterruptedException	도커 이미지 조회 중 쓰레드가 인터럽트된 경우.
+	 */
 	public static FOption<Image> getInstanceImage(DockerClient docker, String instId)
 		throws DockerException, InterruptedException {
 		return FStream.from(docker.listImages(ListImagesParam.allImages()))
@@ -122,7 +140,17 @@ public class DockerUtils {
 	// Utility methods
 	//
 	
+	/**
+	 * 주어진 label map에서 주어진 label name에 해당하는 label value를 찾아서 반환한다.
+	 * 만일 주어진 label map이 {@code null}인 경우는 {@link FOption#empty()}를 반환한다.
+	 * 
+	 * @param labels    label map
+	 * @param labelName label name
+	 * @return label value
+	 */
 	public static FOption<String> findLabelValue(Map<String,String> labels, String labelName) {
+		Preconditions.checkArgument(labelName != null, "label name is null");
+		
 		if ( labels != null ) {
 			return FStream.from(labels)
 							.filter(kv -> kv.key().equals(labelName))
@@ -134,20 +162,51 @@ public class DockerUtils {
 		}
 	}
 	
+	/**
+	 * 주어진 docker 이미지에 부여된 label 중에서 'mdt-twin-id' label가 존재하면 해당 label value를 반환하고,
+	 * 그렇지 않은 경우는 {@link FOption#empty()}를 반환한다.
+	 * 
+	 * @param image docker image
+	 * @return 'mdt-twin-id'에 해당하는 label이 존재하면 해당 label 값. 그렇지 않은
+	 * 경우는 {@link FOption#empty()}.
+	 */
 	public static FOption<String> getInstanceId(Image image) {
 		return findLabelValue(image.labels(), LABEL_NAME_MDT_TWIN_ID);
 	}
 	
+	/**
+	 * 주어진 docker 컨테이너에 부여된 label 중에서 'mdt-twin-id' label가 존재하면 해당 label value를
+	 * 반환하고, 그렇지 않은 경우는 {@link FOption#empty()}를 반환한다.
+	 * 
+	 * @param container docker container
+	 * @return 'mdt-twin-id'에 해당하는 label이 존재하면 해당 label 값. 그렇지 않은 경우는
+	 *         {@link FOption#empty()}.
+	 */
 	public static FOption<String> getInstanceId(Container container) {
 		return findLabelValue(container.labels(), LABEL_NAME_MDT_TWIN_ID);
 	}
 	
+	/**
+	 * 주어진 docker 이미지의 'repoTags' 중에서 'repo:tag'를 추출하여 반환한다.
+	 * 
+	 * @param image docker image
+	 * @return 'repo:tag' 형식의 'repo'와 'tag'를 갖는 {@link Tuple}. 'repo'가 없는 경우는
+	 *         {@link FOption#empty()}.
+	 */
 	public static FOption<Tuple<String,String>> parseRepoTag(Image image) {
 		return FStream.from(image.repoTags())
 						.map(t -> Utilities.splitLast(t, ':', Tuple.of(t, null)))
 						.findFirst();
 	}
 	
+	/**
+	 * 주어진 label map에서 주어진 label name에 해당하는 label value를 찾아서 존재 여부를 반환한다.
+	 * 
+	 * @param labels    label map
+	 * @param labelName label name
+	 * @param value     label value
+	 * @return label value가 존재하면 {@code true}, 그렇지 않은 경우는 {@code false}.
+	 */
 	public static boolean hasLabel(Map<String,String> labels, String name, String value) {
 		if ( labels == null ) {
 			return false;
@@ -157,6 +216,14 @@ public class DockerUtils {
 							.exists(kv -> kv.key().equals(name) && kv.value().equals(value));
 		}
 	}
+	
+	/**
+     * 주어진 label map에서 주어진 label name에 해당하는 label가 존재하는지 여부를 반환한다.
+     * 
+     * @param labels    label map
+     * @param labelName label name
+     * @return label이 존재하면 {@code true}, 그렇지 않은 경우는 {@code false}.
+     */
 	public static boolean hasLabel(Map<String,String> labels, String name) {
 		if ( labels == null ) {
 			return false;

@@ -10,17 +10,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import utils.async.Executions;
-
-import mdt.instance.AbstractInstanceManager;
-import mdt.instance.JpaInstance;
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+
+import utils.async.Executions;
+
+import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.JpaInstance;
 
 
 /**
@@ -32,7 +32,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 public class MDTManagerController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(MDTManagerController.class);
 	
-	@Autowired AbstractInstanceManager<? extends JpaInstance> m_instanceManager;
+	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
 
 	@Override
 	public void afterPropertiesSet() throws Exception {
@@ -61,10 +61,10 @@ public class MDTManagerController implements InitializingBean {
     		s_logger.info("shutting down MDTManager...");
     	}
     	
-    	Executions.runAsync(() -> {
+    	Executions.toExecution(() -> {
     		Thread.sleep(1000);
     		m_instanceManager.shutdown();
     		System.exit(0);
-    	});
+    	}).start();
     }
 }

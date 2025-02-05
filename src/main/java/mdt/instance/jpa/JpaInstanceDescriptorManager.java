@@ -134,6 +134,12 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 			throw new ResourceAlreadyExistsException("MDTInstance", "id=" + desc.getId());
 		}
 	}
+	
+	public void updateInstanceDescriptor(JpaInstanceDescriptor desc) throws MDTInstanceManagerException {
+        checkEntityManager();
+        
+        m_em.merge(desc);
+	}
 
 	@Override
 	public void removeInstanceDescriptor(String id) throws MDTInstanceManagerException {
@@ -141,22 +147,6 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 		
 		JpaInstanceDescriptor desc = getInstanceDescriptor(id);
 		m_em.remove(desc);
-	}
-
-	@Override
-	public JpaInstanceDescriptor updateInstanceDescriptor(JpaInstanceDescriptor desc) {
-		JpaInstanceDescriptor old = getInstanceDescriptor(desc.getId());
-		if ( old == null ) {
-			return null;
-		}
-		
-		old.setAasId(desc.getAasId());
-		old.setAasIdShort(desc.getAasIdShort());
-		old.setGlobalAssetId(desc.getGlobalAssetId());
-		old.setAssetType(desc.getAssetType());
-		old.setArguments(desc.getArguments());
-		
-		return old;
 	}
 	
 	

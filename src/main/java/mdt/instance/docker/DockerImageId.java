@@ -1,19 +1,18 @@
 package mdt.instance.docker;
 
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@Data
-@Builder
-@EqualsAndHashCode
-public class DockerImageId {
-	private String repository;
-	private String tag;
+public final class DockerImageId {
+	private final String m_repository;
+	private final String m_tag;
+	
+	public DockerImageId(String repository, String tag) {
+		m_repository = repository;
+		m_tag = tag;
+	}
 	
 	public static DockerImageId parse(String imageId) {
 		String[] parts = imageId.split(":");
@@ -28,12 +27,33 @@ public class DockerImageId {
 		}
 	}
 	
+	public String getRepository() {
+		return m_repository;
+	}
+
+	public String getTag() {
+		return m_tag;
+	}
+	
 	public String getFullName() {
-		return this.repository + "/" + this.tag;
+		return this.m_repository + "/" + this.m_tag;
 	}
 	
 	@Override
 	public String toString() {
 		return getFullName();
+	}
+	
+	@Override
+	public boolean equals(Object obj) {
+		if ( obj == this ) {
+			return true;
+		}
+		else if ( obj == null || obj.getClass() != DockerImageId.class ) {
+            return false;
+		}
+		
+		DockerImageId other = (DockerImageId) obj;
+		return m_repository.equals(other.m_repository) && m_tag.equals(other.m_tag);
 	}
 }

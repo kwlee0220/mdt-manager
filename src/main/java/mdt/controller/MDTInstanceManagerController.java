@@ -2,7 +2,6 @@ package mdt.controller;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -23,6 +22,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -37,22 +37,6 @@ import utils.io.IOUtils;
 import utils.io.ZipFile;
 import utils.stream.FStream;
 
-import mdt.MDTConfiguration.MDTInstanceManagerConfiguration;
-import mdt.client.instance.InstanceDescriptorSerDe;
-import mdt.instance.AbstractInstance;
-import mdt.instance.AbstractInstanceManager;
-import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.instance.jpa.JpaInstanceDescriptorManager;
-import mdt.instance.jpa.JpaProcessor;
-import mdt.model.InvalidResourceStatusException;
-import mdt.model.MDTModelSerDe;
-import mdt.model.ResourceAlreadyExistsException;
-import mdt.model.ResourceNotFoundException;
-import mdt.model.instance.DefaultMDTInstanceInfo;
-import mdt.model.instance.InstanceDescriptor;
-import mdt.model.instance.MDTInstanceManager;
-import mdt.model.service.MDTInstance;
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -61,7 +45,27 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import mdt.Globals;
+import mdt.MDTConfiguration.MDTInstanceManagerConfiguration;
+import mdt.client.instance.InstanceDescriptorSerDe;
+import mdt.instance.AbstractInstance;
+import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.external.ExternalInstance;
+import mdt.instance.external.ExternalInstanceManager;
+import mdt.instance.jpa.JpaInstanceDescriptorManager;
+import mdt.instance.jpa.JpaProcessor;
+import mdt.model.InvalidResourceStatusException;
+import mdt.model.MDTModelSerDe;
+import mdt.model.ModelValidationException;
+import mdt.model.ResourceAlreadyExistsException;
+import mdt.model.ResourceNotFoundException;
+import mdt.model.instance.DefaultMDTInstanceInfo;
+import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.InstanceStatusChangeEvent;
+import mdt.model.instance.MDTInstance;
+import mdt.model.instance.MDTInstanceManagerException;
 
 
 /**
@@ -74,7 +78,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(MDTInstanceManagerController.class);
     private static final String DOCKER_FILE = "Dockerfile";
 	
-	@Autowired AbstractInstanceManager<? extends AbstractInstance> m_instanceManager;
+	@Autowired AbstractJpaInstanceManager<? extends AbstractInstance> m_instanceManager;
 	@Autowired EntityManagerFactory m_emFact;
 	@Autowired MDTInstanceManagerConfiguration m_instanceManagerConf;
 	private JpaProcessor m_processor;
@@ -88,13 +92,11 @@ public class MDTInstanceManagerController implements InitializingBean {
 	public void afterPropertiesSet() throws Exception {
 		// JPA 기반 InstanceDescriptorManager를 사용하기 위한 초기화 수행.
 		m_processor = new JpaProcessor(m_emFact);
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager();
-    	m_processor.run(instDescMgr, () -> m_instanceManager.initialize(instDescMgr));
-    	
-    	// 'bundles' 디렉토리가 없는 경우 미리 생성함.
-    	if ( m_instanceManager.getBundleHomeDir().exists() ) {
-    		FileUtils.createDirectories(m_instanceManager.getBundleHomeDir());
-    	}
+    	m_processor.run(m_instanceManager, () -> {
+    		EntityManager em = m_instanceManager.getEntityManager();
+    		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
+        	m_instanceManager.initialize(instDescMgr, m_processor);
+    	});
 		
 		if ( s_logger.isInfoEnabled() ) {
 			s_logger.info("{} is ready to serve: {}:{}", getClass().getName(), m_host, m_port);
@@ -115,11 +117,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     @GetMapping("/instances/{id}")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getInstance(@PathVariable("id") String id) {
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager();
-    	JpaInstanceDescriptor desc = m_processor.get(instDescMgr, () -> instDescMgr.getInstanceDescriptor(id));
-    	
-    	if ( desc != null ) {
-    		return ResponseEntity.ok(m_serde.toJson(desc));
+    	MDTInstance inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
+    	if ( inst != null ) {
+    		return ResponseEntity.ok(m_serde.toJson(inst.getInstanceDescriptor()));
     	}
     	else {
     		throw new ResourceNotFoundException("MDTInstance", "id=" + id);
@@ -143,25 +143,28 @@ public class MDTInstanceManagerController implements InitializingBean {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getInstanceAll(@RequestParam(name="filter", required=false) String filter,
     											@RequestParam(name="aggregate", required=false) String aggregate) {
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager();
-    	return m_processor.get(instDescMgr, () -> {
-        	List<JpaInstanceDescriptor> matches;
+    	return m_processor.get(m_instanceManager, () -> {
+        	List<MDTInstance> matches;
     		if ( filter != null ) {
-    			matches = instDescMgr.findInstanceDescriptorAll(filter);
+    			matches = m_instanceManager.getInstanceAllByFilter(filter);
     		}
     		else if ( aggregate != null ) {
     			switch ( aggregate.toLowerCase() ) {
     				case "count":
-    					return ResponseEntity.ok("" + instDescMgr.count());
+    					return ResponseEntity.ok("" + m_instanceManager.countInstances());
     				default:
     					throw new IllegalArgumentException("unknown Aggregate: " + aggregate); 
     			}
     		}
     		else {
-    			matches = instDescMgr.getInstanceDescriptorAll();
+    			matches = m_instanceManager.getInstanceAll();
     		}
     		
-    		return ResponseEntity.ok(m_serde.toJson(matches));
+    		List<InstanceDescriptor> descList = FStream.from(matches)
+									    				.map(MDTInstance::getInstanceDescriptor)
+									    				.toList();
+    		
+    		return ResponseEntity.ok(m_serde.toJson(descList));
     	});
     }
 
@@ -169,10 +172,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getInstanceInfo(@PathVariable("id") String id) {
     	return m_processor.get(m_instanceManager, () -> {
-    		JpaInstanceDescriptorManager instDescMgr = m_instanceManager.getInstanceDescriptorManager();
-    		JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
-    		if ( desc != null ) {
-        		AbstractInstance inst = m_instanceManager.getInstance(id);
+        	MDTInstance inst = m_instanceManager.getInstance(id);
+    		if ( inst != null ) {
         		DefaultMDTInstanceInfo instInfo = DefaultMDTInstanceInfo.builder(inst).build();
         		return ResponseEntity.ok(MDTModelSerDe.toJsonString(instInfo));
     		}
@@ -186,21 +187,17 @@ public class MDTInstanceManagerController implements InitializingBean {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getInstanceInfoAll(@RequestParam(name="filter", required=false) String filter) {
     	return m_processor.get(m_instanceManager, () -> {
-    		JpaInstanceDescriptorManager instDescMgr = m_instanceManager.getInstanceDescriptorManager();
-        	List<JpaInstanceDescriptor> matches;
+        	List<MDTInstance> matches;
     		if ( filter != null ) {
-    			matches = instDescMgr.findInstanceDescriptorAll(filter);
+    			matches = m_instanceManager.getInstanceAllByFilter(filter);
     		}
     		else {
-    			matches = instDescMgr.getInstanceDescriptorAll();
+    			matches = m_instanceManager.getInstanceAll();
     		};
     		
     		List<DefaultMDTInstanceInfo> infoList
 	    				= FStream.from(matches)
-								.map(desc -> {
-									MDTInstance inst = m_instanceManager.getInstance(desc.getId());
-						    		return DefaultMDTInstanceInfo.builder(inst).build();
-								})
+								.map(inst -> DefaultMDTInstanceInfo.builder(inst).build())
 								.toList();
         	return ResponseEntity.ok(MDTModelSerDe.toJsonString(infoList));
     	});
@@ -243,58 +240,58 @@ public class MDTInstanceManagerController implements InitializingBean {
     	throws SerializationException {
     	return m_processor.get(m_instanceManager,
     							() -> m_instanceManager.getInstance(id)
-    													.getAllSubmodelDescriptors());
+    													.getSubmodelDescriptorAll());
     }
 
-    @Operation(summary = "MDTInstanceManager에 주어진 MDTInstance 등록정보를 등록시킨다.")
-    @Parameters({
-    	@Parameter(name = "id", description = "등록 MDTInstance 식별자"),
-    	@Parameter(name = "port", description = "등록될 MDTInstance가 사용할 포트번호. "
-    											+ "0보다 작거나 같은 경우는 기본 설정 값을 사용한다."),
-    	@Parameter(name = "jar",
-    			description = "(Jar기반 MDTInstance의 경우) MDTInstance 구현 Jar 파일 경로."),
-    	@Parameter(name = "imageId",
-    			description = "(Docker/Kubernetes기반 MDTInstance의 경우) MDTInstance 구현 docker 이미지 이름"),
-    	@Parameter(name = "initialModel", description = "등록시킬 초기 AAS 모델 파일"),
-    	@Parameter(name = "instanceConf", description = "등록시킬 MDTInstance의 설정 파일"),
-    })
-    @ApiResponses(value = {
-        	@ApiResponse(responseCode = "200", description = "성공",
-    			content = {
-    				@Content(schema = @Schema(implementation = InstanceDescriptor.class),
-    						mediaType = "application/json")
-    			}),
-        	@ApiResponse(responseCode = "400",
-        				description = "식별자에 해당하는 MDTInstance가 이미 등록되어 있습니다.")
-        })
-    @PostMapping({"/instances2"})
-    @ResponseStatus(HttpStatus.CREATED)
-    public String addInstance(@RequestParam("id") String id,
-    							@RequestParam("port") int port,
-								@RequestParam(name="jar", required=false) MultipartFile mpfJar,
-								@RequestParam(name="initialModel", required=false) MultipartFile mpfModel,
-								@RequestParam(name="instanceConf", required=false) MultipartFile mpfConf)
-		throws IOException, InterruptedException {
-    	// TODO: 동일 instance에 대해 add/get/delete 연산들이 동시에 입력되는 경우
-    	// 동시성 제어를 해야 하지만 시간이 부족하여 당분간 무시하도록 한다.
-    	// TODO: add/start instance 연산의 경우 수행 소요시간이 장시간이 가능하여
-    	// socket timeout이 발생될 가능성이 있다. 이를 효과적으로 처리할 수 있는 방법이 필요하다.
-    	
-    	// MDTInstance에 필요한 모든 파일을 하나의 bundle directory에 복사한다.
-    	File bundleDir = buildBundle(id, mpfJar, mpfModel, mpfConf);
-    	
-    	// InstanceDescriptor를 생성하여 등록한다.
-    	// InstanceDescriptor를 이용하여 MDTInstance를 생성한다.
-		InstanceDescriptor instDesc = m_processor.get(m_instanceManager,
-													() -> m_instanceManager.addInstance(id, port, bundleDir));
-
-    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
-		// bundle directory는 오류가 발생한 경우 관련 로그 파일이 이 디렉토리에 생성되기 때문에
-		// 예외가 발생한 경우 이 디렉토리를 지우면 안되기 때문에 addInstance가 성공한 경우만 수행되어야 한다.
-    	Try.accept(bundleDir, FileUtils::deleteDirectory);
-    	
-		return m_serde.toJson(instDesc);
-    }
+//    @Operation(summary = "MDTInstanceManager에 주어진 MDTInstance 등록정보를 등록시킨다.")
+//    @Parameters({
+//    	@Parameter(name = "id", description = "등록 MDTInstance 식별자"),
+//    	@Parameter(name = "port", description = "등록될 MDTInstance가 사용할 포트번호. "
+//    											+ "0보다 작거나 같은 경우는 기본 설정 값을 사용한다."),
+//    	@Parameter(name = "jar",
+//    			description = "(Jar기반 MDTInstance의 경우) MDTInstance 구현 Jar 파일 경로."),
+//    	@Parameter(name = "imageId",
+//    			description = "(Docker/Kubernetes기반 MDTInstance의 경우) MDTInstance 구현 docker 이미지 이름"),
+//    	@Parameter(name = "initialModel", description = "등록시킬 초기 AAS 모델 파일"),
+//    	@Parameter(name = "instanceConf", description = "등록시킬 MDTInstance의 설정 파일"),
+//    })
+//    @ApiResponses(value = {
+//        	@ApiResponse(responseCode = "200", description = "성공",
+//    			content = {
+//    				@Content(schema = @Schema(implementation = InstanceDescriptor.class),
+//    						mediaType = "application/json")
+//    			}),
+//        	@ApiResponse(responseCode = "400",
+//        				description = "식별자에 해당하는 MDTInstance가 이미 등록되어 있습니다.")
+//        })
+//    @PostMapping({"/instances2"})
+//    @ResponseStatus(HttpStatus.CREATED)
+//    public String addInstance(@RequestParam("id") String id,
+//    							@RequestParam("port") int port,
+//								@RequestParam(name="jar", required=false) MultipartFile mpfJar,
+//								@RequestParam(name="initialModel", required=false) MultipartFile mpfModel,
+//								@RequestParam(name="instanceConf", required=false) MultipartFile mpfConf)
+//		throws IOException, InterruptedException {
+//    	// TODO: 동일 instance에 대해 add/get/delete 연산들이 동시에 입력되는 경우
+//    	// 동시성 제어를 해야 하지만 시간이 부족하여 당분간 무시하도록 한다.
+//    	// TODO: add/start instance 연산의 경우 수행 소요시간이 장시간이 가능하여
+//    	// socket timeout이 발생될 가능성이 있다. 이를 효과적으로 처리할 수 있는 방법이 필요하다.
+//    	
+//    	// MDTInstance에 필요한 모든 파일을 하나의 bundle directory에 복사한다.
+//    	File bundleDir = buildBundle(id, mpfJar, mpfModel, mpfConf);
+//    	
+//    	// InstanceDescriptor를 생성하여 등록한다.
+//    	// InstanceDescriptor를 이용하여 MDTInstance를 생성한다.
+//		InstanceDescriptor instDesc = m_processor.get(m_instanceManager,
+//													() -> m_instanceManager.addInstance(id, port, bundleDir));
+//
+//    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
+//		// bundle directory는 오류가 발생한 경우 관련 로그 파일이 이 디렉토리에 생성되기 때문에
+//		// 예외가 발생한 경우 이 디렉토리를 지우면 안되기 때문에 addInstance가 성공한 경우만 수행되어야 한다.
+//    	Try.accept(bundleDir, FileUtils::deleteDirectory);
+//    	
+//		return m_serde.toJson(instDesc);
+//    }
 
     @Operation(summary = "MDTInstanceManager에 주어진 MDTInstance 등록정보를 등록시킨다.")
     @Parameters({
@@ -316,23 +313,36 @@ public class MDTInstanceManagerController implements InitializingBean {
     @PostMapping({"/instances"})
     @ResponseStatus(HttpStatus.CREATED)
     public String addInstance(@RequestParam("id") String id,
-							@RequestParam("port") int port,
-							@RequestParam(name="bundle", required=true) MultipartFile zipFile)
-		throws IOException, InterruptedException {
-    	// MDTInstance에 필요한 모든 파일을 하나의 bundle directory에 복사한다.
+								@RequestParam("port") int port,
+								@RequestParam(name="bundle", required=true) MultipartFile zipFile)
+		throws IOException, ModelValidationException, MDTInstanceManagerException {
+		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
+		
+    	// 입력 받은 zip 파일을 풀어서 bundle directory를 생성한다.
     	File bundleDir = buildBundle(id, zipFile);
-    	
-    	// InstanceDescriptor를 생성하여 등록한다.
-    	// InstanceDescriptor를 이용하여 MDTInstance를 생성한다.
-		InstanceDescriptor instDesc = m_processor.get(m_instanceManager,
-													() -> m_instanceManager.addInstance(id, port, bundleDir));
+    	try {
+	    	// Bundle directory의 내용을 이용해서 InstanceDescriptor를 생성하여 등록하고,
+    		// 이를 통해 MDTInstance를 생성한다.
+			MDTInstance inst = m_processor.get(m_instanceManager,
+												() -> m_instanceManager.addInstance(id, port, bundleDir));
+			String descJson = m_serde.toJson(inst.getInstanceDescriptor());
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
 
-    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
-		// bundle directory는 오류가 발생한 경우 관련 로그 파일이 이 디렉토리에 생성되기 때문에
-		// 예외가 발생한 경우 이 디렉토리를 지우면 안되기 때문에 addInstance가 성공한 경우만 수행되어야 한다.
-    	Try.accept(bundleDir, FileUtils::deleteDirectory);
-    	
-		return m_serde.toJson(instDesc);
+			return descJson;
+    	}
+		catch ( IOException | ModelValidationException | MDTInstanceManagerException e ) {
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
+			throw e;
+		}
+    	catch ( Throwable e ) {
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
+			Throwable cause = Throwables.unwrapThrowable(e);
+			throw new MDTInstanceManagerException("failed to add MDTInstance: id=" + id, cause);
+    	}
+    	finally {
+	    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
+	    	Try.accept(bundleDir, FileUtils::deleteDirectory);
+    	}
     }
 
     @Operation(summary = "MDTInstance 식별자에 해당하는 MDTInstance 등록정보를 삭제한다.")
@@ -356,7 +366,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     @DeleteMapping("/instances")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeInstanceAll() throws SerializationException {
-    	Try.run(() -> m_processor.run(m_instanceManager, () -> m_instanceManager.removeAllInstances()));
+    	Try.run(() -> m_processor.run(m_instanceManager, () -> m_instanceManager.removeInstanceAll()));
     }
 
     @Operation(summary = "MDTInstance 식별자에 해당하는 MDTInstance를 시작시킨다.")
@@ -372,9 +382,14 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @PutMapping("/instances/{id}/start")
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<String> startInstance(@PathVariable("id") String id) throws InterruptedException {
+    public ResponseEntity<?> startInstance(@PathVariable("id") String id) throws InterruptedException {
 		AbstractInstance inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
-		inst.startAsync();
+		try {
+			inst.startAsync();
+		}
+		catch ( Exception e ) {
+			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
+		}
 
 		inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
 		return ResponseEntity.ok(m_serde.toJson(inst.getInstanceDescriptor()));
@@ -402,6 +417,31 @@ public class MDTInstanceManagerController implements InitializingBean {
 
     	inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
     	return m_serde.toJson(inst.getInstanceDescriptor());
+    }
+    
+    @PostMapping("/registry/{id}")
+    @ResponseStatus(HttpStatus.OK)
+    public ResponseEntity<?> registerInstance(@PathVariable("id") String id, @RequestBody String repoEndpoint)
+    	throws InterruptedException {
+    	if ( !(m_instanceManager instanceof ExternalInstanceManager) ) {
+			throw new UnsupportedOperationException("registerInstance: not supported");
+    	}
+
+    	ExternalInstanceManager extInstMgr = (ExternalInstanceManager)m_instanceManager;
+		ExternalInstance intance = m_processor.get(extInstMgr, () -> extInstMgr.register(id, repoEndpoint));
+
+		return ResponseEntity.ok(m_serde.toJson(intance.getInstanceDescriptor()));
+    }
+
+    @DeleteMapping("/registry/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unregisterInstance(@PathVariable("id") String id) {
+		if ( m_instanceManager instanceof ExternalInstanceManager extInstMgr ) {
+			m_processor.run(extInstMgr, () -> extInstMgr.unregister(id));
+		}
+		else {
+			throw new UnsupportedOperationException("unregisterInstance: not supported");
+		}
     }
 
     @Operation(summary = "MDTInstance 식별자에 해당하는 MDTInstance가 생성한 output log 내용을 반환한다.")
@@ -455,110 +495,80 @@ public class MDTInstanceManagerController implements InitializingBean {
     }
     
     private File buildBundle(String id, MultipartFile zippedBundle) throws IOException {
-    	File bundleDir = new File(m_instanceManager.getBundleHomeDir(), id);
-    	if ( m_instanceManager.getBundleHomeDir().exists() ) {
-    		FileUtils.createDirectories(m_instanceManager.getBundleHomeDir());
-    	}
-    	File mgrHomeDir = m_instanceManager.getHomeDir();
+    	File bundleDir = new File(m_instanceManager.getBundlesDir(), id);
     	
-		// 동일 이름의 directory가 존재할 수도 있기 때문에 해당 디렉토리가 있으면
-		// 먼저 삭제하고, 다시 directory를 생성한다.
+		// 동일 이름의 directory가 존재할 수도 있기 때문에 해당 디렉토리가 있으면 삭제한다.
 		FileUtils.deleteDirectory(bundleDir);
 		
-		File zippedBundleFile = downloadFile(m_instanceManager.getBundleHomeDir(),
+    	// 입력 bundle zip파일의 압축을 푼다.
+		File zippedBundleFile = downloadFile(m_instanceManager.getBundlesDir(),
 											zippedBundle.getOriginalFilename(), zippedBundle);
 		new ZipFile(zippedBundleFile.toPath()).unzip(bundleDir.toPath());
 		zippedBundleFile.delete();
 		
-		// FA3ST jar file이 없는 경우에는 default jar 파일을 사용한다.
-		File fa3stJarFile = new File(bundleDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME);
-		if ( !fa3stJarFile.exists() ) {
-			File defaultJarFile = m_instanceManager.getDefaultMDTInstanceJarFile();
-			if ( defaultJarFile == null || !defaultJarFile.exists() ) {
-				throw new IllegalStateException("No default MDTInstance jar file exists: path=" + defaultJarFile);
-			}
-			
-			FileUtils.copy(defaultJarFile, fa3stJarFile);
-		}
-		
-		// Global 설정 파일이 없는 경우에는 default 설정 파일을 사용한다.
-		File globalConfFile = new File(bundleDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
-		File srcGlobalConfFile = new File(mgrHomeDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
-		if ( srcGlobalConfFile.exists() && !globalConfFile.exists() ) {
-			Files.copy(srcGlobalConfFile.toPath(), globalConfFile.toPath());
-		}
-		
-		// Certificate 파일이 없는 경우에는 default 파일을 사용한다.
-		File certFile = new File(bundleDir, MDTInstanceManager.CERT_FILE_NAME);
-		File defaultCertFile = new File(mgrHomeDir, MDTInstanceManager.CERT_FILE_NAME);
-		if ( defaultCertFile.exists() && !certFile.exists() ) {
-			FileUtils.copy(defaultCertFile, certFile);
-		}
-		
 		return bundleDir;
     }
 
-	private File buildBundle(String id, MultipartFile mpfJar, MultipartFile mpfModel, MultipartFile mpfConf)
-		throws IOException {
-    	File bundleDir = new File(m_instanceManager.getBundleHomeDir(), id);
-    	if ( m_instanceManager.getBundleHomeDir().exists() ) {
-    		FileUtils.createDirectories(m_instanceManager.getBundleHomeDir());
-    	}
-    	File mgrHomeDir = m_instanceManager.getHomeDir();
-    	
-		// 동일 이름의 directory가 존재할 수도 있기 때문에 해당 디렉토리가 있으면
-		// 먼저 삭제하고, 다시 directory를 생성한다.
-		FileUtils.deleteDirectory(bundleDir);
-
-		try {
-			FileUtils.createDirectories(bundleDir);
-			
-			// AAS 초기 모델 파일과 설정 파일을 생성한 bundle 디렉토리로 download 받는다.
-			downloadFile(bundleDir, mpfModel.getOriginalFilename(), mpfModel);
-			downloadFile(bundleDir, mpfConf.getOriginalFilename(), mpfConf);
-			
-			// mpfJar은 null이 될 수 있기 때문에 null이 아닌 경우만 jar 파일을 복사한다.
-			// null인 경우에는 default jar를 복사한다.
-			if ( mpfJar != null ) {
-				downloadFile(bundleDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME, mpfJar);
-			}
-			else {
-				File defaultJarFile = m_instanceManager.getDefaultMDTInstanceJarFile();
-				if ( defaultJarFile == null || !defaultJarFile.exists() ) {
-					throw new IllegalStateException("No default MDTInstance jar file exists: path=" + defaultJarFile);
-				}
-				
-				FileUtils.copy(defaultJarFile, new File(bundleDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME));
-			}
-
-			File srcGlobalConfFile = new File(mgrHomeDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
-			if ( srcGlobalConfFile.exists() ) {
-				File globalConfFile = new File(bundleDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
-				Files.copy(srcGlobalConfFile.toPath(), globalConfFile.toPath());
-			}
-
-			File defaultCertFile = new File(mgrHomeDir, MDTInstanceManager.CERT_FILE_NAME);
-			if ( defaultCertFile.exists() ) {
-				File certFile = new File(bundleDir, MDTInstanceManager.CERT_FILE_NAME);
-				FileUtils.copy(defaultCertFile, certFile);
-			}
-
-			// Dockerfile 파일을 복사한다.
-			File srcDockerfile = new File(mgrHomeDir, DOCKER_FILE);
-			File tarDockerfile = new File(bundleDir, DOCKER_FILE);
-			FileUtils.copy(srcDockerfile, tarDockerfile);
-			
-			return bundleDir;
-		}
-		catch ( IOException e ) {
-			Try.run(() -> FileUtils.deleteDirectory(bundleDir));
-			throw e;
-		}
-		catch ( Throwable e ) {
-			Try.run(() -> FileUtils.deleteDirectory(bundleDir));
-			throw e;
-		}
-	}
+//	private File buildBundle(String id, MultipartFile mpfJar, MultipartFile mpfModel, MultipartFile mpfConf)
+//		throws IOException {
+//    	File bundleDir = new File(m_instanceManager.getBundlesDir(), id);
+//    	FileUtils.createDirectory(bundleDir);
+//    	
+//    	File mgrHomeDir = m_instanceManager.getHomeDir();
+//    	
+//		// 동일 이름의 directory가 존재할 수도 있기 때문에 해당 디렉토리가 있으면
+//		// 먼저 삭제하고, 다시 directory를 생성한다.
+//		FileUtils.deleteDirectory(bundleDir);
+//
+//		try {
+//			FileUtils.createDirectory(bundleDir);
+//			
+//			// AAS 초기 모델 파일과 설정 파일을 생성한 bundle 디렉토리로 download 받는다.
+//			downloadFile(bundleDir, mpfModel.getOriginalFilename(), mpfModel);
+//			downloadFile(bundleDir, mpfConf.getOriginalFilename(), mpfConf);
+//			
+//			// mpfJar은 null이 될 수 있기 때문에 null이 아닌 경우만 jar 파일을 복사한다.
+//			// null인 경우에는 default jar를 복사한다.
+////			if ( mpfJar != null ) {
+////				downloadFile(bundleDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME, mpfJar);
+////			}
+////			else {
+////				File defaultJarFile = m_instanceManager.getDefaultMDTInstanceJarFile();
+////				if ( defaultJarFile == null || !defaultJarFile.exists() ) {
+////					throw new IllegalStateException("No default MDTInstance jar file exists: path=" + defaultJarFile);
+////				}
+////				
+////				FileUtils.copy(defaultJarFile, new File(bundleDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME));
+////			}
+//
+//			File srcGlobalConfFile = new File(mgrHomeDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
+//			if ( srcGlobalConfFile.exists() ) {
+//				File globalConfFile = new File(bundleDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
+//				Files.copy(srcGlobalConfFile.toPath(), globalConfFile.toPath());
+//			}
+//
+//			File defaultCertFile = new File(mgrHomeDir, MDTInstanceManager.CERT_FILE_NAME);
+//			if ( defaultCertFile.exists() ) {
+//				File certFile = new File(bundleDir, MDTInstanceManager.CERT_FILE_NAME);
+//				FileUtils.copy(defaultCertFile, certFile);
+//			}
+//
+//			// Dockerfile 파일을 복사한다.
+//			File srcDockerfile = new File(mgrHomeDir, DOCKER_FILE);
+//			File tarDockerfile = new File(bundleDir, DOCKER_FILE);
+//			FileUtils.copy(srcDockerfile, tarDockerfile);
+//			
+//			return bundleDir;
+//		}
+//		catch ( IOException e ) {
+//			Try.run(() -> FileUtils.deleteDirectory(bundleDir));
+//			throw e;
+//		}
+//		catch ( Throwable e ) {
+//			Try.run(() -> FileUtils.deleteDirectory(bundleDir));
+//			throw e;
+//		}
+//	}
     
     private File downloadFile(File topDir, String fileName, MultipartFile mpf) throws IOException {
 		File file = new File(topDir, fileName);

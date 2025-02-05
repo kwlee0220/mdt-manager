@@ -25,18 +25,18 @@ import utils.func.FOption;
 import utils.func.Funcs;
 import utils.stream.FStream;
 
+import mdt.model.AssetAdministrationShellService;
 import mdt.model.DescriptorUtils;
 import mdt.model.InvalidResourceStatusException;
 import mdt.model.ModelValidationException;
 import mdt.model.ResourceNotFoundException;
+import mdt.model.SubmodelService;
 import mdt.model.instance.DefaultMDTInstanceInfo;
 import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceInfo;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
-import mdt.model.service.AssetAdministrationShellService;
-import mdt.model.service.MDTInstance;
-import mdt.model.service.SubmodelService;
 import mdt.model.sm.data.Data;
 import mdt.model.sm.data.DefaultData;
 import mdt.model.sm.info.DefaultInformationModel;
@@ -52,7 +52,7 @@ import mdt.model.sm.simulation.Simulation;
 public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	private static final Logger s_logger = LoggerFactory.getLogger(AbstractInstance.class);
 	
-	protected final AbstractInstanceManager m_manager;
+	protected final AbstractJpaInstanceManager<? extends AbstractInstance> m_manager;
 	protected final AtomicReference<InstanceDescriptor> m_desc;
 	private final AtomicReference<InformationModel> m_infoModel = new AtomicReference<>();
 	private final AtomicReference<Data> m_data = new AtomicReference<>();
@@ -60,13 +60,14 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	private Logger m_logger;
 
 	abstract public AssetAdministrationShellDescriptor getAASDescriptor();
-	abstract public List<SubmodelDescriptor> getAllSubmodelDescriptors();
-	abstract public void startAsync();
+	abstract public List<SubmodelDescriptor> getSubmodelDescriptorAll();
+	abstract public void startAsync() throws InterruptedException;
 	abstract public void stopAsync();
-	abstract protected MDTInstanceStatus reloadStatus();
+	abstract protected InstanceDescriptor reloadInstanceDescriptor();
+//	abstract protected MDTInstanceStatus reloadStatus();
 	abstract protected void uninitialize() throws Throwable;
 	
-	protected AbstractInstance(AbstractInstanceManager<? extends AbstractInstance> manager,
+	protected AbstractInstance(AbstractJpaInstanceManager<? extends AbstractInstance> manager,
 								InstanceDescriptor desc) {
 		Preconditions.checkNotNull(manager);
 		Preconditions.checkNotNull(desc);
@@ -88,7 +89,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 
 	@Override
 	public MDTInstanceStatus getStatus() {
-		return reloadStatus();
+		return m_desc.get().getStatus();
 	}
 
 	@Override
@@ -135,7 +136,9 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		}
 		
 		startAsync();
-		switch ( m_desc.get().getStatus() ) {
+		
+		status = reloadInstanceDescriptor().getStatus();
+		switch ( status ) {
 			case RUNNING:
 				return;
 			case STARTING:
@@ -149,7 +152,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 				}
 				break;
 			default:
-				throw new InvalidResourceStatusException("MDTInstance", getId(), getStatus());
+				throw new InvalidResourceStatusException("MDTInstance", getId(), status);
 		}
 	}
 
@@ -162,7 +165,9 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		}
 		
 		stopAsync();
-		switch ( m_desc.get().getStatus() ) {
+		
+		status = reloadInstanceDescriptor().getStatus();
+		switch ( status ) {
 			case STOPPED:
 				return;
 			case STOPPING:
@@ -176,7 +181,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 				}
 				break;
 			default:
-				throw new InvalidResourceStatusException("MDTInstance", getId(), getStatus());
+				throw new InvalidResourceStatusException("MDTInstance", getId(), status);
 		}
 	}
 
@@ -195,7 +200,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public SubmodelService getSubmodelServiceById(String submodelId)
 		throws InvalidResourceStatusException, ResourceNotFoundException {
-		if ( !Funcs.exists(getAllSubmodelDescriptors(), desc -> desc.getId().equals(submodelId)) ) {
+		if ( !Funcs.exists(getSubmodelDescriptorAll(), desc -> desc.getId().equals(submodelId)) ) {
 			throw new ResourceNotFoundException("Submodel", "id=" + submodelId);
 		}
 		return toSubmodelService(submodelId);
@@ -204,7 +209,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public SubmodelService getSubmodelServiceByIdShort(String submodelIdShort)
 		throws InvalidResourceStatusException, ResourceNotFoundException {
-		String submodelId = Funcs.findFirst(getAllSubmodelDescriptors(),
+		String submodelId = Funcs.findFirst(getSubmodelDescriptorAll(),
 											desc -> submodelIdShort.equals(desc.getIdShort()))
 								.map(SubmodelDescriptor::getId)
 								.getOrThrow(() -> new ResourceNotFoundException("Submodel",
@@ -213,15 +218,15 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	}
 
 	@Override
-	public List<SubmodelService> getAllSubmodelServiceBySemanticId(String semanticId) {
-		return FStream.from(getAllSubmodelDescriptorBySemanticId(semanticId))
+	public List<SubmodelService> getSubmodelServiceAllBySemanticId(String semanticId) {
+		return FStream.from(getSubmodelDescriptorAllBySemanticId(semanticId))
 						.map(desc -> toSubmodelService(desc.getId()))
 						.toList();
 	}
 
 	@Override
-	public List<SubmodelService> getAllSubmodelServices() {
-		return FStream.from(getAllSubmodelDescriptors())
+	public List<SubmodelService> getSubmodelServiceAll() {
+		return FStream.from(getSubmodelDescriptorAll())
 						.map(desc -> toSubmodelService(desc.getId()))
 						.toList();
 	}
@@ -231,7 +236,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		return m_infoModel.updateAndGet(p -> FOption.getOrElse(p, this::loadInformationModel));
 	}
 	private InformationModel loadInformationModel() throws ResourceNotFoundException {
-		List<SubmodelService> svcList = getAllSubmodelServiceBySemanticId(InformationModel.SEMANTIC_ID);
+		List<SubmodelService> svcList = getSubmodelServiceAllBySemanticId(InformationModel.SEMANTIC_ID);
 		if ( svcList.size() == 0 ) {
 			throw new ResourceNotFoundException("InformationModel", "semanticId=" + InformationModel.SEMANTIC_ID);
 		}
@@ -251,7 +256,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		return m_data.updateAndGet(p -> FOption.getOrElseThrow(p, this::loadData));
 	}
 	private Data loadData() throws ResourceNotFoundException {
-		List<SubmodelService> found = getAllSubmodelServiceBySemanticId(Data.SEMANTIC_ID);
+		List<SubmodelService> found = getSubmodelServiceAllBySemanticId(Data.SEMANTIC_ID);
 		SubmodelService dataSvc = Funcs.getFirst(found)
 										.getOrThrow(() -> new ResourceNotFoundException("DataSubmodel",
 																				"semanticId=" + Data.SEMANTIC_ID));
@@ -261,11 +266,11 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	}
 
 	@Override
-	public List<Simulation> getAllSimulations() {
+	public List<Simulation> getSimulationAll() {
 		return m_simulationList.updateAndGet(lst -> FOption.getOrElseThrow(lst, this::loadAllSimulations));
 	}
 	private List<Simulation> loadAllSimulations() {
-		return FStream.from(getAllSubmodelServiceBySemanticId(Simulation.SEMANTIC_ID))
+		return FStream.from(getSubmodelServiceAllBySemanticId(Simulation.SEMANTIC_ID))
 						.map(SubmodelService::getSubmodel)
 						.map(submodel -> {
 							DefaultSimulation sim = new DefaultSimulation();
@@ -316,7 +321,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	
 	public void waitWhileStatus(Predicate<MDTInstanceStatus> waitCond, Duration pollInterval, Duration timeout)
 		throws TimeoutException, InterruptedException, ExecutionException {
-		StateChangePoller.pollWhile(() -> waitCond.test(reloadStatus()))
+		StateChangePoller.pollWhile(() -> waitCond.test(reloadInstanceDescriptor().getStatus()))
 						.pollInterval(pollInterval)
 						.timeout(timeout)
 						.build()
@@ -326,7 +331,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	private SubmodelService toSubmodelService(String submodelId) {
 		String instSvcEp = getBaseEndpoint();
 		if ( instSvcEp == null ) {
-			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), getStatus());
+			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), m_desc.get().getStatus());
 		}
 		
 		String smEp = DescriptorUtils.toSubmodelServiceEndpointString(instSvcEp, submodelId);

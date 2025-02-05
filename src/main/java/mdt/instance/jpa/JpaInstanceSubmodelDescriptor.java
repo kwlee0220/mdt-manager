@@ -11,7 +11,14 @@ import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 
 import com.google.common.base.Preconditions;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import utils.func.FOption;
+
+import mdt.model.DescriptorUtils;
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.InstanceSubmodelDescriptor;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -25,11 +32,6 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
-import lombok.Getter;
-import lombok.Setter;
-import mdt.model.DescriptorUtils;
-import mdt.model.MDTModelSerDe;
-import mdt.model.instance.InstanceSubmodelDescriptor;
 
 
 /**

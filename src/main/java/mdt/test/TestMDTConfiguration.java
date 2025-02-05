@@ -8,9 +8,10 @@ import org.hibernate.jpa.HibernatePersistenceProvider;
 
 import com.google.common.collect.Maps;
 
-import jakarta.persistence.EntityManagerFactory;
 import mdt.MDTConfiguration;
 import mdt.instance.jpa.InstancePersistenceUnitInfo;
+
+import jakarta.persistence.EntityManagerFactory;
 
 /**
  *

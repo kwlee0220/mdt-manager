@@ -3,6 +3,7 @@ package mdt.instance.jar;
 import java.io.File;
 import java.io.IOException;
 
+import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,21 +11,25 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
 
 import utils.InternalException;
+import utils.Throwables;
 import utils.func.Tuple;
 import utils.io.FileUtils;
 
 import mdt.Globals;
 import mdt.MDTConfiguration;
-import mdt.MDTConfiguration.JarExecutorConfiguration;
 import mdt.exector.jar.JarExecutionListener;
 import mdt.exector.jar.JarInstanceExecutor;
-import mdt.instance.AbstractInstanceManager;
+import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.InstanceDescriptorManager;
 import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.instance.jpa.JpaInstanceDescriptorManager;
+import mdt.instance.jpa.JpaProcessor;
+import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
-import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.InstanceStatusChangeEvent;
+import mdt.model.instance.MDTInstance;
+import mdt.model.instance.MDTInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 
@@ -33,11 +38,10 @@ import mdt.model.instance.MDTInstanceStatus;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class JarInstanceManager extends AbstractInstanceManager<JpaInstance> {
+public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceManager.class);
 	
 	private final JarInstanceExecutor m_executor;
-	private final File m_instancesDir;
 	private final File m_defaultInstanceJarFile;
 	
 	public JarInstanceManager(MDTConfiguration conf) {
@@ -48,37 +52,25 @@ public class JarInstanceManager extends AbstractInstanceManager<JpaInstance> {
 		if ( getLogger().isInfoEnabled() ) {
 			getLogger().info("use default MDTInstance jar file: {}", m_defaultInstanceJarFile.getAbsolutePath());
 		}
-		
-		JarExecutorConfiguration execConf = conf.getJarExecutorConfiguration();
-		m_instancesDir = execConf.getWorkspaceDir();
 
 		m_executor = new JarInstanceExecutor(conf.getJarExecutorConfiguration());
 		m_executor.addExecutionListener(m_execListener);
 	}
 
 	@Override
-	public void initialize(InstanceDescriptorManager instDescManager) throws MDTInstanceManagerException {
+	public void initialize(InstanceDescriptorManager instDescManager, JpaProcessor jpaProcessor)
+		throws MDTInstanceManagerException {
+		Preconditions.checkArgument(instDescManager instanceof JpaInstanceDescriptorManager,
+									"JpaInstanceDescriptorManager required");
+		JpaInstanceDescriptorManager jpaInstDescManager = (JpaInstanceDescriptorManager)instDescManager;
+		Preconditions.checkArgument(jpaInstDescManager.getEntityManager() != null, "EntityManager is not assigned");
+		
+		super.initialize(instDescManager, jpaProcessor);
+		
 		for ( JpaInstanceDescriptor desc: instDescManager.getInstanceDescriptorAll() ) {
 			desc.setStatus(MDTInstanceStatus.STOPPED);
 			desc.setBaseEndpoint(null);
 		}
-    	
-    	try {
-			if ( getInstancesDir().exists() ) {
-				FileUtils.createDirectories(getInstancesDir());
-			}
-		}
-		catch ( IOException e ) {
-			throw new MDTInstanceManagerException(e);
-		}
-	}
-	
-	public File getInstancesDir() {
-		return m_instancesDir;
-	}
-	
-	public File getInstanceHomeDir(String id) {
-		return FileUtils.path(getInstancesDir(), id);
 	}
 	
 	public JarInstanceExecutor getInstanceExecutor() {
@@ -101,17 +93,48 @@ public class JarInstanceManager extends AbstractInstanceManager<JpaInstance> {
 	}
 
 	@Override
-	public InstanceDescriptor addInstance(String id, int faaastPort, File bundleDir)
-		throws ModelValidationException, IOException {
+	public MDTInstance addInstance(String id, int faaastPort, File bundleDir)
+		throws ModelValidationException, IOException, MDTInstanceManagerException {
 		Preconditions.checkArgument(faaastPort > 0);
 		
-		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
 		try {
 			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
 			// instances 디렉토리로 이동시킨다.
 			File instDir = getInstanceHomeDir(id);
 			FileUtils.deleteDirectory(instDir);
 			FileUtils.move(bundleDir, instDir);
+			
+			// FA3ST jar file이 없는 경우에는 default jar 파일을 사용한다.
+			File fa3stJarFile = new File(instDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME);
+			if ( !fa3stJarFile.exists() ) {
+				File defaultJarFile = m_defaultInstanceJarFile;
+				if ( defaultJarFile == null || !defaultJarFile.exists() ) {
+					throw new IllegalStateException("No default MDTInstance jar file exists: path=" + defaultJarFile);
+				}
+				
+				FileUtils.copy(defaultJarFile, fa3stJarFile);
+			}
+
+			// Global 설정 파일이 없는 경우에는 default 설정 파일을 사용한다.
+			File globalConfFile = new File(instDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
+			if ( !globalConfFile.exists() ) {
+				File defaultGlobalConfFile = new File(getHomeDir(), MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
+				if ( !defaultGlobalConfFile.exists()) {
+					throw new IllegalStateException("No default global configuration file exists: path="
+														+ defaultGlobalConfFile);
+				}
+				FileUtils.copy(defaultGlobalConfFile, globalConfFile);
+			}
+			
+			// Certificate 파일이 없는 instDir default 파일을 사용한다.
+			File certFile = new File(instDir, MDTInstanceManager.CERT_FILE_NAME);
+			if ( !certFile.exists() ) {
+				File defaultCertFile = new File(getHomeDir(), MDTInstanceManager.CERT_FILE_NAME);
+				if ( !defaultCertFile.exists() ) {
+					throw new IllegalStateException("No default certificate file exists: path=" + defaultCertFile);
+				}
+				FileUtils.copy(defaultCertFile, certFile);
+			}
 			
 			JarExecutionArguments args = JarExecutionArguments.builder()
 																.jarFile(FA3ST_JAR_FILE_NAME)
@@ -122,21 +145,23 @@ public class JarInstanceManager extends AbstractInstanceManager<JpaInstance> {
 			if ( !modelFile.canRead() ) {
 				modelFile = FileUtils.path(instDir, MODEL_FILE_NAME);
 			}
+			Environment env = AASUtils.readEnvironment(modelFile);
 			String arguments = m_mapper.writeValueAsString(args);
 			
-			InstanceDescriptor desc = addInstanceDescriptor(id, modelFile, arguments);
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
-			
+			JpaInstanceDescriptor desc = addInstanceDescriptor(id, env, arguments);
 			if ( getLogger().isInfoEnabled() ) {
 				getLogger().info("added JarInstance: id={}, port={}, instanceDir={}",
 									desc.getId(), faaastPort, instDir);
 			}
 			
-			return desc;
+			return toInstance(desc);
+		}
+		catch ( IOException | ModelValidationException | MDTInstanceManagerException e ) {
+			throw e;
 		}
 		catch ( Throwable e ) {
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
-			throw new InternalException("Failed to add MDTInstance: id=" + id, e);
+			Throwable cause = Throwables.unwrapThrowable(e);
+			throw new MDTInstanceManagerException("Failed to add MDTInstance: id=" + id, cause);
 		}
 	}
 

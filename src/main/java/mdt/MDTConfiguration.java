@@ -17,23 +17,27 @@ import org.springframework.context.annotation.Configuration;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Maps;
 
-import utils.UnitUtils;
-import utils.func.FOption;
-
-import jakarta.persistence.EntityManagerFactory;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
+
+import utils.UnitUtils;
+import utils.func.FOption;
+
 import mdt.client.HttpServiceFactory;
-import mdt.instance.AbstractInstanceManager;
+import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.JpaInstance;
 import mdt.instance.docker.DockerConfiguration;
 import mdt.instance.docker.DockerInstanceManager;
 import mdt.instance.docker.HarborConfiguration;
+import mdt.instance.external.ExternalConfiguration;
+import mdt.instance.external.ExternalInstanceManager;
 import mdt.instance.jar.JarInstanceManager;
 import mdt.instance.jpa.InstancePersistenceUnitInfo;
 import mdt.instance.k8s.KubernetesInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
+
+import jakarta.persistence.EntityManagerFactory;
 
 /**
  *
@@ -59,9 +63,10 @@ public class MDTConfiguration {
 	//
 
 	public class MDTInstanceManagerConfiguration {
-		private String m_type;		// "jar", "docker", "kubernetes"
-		private File m_homeDir;		// MDTInstanceManager home 디렉토리.
-		private File m_bundlesDir;   // MDTInstanceManager bundle 디렉토리.
+		private String m_type;				// "jar", "docker", "kubernetes", "external"
+		private File m_homeDir;			// MDTInstanceManager home 디렉토리.
+		private File m_bundlesDir;   		// MDTInstanceManager bundle 디렉토리.
+		private File m_instancesDir;		// MDTInstanceManager instance 디렉토리.
 		private File m_defaultMDTInstanceJarFile;	// MDTInstance 수행을 위한 기본 jar 파일
 		private String m_repositoryEndpointFormat;	// MDTInstance 접속을 위한 URL 포맷
 		
@@ -79,6 +84,14 @@ public class MDTConfiguration {
 		
 		public void setHomeDir(File homeDir) {
 			m_homeDir = homeDir;
+		}
+		
+		public File getInstancesDir() {
+			return m_instancesDir;
+		}
+		
+		public void setInstancesDir(File instancesDir) {
+			m_instancesDir = instancesDir;
 		}
 		
 		public File getBundlesDir() {
@@ -112,13 +125,14 @@ public class MDTConfiguration {
 	}
 
 	@Bean
-	AbstractInstanceManager<? extends JpaInstance> getMDTInstanceManager()
+	AbstractJpaInstanceManager<? extends JpaInstance> getMDTInstanceManager()
 		throws DockerException, InterruptedException {
 		MDTInstanceManagerConfiguration conf = getMDTInstanceManagerConfiguration();
-		AbstractInstanceManager<? extends JpaInstance> instManager = switch ( conf.getType() ) {
+		AbstractJpaInstanceManager<? extends JpaInstance> instManager = switch ( conf.getType() ) {
 			case "jar" -> new JarInstanceManager(this);
 			case "docker" -> new DockerInstanceManager(this);
 			case "kubernetes" -> new KubernetesInstanceManager(this);
+			case "external" -> new ExternalInstanceManager(this);
 			default -> throw new MDTInstanceManagerException("Unknown MDTInstanceManager type: " + conf.getType());
 		};
 		
@@ -142,6 +156,12 @@ public class MDTConfiguration {
 		private int startConcurrency = 7;
 		private File defaultMDTInstanceJarFile;
 		private String heapSize;
+	}
+
+	@Bean
+	@ConfigurationProperties(prefix = "external")
+	public ExternalConfiguration getExternalConfiguration() {
+		return new ExternalConfiguration();
 	}
 
 	@Bean
