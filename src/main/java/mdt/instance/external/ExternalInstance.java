@@ -29,12 +29,14 @@ public class ExternalInstance extends JpaInstance implements MDTInstance {
 
 	@Override
 	public void startAsync() {
-		throw new UnsupportedOperationException();
+		String details = String.format("%s cannot be started by client: id=%s", getClass().getSimpleName(), getId());
+		throw new UnsupportedOperationException(details);
 	}
 
 	@Override
 	public void stopAsync() {
-		throw new UnsupportedOperationException();
+		String details = String.format("%s cannot be stoppedby client: id=%s", getClass().getSimpleName(), getId());
+		throw new UnsupportedOperationException(details);
 	}
 
 	@Override
