@@ -2,6 +2,7 @@ package mdt.instance.jar;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
@@ -33,16 +34,16 @@ public class JarInstance extends JpaInstance implements MDTInstance {
 
 	@Override
 	public void startAsync() throws MDTInstanceManagerException {
-		JpaInstanceDescriptor desc = asJpaInstanceDescriptor();
+		JpaInstanceDescriptor desc = getInstanceDescriptor();
 		
 		JarInstanceManager mgr = getInstanceManager();
 		JarExecutionArguments jargs = mgr.parseExecutionArguments(desc.getArguments());
 
-		JarInstanceExecutor exector = getExecutor();
+		JarInstanceExecutor exector = mgr.getInstanceExecutor();
 		if ( getLogger().isInfoEnabled() ) {
 			getLogger().info("starting: {}, port={}...", this, jargs.getPort());
 		}
-		exector.start(getId(), getAasId(), jargs);
+		CompletableFuture.runAsync(() -> exector.start(getId(), getAasId(), jargs));
 	}
 
 	@Override

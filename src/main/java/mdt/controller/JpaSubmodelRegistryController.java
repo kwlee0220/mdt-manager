@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import utils.jpa.JpaProcessor;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -31,14 +33,17 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import jakarta.persistence.EntityManagerFactory;
-import jakarta.persistence.NoResultException;
-import jakarta.persistence.TypedQuery;
+
+import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceSubmodelDescriptor;
-import mdt.instance.jpa.JpaProcessor;
 import mdt.model.AASUtils;
 import mdt.model.MDTModelSerDe;
 import mdt.model.ResourceNotFoundException;
+
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.NoResultException;
+import jakarta.persistence.TypedQuery;
 
 
 /**
@@ -50,6 +55,7 @@ import mdt.model.ResourceNotFoundException;
 public class JpaSubmodelRegistryController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(JpaSubmodelRegistryController.class);
 
+	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
 	@Autowired EntityManagerFactory m_emFact;
 	private JpaProcessor m_jpaProcessor;
 
@@ -94,7 +100,7 @@ public class JpaSubmodelRegistryController implements InitializingBean {
 			TypedQuery<JpaInstanceSubmodelDescriptor> query
 											= em.createQuery(jpql, JpaInstanceSubmodelDescriptor.class);
 			return query.getResultStream()
-						.map(d -> d.getInstance().toSubmodelDescriptor(d))
+						.map(desc -> m_instanceManager.toSubmodelDescriptor(desc))
 						.toList();
     	});
 		
@@ -126,7 +132,7 @@ public class JpaSubmodelRegistryController implements InitializingBean {
 				TypedQuery<JpaInstanceSubmodelDescriptor> query
 												= em.createQuery(jpql, JpaInstanceSubmodelDescriptor.class);
 				JpaInstanceSubmodelDescriptor ismDesc = query.getSingleResult();
-				return ismDesc.getInstance().toSubmodelDescriptor(ismDesc);
+				return m_instanceManager.toSubmodelDescriptor(ismDesc);
 			}
 			catch ( NoResultException e ) {
 				throw new ResourceNotFoundException("SubmodelDescriptor", "id=" + decodedId);

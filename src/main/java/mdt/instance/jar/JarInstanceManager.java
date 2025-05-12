@@ -3,6 +3,7 @@ package mdt.instance.jar;
 import java.io.File;
 import java.io.IOException;
 
+import org.apache.commons.io.IOExceptionList;
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,26 +13,25 @@ import com.google.common.base.Preconditions;
 
 import utils.InternalException;
 import utils.Throwables;
-import utils.func.Tuple;
 import utils.io.FileUtils;
+import utils.jpa.JpaSession;
 
-import mdt.Globals;
 import mdt.MDTConfiguration;
 import mdt.exector.jar.JarExecutionListener;
 import mdt.exector.jar.JarInstanceExecutor;
 import mdt.instance.AbstractJpaInstanceManager;
-import mdt.instance.InstanceDescriptorManager;
 import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
-import mdt.instance.jpa.JpaProcessor;
 import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
-import mdt.model.instance.InstanceStatusChangeEvent;
+import mdt.model.ServiceFactory;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+
+import jakarta.persistence.EntityManagerFactory;
 
 
 /**
@@ -58,34 +58,23 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	}
 
 	@Override
-	public void initialize(InstanceDescriptorManager instDescManager, JpaProcessor jpaProcessor)
-		throws MDTInstanceManagerException {
-		Preconditions.checkArgument(instDescManager instanceof JpaInstanceDescriptorManager,
-									"JpaInstanceDescriptorManager required");
-		JpaInstanceDescriptorManager jpaInstDescManager = (JpaInstanceDescriptorManager)instDescManager;
-		Preconditions.checkArgument(jpaInstDescManager.getEntityManager() != null, "EntityManager is not assigned");
+	public void initialize(ServiceFactory svcFact, EntityManagerFactory fact) throws IOException {
+		Preconditions.checkArgument(fact != null, "EntityManager is not assigned");
 		
-		super.initialize(instDescManager, jpaProcessor);
+		super.initialize(svcFact, fact);
 		
-		for ( JpaInstanceDescriptor desc: instDescManager.getInstanceDescriptorAll() ) {
-			desc.setStatus(MDTInstanceStatus.STOPPED);
-			desc.setBaseEndpoint(null);
+		// 모든 instance를 STOPPED 상태로 초기화한다.
+		try ( JpaSession session = allocateJpaSession() ) {
+			JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
+			for ( JpaInstanceDescriptor desc: instDescMgr.getInstanceDescriptorAll() ) {
+				desc.setStatus(MDTInstanceStatus.STOPPED);
+				desc.setBaseEndpoint(null);
+			}
 		}
 	}
 	
 	public JarInstanceExecutor getInstanceExecutor() {
 		return m_executor;
-	}
-	
-	@Override
-	public MDTInstanceStatus getInstanceStatus(String id) {
-		return m_executor.getStatus(id)._1;
-	}
-
-	@Override
-	public String getInstanceServiceEndpoint(String id) {
-		Tuple<MDTInstanceStatus,Integer> result = m_executor.getStatus(id);
-		return (result._2 > 0) ? toServiceEndpoint(result._2) : null;
 	}
 	
 	public void shutdown() {
@@ -153,8 +142,11 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 				getLogger().info("added JarInstance: id={}, port={}, instanceDir={}",
 									desc.getId(), faaastPort, instDir);
 			}
-			
 			return toInstance(desc);
+		}
+		catch ( IOExceptionList e) {
+			Throwable clause = e.getCause(0);
+			throw new IOException("Failed to add MDTInstance: id=" + id + ", cause=" + clause);
 		}
 		catch ( IOException | ModelValidationException | MDTInstanceManagerException e ) {
 			throw e;
@@ -183,34 +175,52 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	public String toString() {
 		return String.format("%s[home=%s]", getClass().getSimpleName(), getInstancesDir());
 	}
+
+	@Override
+	protected void updateInstanceDescriptor(JpaInstanceDescriptor desc) { }
 	
 	private final JarExecutionListener m_execListener = new JarExecutionListener() {
 		@Override
 		public void stausChanged(String id, MDTInstanceStatus status, int repoPort) {
-			switch ( status ) {
-				case RUNNING:
-					String svcEp = toServiceEndpoint(repoPort);
-					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.RUNNING(id, svcEp));
-					break;
-				case STOPPED:
-					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(id));
-					break;
-				case FAILED:
-					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.FAILED(id));
-					break;
-				case STARTING:
-					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STARTING(id));
-					break;
-				case STOPPING:
-					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPING(id));
-					break;
-				default:
-					throw new InternalException("JarExecutor throws an unknown status: " + status);
+			try ( JpaSession session = allocateJpaSession() ) {
+				JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
+				JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
+				desc.setStatus(status);
+				desc.setBaseEndpoint((repoPort > 0) ? toServiceEndpoint(repoPort) : null);
 			}
 		}
 		
 		@Override
-		public void timeoutExpired() {
-		}
+		public void timeoutExpired() { }
 	};
+	
+//	private final JarExecutionListener m_execListener = new JarExecutionListener() {
+//		@Override
+//		public void stausChanged(String id, MDTInstanceStatus status, int repoPort) {
+//			switch ( status ) {
+//				case RUNNING:
+//					String svcEp = toServiceEndpoint(repoPort);
+//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.RUNNING(id, svcEp));
+//					break;
+//				case STOPPED:
+//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(id));
+//					break;
+//				case FAILED:
+//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.FAILED(id));
+//					break;
+//				case STARTING:
+//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STARTING(id));
+//					break;
+//				case STOPPING:
+//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPING(id));
+//					break;
+//				default:
+//					throw new InternalException("JarExecutor throws an unknown status: " + status);
+//			}
+//		}
+//		
+//		@Override
+//		public void timeoutExpired() {
+//		}
+//	};
 }

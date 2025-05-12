@@ -23,26 +23,19 @@ import utils.LoggerSettable;
 import utils.StateChangePoller;
 import utils.func.FOption;
 import utils.func.Funcs;
+import utils.jpa.JpaSession;
 import utils.stream.FStream;
 
+import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.AssetAdministrationShellService;
 import mdt.model.DescriptorUtils;
 import mdt.model.InvalidResourceStatusException;
-import mdt.model.ModelValidationException;
 import mdt.model.ResourceNotFoundException;
 import mdt.model.SubmodelService;
-import mdt.model.instance.DefaultMDTInstanceInfo;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.MDTInstance;
-import mdt.model.instance.MDTInstanceInfo;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
-import mdt.model.sm.data.Data;
-import mdt.model.sm.data.DefaultData;
-import mdt.model.sm.info.DefaultInformationModel;
-import mdt.model.sm.info.InformationModel;
-import mdt.model.sm.simulation.DefaultSimulation;
-import mdt.model.sm.simulation.Simulation;
 
 
 /**
@@ -54,28 +47,83 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	
 	protected final AbstractJpaInstanceManager<? extends AbstractInstance> m_manager;
 	protected final AtomicReference<InstanceDescriptor> m_desc;
-	private final AtomicReference<InformationModel> m_infoModel = new AtomicReference<>();
-	private final AtomicReference<Data> m_data = new AtomicReference<>();
-	private final AtomicReference<List<Simulation>> m_simulationList = new AtomicReference<>();
 	private Logger m_logger;
 
+	/**
+	 * 본 MDTInstance의 AssetAdministrationShellDescriptor를 반환한다.
+	 * <p>
+	 * 이 메소드는 {@link AbstractInstance}를 상속받는 클래스에서 구현되어야 한다.
+	 * 
+	 * @return    AssetAdministrationShellDescriptor
+	 */
 	abstract public AssetAdministrationShellDescriptor getAASDescriptor();
+	
+	/**
+	 * 본 MDTInstance에 속한 모든 SubmodelDescriptor를 반환한다.
+	 * <p>
+	 * 이 메소드는 {@link AbstractInstance}를 상속받는 클래스에서 구현되어야 한다.
+	 * 
+	 * @return    SubmodelDescriptor 리스트
+	 */
 	abstract public List<SubmodelDescriptor> getSubmodelDescriptorAll();
+	
+	/**
+	 * 본 MDTInstance를 비동기적으로 시작시킨다.
+	 * <p>
+	 * 이 메소드는 MDTInstance를 시작시키고 바로 반환하기 때문에 메소드가 반환된 사실이
+	 * 해당 MDTInstance가 시작되었음을 의미하지 않는다.
+	 * MDTInstance의 시작 여부는 {@link #getStatus()} 메소드를 통해 확인해야 한다.
+	 * <p>
+	 * 이 메소드는 {@link AbstractInstance}를 상속받는 클래스에서 구현되어야 한다.
+	 *
+	 * @throws InterruptedException	시작 중에 쓰레드가 인터럽트된 경우.
+	 */
 	abstract public void startAsync() throws InterruptedException;
+	
+	/**
+	 * 본 MDTInstance를 비동기적으로 중지시킨다.
+	 * <p>
+	 * 이 메소드는 MDTInstance를 중지시키고 바로 반환하기 때문에 메소드가 반환된 사실이
+	 * 해당 MDTInstance가 중지되었음을 의미하지 않는다.
+	 * MDTInstance의 중지 여부는 {@link #getStatus()} 메소드를 통해 확인해야 한다.
+	 * <p>
+	 * 이 메소드는 {@link AbstractInstance}를 상속받는 클래스에서 구현되어야 한다.
+	 */
 	abstract public void stopAsync();
-	abstract protected InstanceDescriptor reloadInstanceDescriptor();
-//	abstract protected MDTInstanceStatus reloadStatus();
+	
+	/**
+	 * 본 MDTInstance에 해당하는 {@link InstanceDescriptor}를 읽어온다.
+	 *
+	 * @return   InstanceDescriptor
+	 */
+	protected InstanceDescriptor reloadInstanceDescriptor() {
+		JpaInstanceDescriptor desc = m_manager.getInstanceDescriptor(getId());
+		m_desc.set(desc);
+		
+		return desc;
+	}
+	
+	/**
+	 * 본 MDTInstance를 위해 사용된 자원을 해제한다.
+	 *
+	 * @throws Throwable
+	 */
 	abstract protected void uninitialize() throws Throwable;
 	
 	protected AbstractInstance(AbstractJpaInstanceManager<? extends AbstractInstance> manager,
 								InstanceDescriptor desc) {
-		Preconditions.checkNotNull(manager);
-		Preconditions.checkNotNull(desc);
+		Preconditions.checkArgument(manager != null, "AbstractJpaInstanceManager is null");
+		Preconditions.checkArgument(desc != null, "InstanceDescriptor is null");
 		
 		m_manager = manager;
 		m_desc = new AtomicReference<>(desc);
 		
 		setLogger(s_logger);
+	}
+
+	@Override
+	public AbstractJpaInstanceManager<? extends AbstractInstance> getInstanceManager() {
+		return m_manager;
 	}
 	
 	public InstanceDescriptor getInstanceDescriptor() {
@@ -85,16 +133,6 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public String getId() {
 		return m_desc.get().getId();
-	}
-
-	@Override
-	public MDTInstanceStatus getStatus() {
-		return m_desc.get().getStatus();
-	}
-
-	@Override
-	public String getBaseEndpoint() {
-		return m_desc.get().getBaseEndpoint();
 	}
 
 	@Override
@@ -121,23 +159,39 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	public AssetKind getAssetKind() {
 		return m_desc.get().getAssetKind();
 	}
-
+	
 	@Override
-	public MDTInstanceInfo getInfo() {
-		return DefaultMDTInstanceInfo.builder(this).build();
+	public MDTInstanceStatus getStatus() {
+		return m_desc.get().getStatus();
 	}
+	
+	@Override
+	public String getBaseEndpoint() {
+		return m_desc.get().getBaseEndpoint();
+	}
+	
+	private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofMillis(500);
 
 	@Override
 	public void start(@Nullable Duration pollInterval, @Nullable Duration timeout)
 		throws TimeoutException, InterruptedException, InvalidResourceStatusException, ExecutionException {
-		MDTInstanceStatus status = m_desc.get().getStatus(); 
+		MDTInstanceStatus status = getStatus(); 
 		if ( status != MDTInstanceStatus.STOPPED && status != MDTInstanceStatus.FAILED ) {
 			throw new InvalidResourceStatusException("MDTInstance", getId(), status);
 		}
 		
 		startAsync();
-		
-		status = reloadInstanceDescriptor().getStatus();
+		try {
+			// MDTInstance가 시작될 때까지 대기한다.
+			waitWhileStatus(state -> state == MDTInstanceStatus.STOPPED || state ==  MDTInstanceStatus.FAILED,
+							DEFAULT_POLL_INTERVAL, timeout);
+		}
+		catch ( ExecutionException e ) {
+			throw new MDTInstanceManagerException(e.getCause());
+		}
+
+		// MDTInstance를 시작시켜 놓고, 시작이 완료될 때까지 대기한다.
+		status = getStatus();
 		switch ( status ) {
 			case RUNNING:
 				return;
@@ -159,14 +213,16 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public void stop(@Nullable Duration pollInterval, @Nullable Duration timeout)
 		throws MDTInstanceManagerException, TimeoutException, InterruptedException, InvalidResourceStatusException {
-		MDTInstanceStatus status = m_desc.get().getStatus(); 
-		if ( status != MDTInstanceStatus.RUNNING) {
-			throw new InvalidResourceStatusException("MDTInstance", getId(), status);
+		stopAsync();
+		try {
+			// MDTInstance의 종료 작업이 시작될 때까지 대기한다.
+			waitWhileStatus(state -> state == MDTInstanceStatus.RUNNING, DEFAULT_POLL_INTERVAL, timeout);
+		}
+		catch ( ExecutionException e ) {
+			throw new MDTInstanceManagerException(e.getCause());
 		}
 		
-		stopAsync();
-		
-		status = reloadInstanceDescriptor().getStatus();
+		MDTInstanceStatus status = getStatus();
 		switch ( status ) {
 			case STOPPED:
 				return;
@@ -200,7 +256,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public SubmodelService getSubmodelServiceById(String submodelId)
 		throws InvalidResourceStatusException, ResourceNotFoundException {
-		if ( !Funcs.exists(getSubmodelDescriptorAll(), desc -> desc.getId().equals(submodelId)) ) {
+		if ( !Funcs.exists(getInstanceSubmodelDescriptorAll(), desc -> desc.getId().equals(submodelId)) ) {
 			throw new ResourceNotFoundException("Submodel", "id=" + submodelId);
 		}
 		return toSubmodelService(submodelId);
@@ -219,7 +275,8 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 
 	@Override
 	public List<SubmodelService> getSubmodelServiceAllBySemanticId(String semanticId) {
-		return FStream.from(getSubmodelDescriptorAllBySemanticId(semanticId))
+		return FStream.from(getInstanceSubmodelDescriptorAll())
+						.filter(desc -> semanticId.equals(desc.getSemanticId()))
 						.map(desc -> toSubmodelService(desc.getId()))
 						.toList();
 	}
@@ -228,55 +285,6 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	public List<SubmodelService> getSubmodelServiceAll() {
 		return FStream.from(getSubmodelDescriptorAll())
 						.map(desc -> toSubmodelService(desc.getId()))
-						.toList();
-	}
-
-	@Override
-	public InformationModel getInformationModel() throws ResourceNotFoundException {
-		return m_infoModel.updateAndGet(p -> FOption.getOrElse(p, this::loadInformationModel));
-	}
-	private InformationModel loadInformationModel() throws ResourceNotFoundException {
-		List<SubmodelService> svcList = getSubmodelServiceAllBySemanticId(InformationModel.SEMANTIC_ID);
-		if ( svcList.size() == 0 ) {
-			throw new ResourceNotFoundException("InformationModel", "semanticId=" + InformationModel.SEMANTIC_ID);
-		}
-		else if ( svcList.size() > 1 ) {
-			String msg = String.format("Too many InformationModel is found in MDTInstance: %s, count=%d",
-										m_desc.get().getId(), svcList.size());
-			throw new ModelValidationException(msg);
-		}
-		
-		DefaultInformationModel infoModel = new DefaultInformationModel();
-		infoModel.updateFromAasModel(svcList.get(0).getSubmodel());
-		return infoModel;
-	}
-
-	@Override
-	public Data getData() throws ResourceNotFoundException {
-		return m_data.updateAndGet(p -> FOption.getOrElseThrow(p, this::loadData));
-	}
-	private Data loadData() throws ResourceNotFoundException {
-		List<SubmodelService> found = getSubmodelServiceAllBySemanticId(Data.SEMANTIC_ID);
-		SubmodelService dataSvc = Funcs.getFirst(found)
-										.getOrThrow(() -> new ResourceNotFoundException("DataSubmodel",
-																				"semanticId=" + Data.SEMANTIC_ID));
-		DefaultData data = new DefaultData();
-		data.updateFromAasModel(dataSvc.getSubmodel());
-		return data;
-	}
-
-	@Override
-	public List<Simulation> getSimulationAll() {
-		return m_simulationList.updateAndGet(lst -> FOption.getOrElseThrow(lst, this::loadAllSimulations));
-	}
-	private List<Simulation> loadAllSimulations() {
-		return FStream.from(getSubmodelServiceAllBySemanticId(Simulation.SEMANTIC_ID))
-						.map(SubmodelService::getSubmodel)
-						.map(submodel -> {
-							DefaultSimulation sim = new DefaultSimulation();
-							sim.updateFromAasModel(submodel);
-							return (Simulation)sim;
-						})
 						.toList();
 	}
 
@@ -321,7 +329,12 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	
 	public void waitWhileStatus(Predicate<MDTInstanceStatus> waitCond, Duration pollInterval, Duration timeout)
 		throws TimeoutException, InterruptedException, ExecutionException {
-		StateChangePoller.pollWhile(() -> waitCond.test(reloadInstanceDescriptor().getStatus()))
+		StateChangePoller.pollWhile(() -> {
+							try (JpaSession session = m_manager.allocateJpaSession()) {
+								InstanceDescriptor desc = reloadInstanceDescriptor();
+								return waitCond.test(desc.getStatus());
+							}
+						})
 						.pollInterval(pollInterval)
 						.timeout(timeout)
 						.build()
@@ -331,7 +344,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	private SubmodelService toSubmodelService(String submodelId) {
 		String instSvcEp = getBaseEndpoint();
 		if ( instSvcEp == null ) {
-			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), m_desc.get().getStatus());
+			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), getStatus());
 		}
 		
 		String smEp = DescriptorUtils.toSubmodelServiceEndpointString(instSvcEp, submodelId);

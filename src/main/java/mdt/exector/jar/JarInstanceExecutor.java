@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
 
 import javax.annotation.Nullable;
@@ -25,12 +26,11 @@ import com.google.common.collect.Sets;
 
 import utils.KeyValue;
 import utils.StopWatch;
+import utils.Tuple;
 import utils.UnitUtils;
-import utils.async.Executions;
 import utils.async.Guard;
 import utils.func.FOption;
 import utils.func.Try;
-import utils.func.Tuple;
 import utils.func.Unchecked;
 import utils.io.FileUtils;
 import utils.io.LogTailer;
@@ -54,40 +54,16 @@ public class JarInstanceExecutor {
 	private final Duration m_sampleInterval;
 	@Nullable private final Duration m_startTimeout;
 	private final String m_heapSize;
-	private final Semaphore m_startSemaphore;
+	private final Semaphore m_startSemaphore;	// 동시에 시작할 수 있는 프로세스 수 제한
 	
 	private final Guard m_guard = Guard.create();
+	// 이 JarInstanceExecutor를 통해 실행 중인 모든 프로세스들의 등록정보
 	private final Map<String,ProcessDesc> m_runningInstances = Maps.newHashMap();
 	private final Set<JarExecutionListener> m_listeners = Sets.newConcurrentHashSet();
-
-	private static class ProcessDesc {
-		private final String m_id;
-		private Process m_process;
-		private MDTInstanceStatus m_status;
-		private int m_repoPort = -1;
-		private final File m_stdoutLogFile;
-		
-		public ProcessDesc(String id, Process process, MDTInstanceStatus status,
-							String serviceEndpoint, File stdoutLogFile) {
-			this.m_id = id;
-			this.m_process = process;
-			this.m_status = status;
-			this.m_stdoutLogFile = stdoutLogFile;
-		}
-		
-		public Tuple<MDTInstanceStatus,Integer> toResult() {
-			return Tuple.of(m_status, m_repoPort);
-		}
-		
-		@Override
-		public String toString() {
-			return String.format("Process(id=%s, proc=%d, status=%s, repo_port=%s)",
-									m_id, m_process.toHandle().pid(), m_status, m_repoPort);
-		}
-	}
 	
 	public JarInstanceExecutor(JarExecutorConfiguration conf) throws MDTInstanceManagerException {
-		Preconditions.checkNotNull(conf.getWorkspaceDir());
+		Preconditions.checkArgument(conf != null, "JarExecutorConfiguration is null");
+		Preconditions.checkArgument(conf.getWorkspaceDir() != null, "JarExecutorConfiguration.workspaceDir is null");
 		
 		m_workspaceDir = conf.getWorkspaceDir();
 		Try.accept(m_workspaceDir, FileUtils::createDirectory);
@@ -105,40 +81,29 @@ public class JarInstanceExecutor {
 	public Tuple<MDTInstanceStatus,Integer> start(String id, String aasId, JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
 		try {
+			// 동시에 실행할 수 있는 프로세스 수 제한을 위해 semaphore를 획득한다.
 			m_startSemaphore.acquire();
-			if ( s_logger.isInfoEnabled() ) {
-				s_logger.info("acquired start semaphone: thead=" + Thread.currentThread().getName());
+			if ( s_logger.isDebugEnabled() ) {
+				s_logger.debug("acquired start-semaphore: thead=" + Thread.currentThread().getName());
 			}
-			
-			// semaphore의 release는 인스턴스 프로세스가 성공적으로 시작되거나
-			// 실패하는 경우 release 시킨다.
 		}
 		catch ( InterruptedException e ) {
 			throw new MDTInstanceExecutorException("" + e);
 		}
 		
-		return m_guard.get(() -> startInGuard(id, aasId, args));
+		try {
+			return startWithSemaphore(id, aasId, args);
+		}
+		finally {
+			m_startSemaphore.release();
+			if ( s_logger.isDebugEnabled() ) {
+				s_logger.debug("released a start-semaphore: thead=" + Thread.currentThread().getName());
+			}
+		}
 	}
 	
-	private Tuple<MDTInstanceStatus,Integer> startInGuard(String id, String aasId, JarExecutionArguments args)
+	private Tuple<MDTInstanceStatus,Integer> startWithSemaphore(String id, String aasId, JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
-		ProcessDesc desc = m_runningInstances.get(id);
-    	if ( desc != null ) {
-	    	switch ( desc.m_status ) {
-	    		case RUNNING:
-	    		case STARTING:
-	    			// 실제 인스턴스용 프로세스가 시작되기 전이기 때문에
-	    			// 지금 return하는 경우에는 startSemaphore를 반환한다.
-	    			if ( s_logger.isInfoEnabled() ) {
-	    				s_logger.info("releasing a start semaphone before create process: thead="
-	    								+ Thread.currentThread().getName());
-	    			}
-	    			m_startSemaphore.release();
-	    			return Tuple.of(desc.m_status, desc.m_repoPort);
-	    		default: break;
-	    	}
-    	}
-    	
     	File jobDir = new File(m_workspaceDir, id);
 		File logDir = new File(jobDir, "logs");
 		
@@ -167,54 +132,54 @@ public class JarInstanceExecutor {
 		builder.redirectOutput(Redirect.appendTo(stdoutLogFile));
 
 		ProcessDesc procDesc = new ProcessDesc(id, null, MDTInstanceStatus.STARTING, null, stdoutLogFile);
-		m_runningInstances.put(id, procDesc);
+		m_guard.run(() -> {
+			m_runningInstances.put(id, procDesc);
+			notifyStatusChanged(procDesc);
+		});
 		
 		try {
 			Files.createDirectories(logDir.toPath());
-			notifyStatusChanged(procDesc);
 			
-			procDesc.m_process = builder.start();
-			procDesc.m_process.onExit()
-								.whenCompleteAsync((proc, error) -> onProcessTerminated(procDesc, error));
+			Process instanceProcess = builder.start();
+			instanceProcess.onExit()
+							.whenCompleteAsync((proc, error) -> onProcessTerminated(procDesc, error));
+			m_guard.run(() -> procDesc.m_process = instanceProcess);
 		}
 		catch ( IOException e ) {
-			procDesc.m_status = MDTInstanceStatus.FAILED;
 			if ( s_logger.isWarnEnabled() ) {
-				s_logger.warn("failed to start jar application: cause=" + e);
+				s_logger.warn("failed to start jar application: cause={}", e);
 			}
-			notifyStatusChanged(procDesc);
-
-			if ( s_logger.isInfoEnabled() ) {
-				s_logger.info("releasing a start semaphone due to failure: thead="
-								+ Thread.currentThread().getName());
+			m_guard.run(() -> {
+				procDesc.m_status = MDTInstanceStatus.FAILED;
+				procDesc.m_repoPort = -1;
+				notifyStatusChanged(procDesc);
+			});
+			
+			if ( s_logger.isDebugEnabled() ) {
+				s_logger.debug("releasing a start semaphore due to failure: thead={}",
+								Thread.currentThread().getName());
 			}
 			m_startSemaphore.release();
 			
 			return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
 		}
 		
-		Executions.toExecution(() -> pollingServicePort(id, procDesc)).start();
-		return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
+		// 프로세스를 시작시킨 후, 출력 메시지를 검사하여 서비스 포트가 오픈될 때까지 대기한다.
+		return waitWhileStarting(id, procDesc);
 	}
 	
+	@SuppressWarnings("null")
 	public Tuple<MDTInstanceStatus,Integer> waitWhileStarting(String id) throws InterruptedException {
-		return m_guard.getOrThrow(() -> {
-			while ( true ) {
-				ProcessDesc procDesc = m_runningInstances.get(id);
-				if ( procDesc == null ) {
-					return Tuple.of(MDTInstanceStatus.STOPPING, -1);
-				}
-				switch ( procDesc.m_status ) {
-					case RUNNING:
-					case STOPPED:
-					case STOPPING:
-					case REMOVED:
-						return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
-					default:
-						m_guard.awaitInGuard();
-				}
-			}
-		});
+		return m_guard.awaitCondition(() -> {
+							// procDesc의 상태가 STARTING인 동안은 계속 대기한다.
+							ProcessDesc procDesc = m_runningInstances.get(id);
+							return procDesc != null || procDesc.m_status == MDTInstanceStatus.STARTING;
+				        })
+						.andGet(() -> {
+							ProcessDesc procDesc = m_runningInstances.get(id);
+							return (procDesc != null) ? Tuple.of(procDesc.m_status, procDesc.m_repoPort)
+									                    : Tuple.of(MDTInstanceStatus.STOPPED, -1);
+						});
 	}
 	
 	private void onProcessTerminated(ProcessDesc procDesc, Throwable error) {
@@ -248,16 +213,16 @@ public class JarInstanceExecutor {
         		switch ( desc.m_status ) {
         			case RUNNING:
         			case STARTING:
-                    	if ( s_logger.isInfoEnabled() ) {
-                    		s_logger.info("stopping MDTInstance: {}", instanceId);
+                    	if ( s_logger.isDebugEnabled() ) {
+                    		s_logger.debug("stopping MDTInstance: {}", instanceId);
                     	}
-        				desc.m_repoPort = -1;
                 		desc.m_status = MDTInstanceStatus.STOPPING;
+        				desc.m_repoPort = -1;
                 		notifyStatusChanged(desc);
                 		
 //            			Executions.runAsync(() -> waitWhileStopping(instanceId, desc));
 //                		desc.m_process.destroy();
-                		Executions.toExecution(() -> desc.m_process.destroy()).start();
+                		CompletableFuture.runAsync(() -> desc.m_process.destroy());
                 		break;
                 	default:
                 		return null;
@@ -280,14 +245,6 @@ public class JarInstanceExecutor {
         	}
     	});
     }
-
-	public List<Tuple<MDTInstanceStatus,Integer>> getAllStatuses() throws MDTInstanceExecutorException {
-    	return m_guard.get(() -> {
-    		return FStream.from(m_runningInstances.values())
-							.map(pdesc -> pdesc.toResult())
-							.toList();
-    	});
-	}
 	
 	public boolean addExecutionListener(JarExecutionListener listener) {
 		return m_guard.get(() -> m_listeners.add(listener));
@@ -336,7 +293,7 @@ public class JarInstanceExecutor {
 				}
 				if ( watch.getElapsedInMillis() > 5000 ) {
 					if ( s_logger.isInfoEnabled() ) {
-						s_logger.warn("{} MDTInstances are still remains stopping : {}s", remains);
+						s_logger.warn("MDTInstances are still remains stopping : {}s", remains);
 					}
 					break;
 				}
@@ -346,8 +303,34 @@ public class JarInstanceExecutor {
 			catch ( InterruptedException expected ) { }
 		}
 	}
+
+	private static class ProcessDesc {
+		private final String m_id;
+		private Process m_process;
+		private MDTInstanceStatus m_status;
+		private int m_repoPort = -1;
+		private final File m_stdoutLogFile;
+		
+		public ProcessDesc(String id, Process process, MDTInstanceStatus status,
+							String serviceEndpoint, File stdoutLogFile) {
+			this.m_id = id;
+			this.m_process = process;
+			this.m_status = status;
+			this.m_stdoutLogFile = stdoutLogFile;
+		}
+		
+		public Tuple<MDTInstanceStatus,Integer> toResult() {
+			return Tuple.of(m_status, m_repoPort);
+		}
+		
+		@Override
+		public String toString() {
+			return String.format("JarInstanceProcess(id=%s, proc=%d, status=%s, repo_port=%s)",
+									m_id, m_process.toHandle().pid(), m_status, m_repoPort);
+		}
+	}
 	
-	private Tuple<MDTInstanceStatus,Integer> pollingServicePort(final String instId, ProcessDesc procDesc) {
+	private Tuple<MDTInstanceStatus,Integer> waitWhileStarting(final String instId, ProcessDesc procDesc) {
 		Instant started = Instant.now();
 		
 		LogTailer tailer = LogTailer.builder()
@@ -357,46 +340,60 @@ public class JarInstanceExecutor {
 									.timeout(this.m_startTimeout)
 									.build();
 		
+		// 0: HTTP endpoint available on port (성공적으로 시작된 경우)
+		// 1: ERROR (실패한 경우)
 		List<String> sentinels = Arrays.asList("HTTP endpoint available on port", "ERROR");
 		SentinelFinder finder = new SentinelFinder(sentinels);
 		tailer.addLogTailerListener(finder);
 		
 		try {
+			// Sentinel 문자열 감시 작업 수행.
+			// 이 작업은 SentinelFinder가 원하는 sentinel 문자열을 찾을 때까지 계속해서 실행된다.
 			tailer.run();
+			
+			// sentinel 문자열을 찾은 경우에 대한 처리.
+			// 또는 대기 시간이 경과한 경우에 대한 처리.
 			
 			final KeyValue<Integer,String> sentinel = finder.getSentinel();
 			return m_guard.get(() -> {
-				switch ( sentinel.key() ) {
-					case 0:
-						String[] parts = sentinel.value().split(" ");
-						procDesc.m_repoPort = Integer.parseInt(parts[parts.length-1]);
-						procDesc.m_status = MDTInstanceStatus.RUNNING;
-						
-				    	if ( s_logger.isInfoEnabled() ) {
-				    		long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
-				    		String elapsedStr = UnitUtils.toSecondString(elapsedMillis);
-				    		s_logger.info("started MDTInstance: id={}, port={}, elapsed={}",
-				    						instId, procDesc.m_repoPort, elapsedStr);
-				    	}
-				    	m_guard.signalAllInGuard();
-				    	notifyStatusChanged(procDesc);
-				    	
-						return procDesc.toResult();
-					case 1:
-				    	if ( s_logger.isInfoEnabled() ) {
-				    		s_logger.info("failed to start an MDTInstance: {}", instId);
-				    		s_logger.info("kill fa3st-repository process: {}",
-				    						procDesc.m_process.toHandle().pid());
-				    	}
-						procDesc.m_status = MDTInstanceStatus.FAILED;
-				    	// 프로세스가 수행 중인 상태이기 때문에 강제로 프로세스를 강제로 종료시킨다.
-				    	procDesc.m_process.destroyForcibly();
-				    	m_guard.signalAllInGuard();
-				    	notifyStatusChanged(procDesc);
-				    	
-						return procDesc.toResult();
-					default:
-						throw new AssertionError();
+				if ( sentinel != null && sentinel.key() == 0 ) {
+					// 'HTTP endpoint available on port' sentinel을 찾은 경우.
+					// 프로세스가 성공적으로 시작되었다고 간주한다.
+					//
+					if ( s_logger.isDebugEnabled() ) {
+						s_logger.debug("found sentinel: {}", sentinel.value());
+					}
+					
+					String[] parts = sentinel.value().split(" ");
+					procDesc.m_repoPort = Integer.parseInt(parts[parts.length-1]);
+					procDesc.m_status = MDTInstanceStatus.RUNNING;
+
+					if ( s_logger.isInfoEnabled() ) {
+						long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
+			    		String elapsedStr = UnitUtils.toSecondString(elapsedMillis);
+			    		s_logger.info("started MDTInstance: id={}, port={}, elapsed={}",
+			    						instId, procDesc.m_repoPort, elapsedStr);
+					}
+					notifyStatusChanged(procDesc);
+
+					return procDesc.toResult();
+				}
+				else {
+					// 'ERROR' sentinel을 찾은 경우거나 다른 이유로 종료된 경우.
+					// JarInstance 시작이 실패한 것으로 간주한다.
+					//
+			    	if ( s_logger.isInfoEnabled() ) {
+			    		s_logger.info("failed to start an MDTInstance: {}", instId);
+			    		s_logger.info("kill fa3st-repository process: {}", procDesc.m_process.toHandle().pid());
+			    	}
+					procDesc.m_status = MDTInstanceStatus.FAILED;
+					procDesc.m_repoPort = -1;
+					
+			    	// 프로세스가 수행 중인 상태이기 때문에 강제로 프로세스를 강제로 종료시킨다.
+			    	procDesc.m_process.destroyForcibly();
+			    	notifyStatusChanged(procDesc);
+			    	
+					return procDesc.toResult();
 				}
 			});
 		}
@@ -410,12 +407,6 @@ public class JarInstanceExecutor {
 	    	notifyStatusChanged(procDesc);
 	    	
 			return Tuple.of(MDTInstanceStatus.FAILED, -1);
-		}
-		finally {
-			if ( s_logger.isInfoEnabled() ) {
-				s_logger.info("releasing a start semaphone: thead=" + Thread.currentThread().getName());
-			}
-			m_startSemaphore.release();
 		}
 	}
     

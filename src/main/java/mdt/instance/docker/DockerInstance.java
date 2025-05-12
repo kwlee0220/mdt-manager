@@ -81,15 +81,15 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 		}
 	}
 	
-	@Override
-	public MDTInstanceStatus getStatus() {
-		return getInstanceManager().getInstanceStatus(getId());
-	}
-
-	@Override
-	public String getBaseEndpoint() {
-		return getInstanceManager().getInstanceServiceEndpoint(getId());
-	}
+//	@Override
+//	public MDTInstanceStatus getStatus() {
+//		return getInstanceManager().getInstanceStatus(getId());
+//	}
+//
+//	@Override
+//	public String getBaseEndpoint() {
+//		return getInstanceManager().getInstanceServiceEndpoint(getId());
+//	}
 
 	@Override
 	public void startAsync() throws InterruptedException {

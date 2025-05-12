@@ -8,7 +8,6 @@ import mdt.model.ServiceFactory;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
-import mdt.model.instance.MDTInstanceStatus;
 
 
 /**
@@ -17,22 +16,6 @@ import mdt.model.instance.MDTInstanceStatus;
  */
 public interface MDTInstanceManagerProvider extends MDTInstanceManager {
 	public ServiceFactory getServiceFactory();
-	
-	/**
-	 * 식별자에 해당하는 MDTInstance의 상태를 반환한다.
-	 * 
-	 * @param id	검색 대상 MDTInstance 식별자.
-	 * @return	MDTInstance의 상태.
-	 */
-	public MDTInstanceStatus getInstanceStatus(String id);
-	
-	/**
-	 * 식별자에 해당하는 MDTInstance의 서비스 endpoint를 반환한다.
-	 * 
-	 * @param id 검색 대상 MDTInstance 식별자.
-	 * @return MDTInstance의 서비스 endpoint.
-	 */
-	public String getInstanceServiceEndpoint(String id);
 	
 	/**
 	 * 새로운 MDTInstance를 등록한다.

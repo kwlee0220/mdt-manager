@@ -8,6 +8,14 @@ import java.util.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.fabric8.kubernetes.api.model.Node;
+import io.fabric8.kubernetes.api.model.NodeAddress;
+import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
+
 import utils.Throwables;
 import utils.func.Lazy;
 import utils.func.Unchecked;
@@ -21,14 +29,6 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
-
-import io.fabric8.kubernetes.api.model.Node;
-import io.fabric8.kubernetes.api.model.NodeAddress;
-import io.fabric8.kubernetes.api.model.Pod;
-import io.fabric8.kubernetes.api.model.Service;
-import io.fabric8.kubernetes.api.model.ServiceBuilder;
-import io.fabric8.kubernetes.api.model.apps.Deployment;
-import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 
 
 /**
@@ -54,7 +54,7 @@ public class KubernetesInstance extends JpaInstance implements MDTInstance {
 
 	@Override
 	protected void uninitialize() throws IOException {
-		m_kube.ifLoadedOrThrow(KubernetesRemote::close);
+		m_kube.unload(remote -> Unchecked.runOrIgnore(remote::close));
 	}
 
 	public String loadEndpoint() {
@@ -93,7 +93,7 @@ public class KubernetesInstance extends JpaInstance implements MDTInstance {
 
 	@Override
 	public void startAsync() {
-		JpaInstanceDescriptor desc = asJpaInstanceDescriptor();
+		JpaInstanceDescriptor desc = getInstanceDescriptor();
 
 		KubernetesRemote k8s = m_kube.get();
 		Deployment deployment = null;

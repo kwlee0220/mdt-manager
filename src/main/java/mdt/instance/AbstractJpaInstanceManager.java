@@ -4,13 +4,13 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.List;
-import java.util.function.Consumer;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShell;
+import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
+import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.base.Preconditions;
@@ -21,6 +21,8 @@ import utils.func.FOption;
 import utils.func.Try;
 import utils.func.Unchecked;
 import utils.io.FileUtils;
+import utils.jpa.JpaContext;
+import utils.jpa.JpaSession;
 import utils.stream.FStream;
 
 import mdt.Globals;
@@ -32,10 +34,7 @@ import mdt.instance.external.ExternalInstanceManager;
 import mdt.instance.jar.JarInstanceManager;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
-import mdt.instance.jpa.JpaInstanceDescriptorManager.InstanceDescriptorTransform;
-import mdt.instance.jpa.JpaInstanceDescriptorManager.SearchCondition;
-import mdt.instance.jpa.JpaModule;
-import mdt.instance.jpa.JpaProcessor;
+import mdt.instance.jpa.JpaInstanceSubmodelDescriptor;
 import mdt.instance.k8s.KubernetesInstanceManager;
 import mdt.model.InvalidResourceStatusException;
 import mdt.model.MDTModelSerDe;
@@ -46,7 +45,6 @@ import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 
-import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 
 
@@ -54,21 +52,21 @@ import jakarta.persistence.EntityManagerFactory;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
-										implements MDTInstanceManagerProvider, JpaModule, LoggerSettable {
+public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
+										implements MDTInstanceManagerProvider, LoggerSettable {
 	private static final Logger s_logger = LoggerFactory.getLogger(AbstractJpaInstanceManager.class);
 	
-	private ServiceFactory m_serviceFact;		// wired
-	private JpaProcessor m_processor;
+	private ServiceFactory m_serviceFact;
+	private EntityManagerFactory m_emFact;
 
-	private final ThreadLocal<EntityManager> m_emLocal = new ThreadLocal<>();
 	private final MDTInstanceManagerConfiguration m_conf;
 	private final String m_repositoryEndpointFormat;
 	private final MDTInstanceStatusMqttPublisher m_mqttEventPublisher;
 	
 	protected final JsonMapper m_mapper = MDTModelSerDe.getJsonMapper();
 	private Logger m_logger = s_logger;
-	
+
+	protected abstract void updateInstanceDescriptor(JpaInstanceDescriptor desc);
 	protected abstract T toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException;
 	
 	protected AbstractJpaInstanceManager(MDTConfiguration conf) throws MDTInstanceManagerException {
@@ -94,11 +92,11 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 		MqttConfiguration mqttConf = conf.getMqttConfiguration();
 		if ( mqttConf.getEndpoint() != null ) {
 			m_mqttEventPublisher = MDTInstanceStatusMqttPublisher.builder()
-															.mqttServerUri(mqttConf.getEndpoint())
-															.clientId(mqttConf.getClientId())
-															.qos(mqttConf.getQos())
-															.reconnectInterval(mqttConf.getReconnectInterval())
-															.build();
+																.mqttServerUri(mqttConf.getEndpoint())
+																.clientId(mqttConf.getClientId())
+																.qos(mqttConf.getQos())
+																.reconnectInterval(mqttConf.getReconnectInterval())
+																.build();
 			m_mqttEventPublisher.startAsync();
 			Globals.EVENT_BUS.register(m_mqttEventPublisher);
 		}
@@ -107,19 +105,21 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 		}
 	}
 	
-	public void initialize(InstanceDescriptorManager instDescManager, JpaProcessor jpaProcessor)
-		throws MDTInstanceManagerException {
-    	try {
-			if ( !getInstancesDir().exists() ) {
-				FileUtils.createDirectory(getInstancesDir());
-			}
-			if ( !getBundlesDir().exists() ) {
-				FileUtils.createDirectory(getBundlesDir());
-			}
+	public void initialize(ServiceFactory svcFact, EntityManagerFactory fact) throws IOException {
+		m_serviceFact = svcFact;
+		m_emFact = fact;
+		
+		if ( !getInstancesDir().exists() ) {
+			FileUtils.createDirectory(getInstancesDir());
 		}
-		catch ( IOException e ) {
-			throw new MDTInstanceManagerException(e);
+		if ( !getBundlesDir().exists() ) {
+			FileUtils.createDirectory(getBundlesDir());
 		}
+	}
+
+	@Override
+	public ServiceFactory getServiceFactory() {
+		return m_serviceFact;
 	}
 	
 	public void shutdown() {
@@ -157,36 +157,10 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 //			getLogger().info("stopped all MDtInstances");
 //		}
 //	}
-
-	public ServiceFactory getServiceFactory() {
-		return m_serviceFact;
-	}
-	@Autowired
-	public void setServiceFactory(ServiceFactory fact) {
-		m_serviceFact = fact;
-	}
-
-	@Autowired
-	public void setEntityManagerFactory(EntityManagerFactory fact) {
-		m_processor = new JpaProcessor(fact);
-	}
-	
-	@Override
-	public EntityManager getEntityManager() {
-		return m_emLocal.get();
-	}
-	
-	public void setEntityManager(EntityManager em) {
-		m_emLocal.set(em);
-	}
 	
 	public File getHomeDir() {
 		return m_conf.getHomeDir();
 	}
-	
-//	public File getDefaultMDTInstanceJarFile() {
-//		return m_defaultMDTInstanceJarFile;
-//	}
 	
 	public File getInstancesDir() {
 		return FOption.getOrElse(m_conf.getInstancesDir(), () -> FileUtils.path(getHomeDir(), "instances"));
@@ -200,15 +174,24 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 		return FileUtils.path(getInstancesDir(), id);
 	}
 	
-	public JpaInstanceDescriptorManager getInstanceDescriptorManager() {
-		return new JpaInstanceDescriptorManager(m_emLocal.get());
+	public JpaSession allocateJpaSession() {
+		return JpaContext.allocate(m_emFact.createEntityManager());
+	}
+	
+	public JpaInstanceDescriptorManager useInstanceDescriptorManager() {
+		JpaContext context = JpaContext.get();
+		Preconditions.checkState(context != null, "JpaContext is not allocated");
+		
+		return new JpaInstanceDescriptorManager(context.top());
 	}
 	
 	public JpaInstanceDescriptor getInstanceDescriptor(String id) {
-		Preconditions.checkNotNull(id);
+		Preconditions.checkArgument(id != null, "MDTInstance id is null");
 		
-		JpaInstanceDescriptor descriptor = getInstanceDescriptorManager().getInstanceDescriptor(id);
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
+		JpaInstanceDescriptor descriptor = instDescMgr.getInstanceDescriptor(id);
 		if ( descriptor != null ) {
+			updateInstanceDescriptor(descriptor);
 			return descriptor;
 		}
 		else {
@@ -223,52 +206,46 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 
 	@Override
 	public long countInstances() {
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(m_emLocal.get());
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 		return instDescMgr.count();
 	}
 
 	@Override
-	public List<MDTInstance> getInstanceAll() throws MDTInstanceManagerException {
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(m_emLocal.get());
+	public List<T> getInstanceAll() throws MDTInstanceManagerException {
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 		return FStream.from(instDescMgr.getInstanceDescriptorAll())
-						.map(desc -> (MDTInstance)toInstance(desc))
+						.map(desc -> toInstance(desc))
 						.toList();
 	}
 
 	@Override
-	public List<MDTInstance> getInstanceAllByFilter(String filterExpr) {
-		Preconditions.checkNotNull(filterExpr);
+	public List<T> getInstanceAllByFilter(String filterExpr) {
+		Preconditions.checkArgument(filterExpr != null, "filterExpr is null");
 
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(m_emLocal.get());
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 		return FStream.from(instDescMgr.findInstanceDescriptorAll(filterExpr))
-						.map(desc -> (MDTInstance)toInstance(desc))
+						.map(desc -> toInstance(desc))
 						.toList();
-	}
-	
-	public <S> List<S> query(SearchCondition cond, InstanceDescriptorTransform<S> transform) {
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(m_emLocal.get());
-		return instDescMgr.query(cond, transform);
 	}
 	
 	@Override
 	public void removeInstance(String id) throws ResourceNotFoundException, InvalidResourceStatusException {
-		try {
-			AbstractInstance inst = getInstance(id);
-			
-			MDTInstanceStatus status = inst.getStatus();
-			switch ( status ) {
-				case STARTING:
-				case RUNNING:
-					throw new InvalidResourceStatusException("MDTInstance", "id=" + id, status);
-				default: break;
-			}
-			
-			removeInstanceDescriptor(id);
-			Try.run(inst::uninitialize);
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
+		JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
+		if ( desc == null ) {
+			throw new ResourceNotFoundException("MDTInstance", "id=" + id);
 		}
-		catch ( ResourceNotFoundException expected ) {
-			return;
+		
+		MDTInstanceStatus status = desc.getStatus();
+		switch ( status ) {
+			case STARTING:
+			case RUNNING:
+				throw new InvalidResourceStatusException("MDTInstance", "id=" + id, status);
+			default: break;
 		}
+		
+		instDescMgr.removeInstanceDescriptor(id);
+		Unchecked.runOrIgnore(() -> toInstance(desc).uninitialize());
 		
 		File homeDir = getInstanceHomeDir(id);
 		Unchecked.runOrIgnore(() -> FileUtils.deleteDirectory(homeDir));
@@ -279,7 +256,7 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 	@Override
 	public void removeInstanceAll() throws MDTInstanceManagerException {
 		for ( MDTInstance inst: getInstanceAll() ) {
-			Try.run(() -> this.removeInstance(inst.getId()));
+			Try.run(() -> removeInstance(inst.getId()));
 		}
 	}
 	
@@ -304,14 +281,10 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 		desc.setBaseEndpoint(null); // MDTInstance가 시작되면 엔드포인트가 결정되므로 지금은 {@code null}로 설정한다.
 		desc.setArguments(arguments);
 
-		// ThreadLocal 저장소에서 EntityManager를 가져옵니다.
-		EntityManager em = m_emLocal.get();
-		Preconditions.checkState(em != null); // EntityManager가 null이 아닌지 확인합니다.
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
-
-		// 생성된 JpaInstanceDescriptor를 데이터베이스에 추가합니다.
+		// 생성된 JpaInstanceDescriptor를 데이터베이스에 추가한다.
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 		instDescMgr.addInstanceDescriptor(desc);
-
+		
 		return desc;
 	}
 	
@@ -322,18 +295,10 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 	 */
 	protected void removeInstanceDescriptor(String id) {
 		Preconditions.checkArgument(id != null, "MDTInstance id is null");
-		
-		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(m_emLocal.get());
+
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 		instDescMgr.removeInstanceDescriptor(id);
 	}
-	
-	protected JpaInstanceDescriptor update(Long rowId, Consumer<JpaInstanceDescriptor> updater) {
-		JpaInstanceDescriptor desc = m_emLocal.get().find(JpaInstanceDescriptor.class, rowId);
-		updater.accept(desc);
-		
-		return desc;
-	}
-	
 	
 	public String toServiceEndpoint(int repoPort) {
 		return String.format(m_repositoryEndpointFormat, repoPort);
@@ -353,44 +318,48 @@ public abstract class AbstractJpaInstanceManager<T extends AbstractInstance>
 		if ( getLogger().isDebugEnabled() ) {
 			getLogger().debug("receiving InstanceStatusChangeEvent {}", ev);
 		}
-		
-		m_processor.run(em -> {
-			JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
-			JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(ev.getInstanceId());
-			if ( desc != null ) {
-				switch ( ev.getStatusChange() ) {
-					case "RUNNING":
-						desc.setStatus(ev.getInstanceStatus());
-						desc.setBaseEndpoint(ev.getServiceEndpoint());
-						
-						if ( getLogger().isDebugEnabled() ) {
-							getLogger().debug("set Endpoint of the MDTInstance: id={}, endpoint={}",
-												desc.getId(), ev.getServiceEndpoint());
-						}
-						break;
-					case "STOPPED":
-					case "FAILED":
-						desc.setStatus(ev.getInstanceStatus());
-						desc.setBaseEndpoint(null);
-						
-						if ( getLogger().isDebugEnabled() ) {
-							getLogger().debug("remove Endpoint of the MDTInstance: id={}", desc.getId());
-						}
-						break;
-					default: break;
-				}
-				switch ( ev.getStatusChange() ) {
-					case "ADDING":
-					case "ADD_FAILED":
-						break;
-					default:
-						desc.setStatus(ev.getInstanceStatus());
-				};
-			}
-			else if ( ev.getStatusChange().equals("ADDING") ) {
-				// Todo: 나중에 adding 단계에서 descriptor를 추가할 필요가 있을까?
-			}
-		});
+
+//		try ( JpaSessions session = allocateJpaSession() ) {
+//			JpaInstanceDescriptorManager instDescMgr = JpaSessions.get().getInstanceDescriptorManager();
+//			JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(ev.getInstanceId());
+//			if ( desc != null ) {
+//				switch ( ev.getStatusChange() ) {
+//					case "STARTING":
+//					case "STOPPING":
+//						desc.setStatus(ev.getInstanceStatus());
+//						desc.setBaseEndpoint(ev.getServiceEndpoint());	
+//						break;
+//					case "RUNNING":
+//						desc.setStatus(ev.getInstanceStatus());
+//						desc.setBaseEndpoint(ev.getServiceEndpoint());	
+//						if ( getLogger().isDebugEnabled() ) {
+//							getLogger().debug("set Endpoint of the MDTInstance: id={}, endpoint={}",
+//												desc.getId(), ev.getServiceEndpoint());
+//						}
+//						break;
+//					case "STOPPED":
+//					case "FAILED":
+//						desc.setStatus(ev.getInstanceStatus());
+//						desc.setBaseEndpoint(null);
+//						if ( getLogger().isDebugEnabled() ) {
+//							getLogger().debug("remove Endpoint of the MDTInstance: id={}", desc.getId());
+//						}
+//						break;
+//					default: break;
+//				}
+//			}
+//			else if ( ev.getStatusChange().equals("ADDING") ) {
+//				// Todo: 나중에 adding 단계에서 descriptor를 추가할 필요가 있을까?
+//			}
+//		}
+	}
+	
+	public AssetAdministrationShellDescriptor toAssetAdministrationShellDescriptor(JpaInstanceDescriptor ismd) {
+		return ismd.toAssetAdministrationShellDescriptor();
+	}
+    
+	public SubmodelDescriptor toSubmodelDescriptor(JpaInstanceSubmodelDescriptor ismd) {
+		return ismd.getInstance().toSubmodelDescriptor(ismd);
 	}
 	
 	@Override

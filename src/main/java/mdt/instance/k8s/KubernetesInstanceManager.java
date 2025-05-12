@@ -16,12 +16,11 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
 
-import io.fabric8.kubernetes.api.model.Pod;
-import io.fabric8.kubernetes.api.model.Service;
-
 import utils.InternalException;
 import utils.io.FileUtils;
 
+import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.Service;
 import mdt.MDTConfiguration;
 import mdt.controller.DockerCommandUtils;
 import mdt.controller.DockerCommandUtils.StandardOutputHandler;
@@ -65,43 +64,43 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 		return m_harborConf;
 	}
 
-	@Override
-	public MDTInstanceStatus getInstanceStatus(String id) {
-		KubernetesRemote kube = newKubernetesRemote();
-		Pod pod = kube.getPod(NAMESPACE, id);
-		if ( pod == null ) {
-			return MDTInstanceStatus.STOPPED;
-		}
-		
-		String phase = pod.getStatus().getPhase();
-		switch ( phase ) {
-			case "Pending":
-				return MDTInstanceStatus.STARTING;
-			case "Running":
-				return MDTInstanceStatus.RUNNING;
-			case "Succeeded":
-				return MDTInstanceStatus.STOPPED;
-			case "Failed":
-				return MDTInstanceStatus.FAILED;
-			case "Unknown":
-				return MDTInstanceStatus.FAILED;
-			default:
-				throw new AssertionError();
-		}
-	}
-
-	@Override
-	public String getInstanceServiceEndpoint(String id) {
-		KubernetesRemote kube = newKubernetesRemote();
-		Service service = kube.getService(NAMESPACE, id);
-		if ( service != null ) {
-			int port = service.getSpec().getPorts().get(0).getNodePort();
-			return toServiceEndpoint(port);
-		}
-		else {
-			return null;
-		}
-	}
+//	@Override
+//	public MDTInstanceStatus getInstanceStatus(String id) {
+//		KubernetesRemote kube = newKubernetesRemote();
+//		Pod pod = kube.getPod(NAMESPACE, id);
+//		if ( pod == null ) {
+//			return MDTInstanceStatus.STOPPED;
+//		}
+//		
+//		String phase = pod.getStatus().getPhase();
+//		switch ( phase ) {
+//			case "Pending":
+//				return MDTInstanceStatus.STARTING;
+//			case "Running":
+//				return MDTInstanceStatus.RUNNING;
+//			case "Succeeded":
+//				return MDTInstanceStatus.STOPPED;
+//			case "Failed":
+//				return MDTInstanceStatus.FAILED;
+//			case "Unknown":
+//				return MDTInstanceStatus.FAILED;
+//			default:
+//				throw new AssertionError();
+//		}
+//	}
+//
+//	@Override
+//	public String getInstanceServiceEndpoint(String id) {
+//		KubernetesRemote kube = newKubernetesRemote();
+//		Service service = kube.getService(NAMESPACE, id);
+//		if ( service != null ) {
+//			int port = service.getSpec().getPorts().get(0).getNodePort();
+//			return toServiceEndpoint(port);
+//		}
+//		else {
+//			return null;
+//		}
+//	}
 	
 	public KubernetesExecutionArguments parseExecutionArguments(String argsJson) {
 		try {
@@ -115,6 +114,47 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 	@Override
 	protected KubernetesInstance toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException {
 		return new KubernetesInstance(this, descriptor);
+	}
+
+	@Override
+	protected void updateInstanceDescriptor(JpaInstanceDescriptor desc) {
+		String id = desc.getId();
+		KubernetesRemote kube = newKubernetesRemote();
+		Pod pod = kube.getPod(NAMESPACE, id);
+		if ( pod == null ) {
+			desc.setStatus(MDTInstanceStatus.STOPPED);
+			desc.setBaseEndpoint(null);
+			return;
+		}
+
+		String phase = pod.getStatus().getPhase();
+		switch (phase) {
+			case "Pending":
+				desc.setStatus(MDTInstanceStatus.STARTING);
+				desc.setBaseEndpoint(null);
+				return;
+			case "Running":
+				String endpoint = null;
+				Service service = kube.getService(NAMESPACE, id);
+				if ( service != null ) {
+					int port = service.getSpec().getPorts().get(0).getNodePort();
+					endpoint = toServiceEndpoint(port);
+				}
+				desc.setStatus(MDTInstanceStatus.RUNNING);
+				desc.setBaseEndpoint(endpoint);
+				return;
+			case "Succeeded":
+				desc.setStatus(MDTInstanceStatus.STOPPED);
+				desc.setBaseEndpoint(null);
+				return;
+			case "Failed":
+			case "Unknown":
+				desc.setStatus(MDTInstanceStatus.FAILED);
+				desc.setBaseEndpoint(null);
+				return;
+			default:
+				throw new AssertionError();
+		}
 	}
 
 	@Override

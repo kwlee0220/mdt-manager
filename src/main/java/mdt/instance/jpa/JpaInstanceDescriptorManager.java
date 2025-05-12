@@ -6,8 +6,13 @@ import java.util.stream.Stream;
 
 import org.hibernate.exception.ConstraintViolationException;
 
+import com.google.common.base.Preconditions;
+
+import utils.jpa.JpaSession;
+
 import mdt.instance.InstanceDescriptorManager;
 import mdt.model.ResourceAlreadyExistsException;
+import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.MDTInstanceManagerException;
 
 import jakarta.persistence.EntityExistsException;
@@ -20,40 +25,28 @@ import jakarta.persistence.TypedQuery;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, JpaModule {
-	private volatile EntityManager m_em;
+public class JpaInstanceDescriptorManager implements InstanceDescriptorManager {
+	private final JpaSession m_session;
 
-	public JpaInstanceDescriptorManager() {
-		this(null);
-	}
-	public JpaInstanceDescriptorManager(EntityManager em) {
-		m_em = em;
-	}
-	
-	@Override
-	public EntityManager getEntityManager() {
-		return m_em;
-	}
-	
-	@Override
-	public void setEntityManager(EntityManager em) {
-		m_em = em;
+	public JpaInstanceDescriptorManager(JpaSession session) {
+		Preconditions.checkArgument(session != null, "JpaSession is null");
+		m_session = session;
 	}
 
 	@Override
 	public long count() {
-		checkEntityManager();
+		EntityManager em = checkEntityManager();
 		
 		String jpql = "select count(d) from JpaInstanceDescriptor d";
-		return m_em.createQuery(jpql, Long.class).getSingleResult();
+		return em.createQuery(jpql, Long.class).getSingleResult();
 	}
 
 	@Override
 	public JpaInstanceDescriptor getInstanceDescriptor(String id) throws MDTInstanceManagerException {
-		checkEntityManager();
+		EntityManager em = checkEntityManager();
 		
 		String sql = "select d from JpaInstanceDescriptor d where id = :id";
-		TypedQuery<JpaInstanceDescriptor> query = m_em.createQuery(sql, JpaInstanceDescriptor.class);
+		TypedQuery<JpaInstanceDescriptor> query = em.createQuery(sql, JpaInstanceDescriptor.class);
 		query.setParameter("id", id);
 		try {
 			return query.getSingleResult();
@@ -64,18 +57,18 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 	}
 
 	@Override
-	public List<JpaInstanceDescriptor> getInstanceDescriptorAll() throws MDTInstanceManagerException {
-		checkEntityManager();
+	public List<JpaInstanceDescriptor> getInstanceDescriptorAll() {
+		EntityManager em = checkEntityManager();
 		
-		return m_em.createQuery("select d from JpaInstanceDescriptor d",
+		return em.createQuery("select d from JpaInstanceDescriptor d",
 								JpaInstanceDescriptor.class).getResultList();
 	}
 	
 	public JpaInstanceDescriptor getInstanceDescriptorByAasId(String aasId) throws MDTInstanceManagerException {
-		checkEntityManager();
+		EntityManager em = checkEntityManager();
 		
 		String jpql = "select d from JpaInstanceDescriptor d where d.aasId = :aasId";
-		TypedQuery<JpaInstanceDescriptor> query =  m_em.createQuery(jpql, JpaInstanceDescriptor.class);
+		TypedQuery<JpaInstanceDescriptor> query =  em.createQuery(jpql, JpaInstanceDescriptor.class);
 		query.setParameter("aasId", aasId);
 		try {
 			return query.getSingleResult();
@@ -86,49 +79,51 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 	}
 	public List<JpaInstanceDescriptor> getInstanceDescriptorAllByAasIdShort(String aasIdShort)
 		throws MDTInstanceManagerException {
+		EntityManager em = checkEntityManager();
+		
 		String jpql = "select d from JpaInstanceDescriptor d where d.aasIdShort = ?1";
-		return m_em.createQuery(jpql, JpaInstanceDescriptor.class)
-					.setParameter(1, aasIdShort)
-					.getResultList();
+		return em.createQuery(jpql, JpaInstanceDescriptor.class)
+				.setParameter(1, aasIdShort)
+				.getResultList();
 	}
 	public List<JpaInstanceDescriptor> getInstanceDescriptorAllByAssetId(String assetId)
 		throws MDTInstanceManagerException {
-		checkEntityManager();
+		EntityManager em = checkEntityManager();
 		
 		String jpql = "select d from JpaInstanceDescriptor d where d.globalAssetId = ?1";
-		return m_em.createQuery(jpql, JpaInstanceDescriptor.class)
-					.setParameter(1, assetId)
-					.getResultList();
+		return em.createQuery(jpql, JpaInstanceDescriptor.class)
+				.setParameter(1, assetId)
+				.getResultList();
 	}
 
 	@Override
 	public List<JpaInstanceDescriptor> findInstanceDescriptorAll(String filterExpr) {
-		checkEntityManager();
+		EntityManager em = checkEntityManager();
 		
 		boolean containsSubmodelExpr = filterExpr.toLowerCase().contains("submodel.");
 		String sql = (containsSubmodelExpr)
 					? "select distinct instance from JpaInstanceDescriptor instance "
 						+ "join fetch instance.submodels as submodel where " + filterExpr
 					: "select instance from JpaInstanceDescriptor instance where " + filterExpr;
-		TypedQuery<JpaInstanceDescriptor> query = m_em.createQuery(sql, JpaInstanceDescriptor.class);
+		TypedQuery<JpaInstanceDescriptor> query = em.createQuery(sql, JpaInstanceDescriptor.class);
 		return query.getResultList();
 	}
 
 	@Override
 	public <S> List<S> query(SearchCondition cond, InstanceDescriptorTransform<S> transform) {
-		checkEntityManager();
+		EntityManager em = checkEntityManager();
 		
-		return transform.apply(cond.apply(m_em));
+		return transform.apply(cond.apply(em));
 	}
 	
 
 	@Override
-	public void addInstanceDescriptor(JpaInstanceDescriptor desc)
+	public void addInstanceDescriptor(InstanceDescriptor desc)
 		throws MDTInstanceManagerException, ResourceAlreadyExistsException {
-		checkEntityManager();
+		EntityManager em = checkEntityManager();
 		
 		try {
-			m_em.persist(desc);
+			em.persist(desc);
 		}
 		catch ( EntityExistsException | ConstraintViolationException e ) {
 			throw new ResourceAlreadyExistsException("MDTInstance", "id=" + desc.getId());
@@ -136,17 +131,22 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 	}
 	
 	public void updateInstanceDescriptor(JpaInstanceDescriptor desc) throws MDTInstanceManagerException {
-        checkEntityManager();
+		EntityManager em = checkEntityManager();
         
-        m_em.merge(desc);
+		em.merge(desc);
 	}
 
 	@Override
 	public void removeInstanceDescriptor(String id) throws MDTInstanceManagerException {
-		checkEntityManager();
+		EntityManager em = checkEntityManager();
 		
 		JpaInstanceDescriptor desc = getInstanceDescriptor(id);
-		m_em.remove(desc);
+		em.remove(desc);
+	}
+	
+	private EntityManager checkEntityManager() {
+//		Preconditions.checkState(m_session.getEntityManager().isOpen(), "JpaSession is closed");
+		return m_session.getEntityManager();
 	}
 	
 	
@@ -200,5 +200,4 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager, 
 	
 	public interface InstanceDescriptorTransform<T> extends Function<Stream<JpaInstanceDescriptor>,List<T>> { };
 	public static final InstanceDescriptorTransform<JpaInstanceDescriptor> IDENTITY_TRANSFORM = Stream::toList;
-
 }

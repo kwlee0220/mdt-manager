@@ -1,7 +1,6 @@
 package mdt.instance;
 
 import java.util.List;
-import java.util.function.Consumer;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
@@ -11,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import utils.stream.FStream;
 
 import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.model.instance.InstanceDescriptor;
 
 
 /**
@@ -27,37 +25,25 @@ public abstract class JpaInstance extends AbstractInstance {
 		
 		setLogger(s_logger);
 	}
-
+	
 	@Override
-	protected InstanceDescriptor reloadInstanceDescriptor() {
-		JpaInstanceDescriptor desc = m_manager.getEntityManager()
-												.find(JpaInstanceDescriptor.class, asJpaInstanceDescriptor().getRowId());
-		m_desc.set(desc);
-		
-		return desc;
+	public JpaInstanceDescriptor getInstanceDescriptor() {
+		return (JpaInstanceDescriptor)super.getInstanceDescriptor();
 	}
 
 	@Override
 	public AssetAdministrationShellDescriptor getAASDescriptor() {
-		return asJpaInstanceDescriptor().toAssetAdministrationShellDescriptor();
+		return m_manager.toAssetAdministrationShellDescriptor(getInstanceDescriptor());
 	}
 
 	@Override
 	public List<SubmodelDescriptor> getSubmodelDescriptorAll() {
-		return FStream.from(asJpaInstanceDescriptor().getSubmodels())
-						.map(ismd -> ismd.getInstance().toSubmodelDescriptor(ismd))
+		return FStream.from(getInstanceDescriptor().getSubmodels())
+						.map(desc -> m_manager.toSubmodelDescriptor(desc))
 						.toList();
 	}
 
 	public String getExecutionArguments() {
-		return ((JpaInstanceDescriptor)m_desc.get()).getArguments();
-	}
-	
-	protected JpaInstanceDescriptor asJpaInstanceDescriptor() {
-		return (JpaInstanceDescriptor)m_desc.get();
-	}
-	
-	protected void update(Consumer<JpaInstanceDescriptor> updater) {
-		m_manager.update(asJpaInstanceDescriptor().getRowId(), updater);
+		return getInstanceDescriptor().getArguments();
 	}
 }

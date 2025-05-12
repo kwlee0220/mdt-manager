@@ -8,7 +8,6 @@ import java.util.Map;
 import org.mandas.docker.client.DockerClient;
 import org.mandas.docker.client.DockerClient.ListContainersParam;
 import org.mandas.docker.client.DockerClient.ListImagesParam;
-import org.mandas.docker.client.builder.jersey.JerseyDockerClientBuilder;
 import org.mandas.docker.client.exceptions.DockerException;
 import org.mandas.docker.client.messages.Container;
 import org.mandas.docker.client.messages.Image;
@@ -18,12 +17,13 @@ import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 
 import utils.KeyValue;
+import utils.Tuple;
 import utils.Utilities;
 import utils.func.FOption;
-import utils.func.Tuple;
 import utils.func.Unchecked;
 import utils.io.FileUtils;
 import utils.stream.FStream;
+import utils.stream.KeyValueFStream;
 
 import mdt.model.instance.MDTInstanceManagerException;
 
@@ -35,8 +35,6 @@ import ch.qos.logback.classic.Logger;
  * @author Kang-Woo Lee (ETRI)
  */
 public class DockerUtils {
-	private static final org.slf4j.Logger s_logger = LoggerFactory.getLogger(DockerUtils.class);
-	
 	private static final String LABEL_NAME_MDT_TWIN_ID = "mdt-twin-id";
 	private static final ListContainersParam ALL_CONTAINERS = ListContainersParam.allContainers(true);
 	
@@ -152,7 +150,7 @@ public class DockerUtils {
 		Preconditions.checkArgument(labelName != null, "label name is null");
 		
 		if ( labels != null ) {
-			return FStream.from(labels)
+			return KeyValueFStream.from(labels)
 							.filter(kv -> kv.key().equals(labelName))
 							.map(KeyValue::value)
 							.findFirst();
@@ -212,7 +210,7 @@ public class DockerUtils {
 			return false;
 		}
 		else {
-			return FStream.from(labels)
+			return KeyValueFStream.from(labels)
 							.exists(kv -> kv.key().equals(name) && kv.value().equals(value));
 		}
 	}
@@ -229,15 +227,7 @@ public class DockerUtils {
 			return false;
 		}
 		else {
-			return FStream.from(labels).exists(kv -> kv.key().equals(name));
+			return KeyValueFStream.from(labels).exists(kv -> kv.key().equals(name));
 		}
-	}
-	
-	
-	public static void main(String... args) throws Exception {
-		DockerClient docker = new JerseyDockerClientBuilder().uri("http://localhost:2375").build();
-		HarborConfiguration harbor = new HarborConfiguration();
-		harbor.setUser("etri");
-		harbor.setPassword("zento");
 	}
 }

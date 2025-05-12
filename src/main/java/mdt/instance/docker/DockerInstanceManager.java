@@ -25,8 +25,8 @@ import com.google.common.collect.Maps;
 
 import utils.InternalException;
 import utils.Throwables;
+import utils.Tuple;
 import utils.func.Try;
-import utils.func.Tuple;
 import utils.io.FileUtils;
 
 import mdt.MDTConfiguration;
@@ -84,35 +84,6 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 		catch ( ContainerNotFoundException e ) {
 			putContainerStatus(instanceId, MDTInstanceStatus.STOPPED);
 			return Tuple.of(MDTInstanceStatus.STOPPED, null);
-		}
-		catch ( InterruptedException | DockerException e ) {
-			throw new MDTInstanceManagerException("" + e);
-		}
-	}
-	
-
-	@Override
-	public MDTInstanceStatus getInstanceStatus(String id) {
-		try ( DockerClient docker = newDockerClient() ) {
-			Container container = findContainerByInstanceId(docker, id);
-			return getInstanceState(id, docker, container)._1;
-		}
-		catch ( ContainerNotFoundException e ) {
-			return MDTInstanceStatus.STOPPED;
-		}
-		catch ( InterruptedException | DockerException e ) {
-			throw new MDTInstanceManagerException("" + e);
-		}
-	}
-
-	@Override
-	public String getInstanceServiceEndpoint(String id) {
-		try ( DockerClient docker = newDockerClient() ) {
-			Container container = findContainerByInstanceId(docker, id);
-			return getInstanceState(id, docker, container)._2;
-		}
-		catch ( ContainerNotFoundException e ) {
-			return null;
 		}
 		catch ( InterruptedException | DockerException e ) {
 			throw new MDTInstanceManagerException("" + e);
@@ -212,22 +183,41 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	}
 
 	@Override
-	protected DockerInstance toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException {
-		String instanceId = descriptor.getId();
+	protected void updateInstanceDescriptor(JpaInstanceDescriptor desc) {
+		String id = desc.getId();
 		try ( DockerClient docker = newDockerClient() ) {
-			Container container = findContainerByInstanceId(docker, instanceId);
-			Tuple<MDTInstanceStatus,String> tup =  getInstanceState(instanceId, docker, container);
-			descriptor.setStatus(tup._1);
-			descriptor.setBaseEndpoint(tup._2);
+			ContainerInfo info = docker.inspectContainer(id);
+			if ( info.state().running() ) {
+				MDTInstanceStatus lastStatus = getContainerStatus(id);
+				if ( lastStatus == MDTInstanceStatus.STOPPED || lastStatus == MDTInstanceStatus.FAILED ) {
+					putContainerStatus(id, MDTInstanceStatus.RUNNING);
+				}
+				
+				desc.setStatus(lastStatus);
+				desc.setBaseEndpoint(toServiceEndpoint(getRepositoryPort(info)));
+			}
+			else if ( info.state().error().length() > 0 ) {
+				putContainerStatus(id, MDTInstanceStatus.FAILED);
+				desc.setStatus(MDTInstanceStatus.FAILED);
+				desc.setBaseEndpoint(null);
+			}
+			else {
+				putContainerStatus(id, MDTInstanceStatus.STOPPED);
+				desc.setStatus(MDTInstanceStatus.STOPPED);
+				desc.setBaseEndpoint(null);
+			}
 		}
 		catch ( ContainerNotFoundException e ) {
-			descriptor.setStatus(MDTInstanceStatus.STOPPED);
-			descriptor.setBaseEndpoint(null);
+			desc.setStatus(MDTInstanceStatus.STOPPED);
+			desc.setBaseEndpoint(null);
 		}
 		catch ( InterruptedException | DockerException e ) {
 			throw new MDTInstanceManagerException("" + e);
 		}
-		
+	}
+
+	@Override
+	protected DockerInstance toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException {
 		return new DockerInstance(this, descriptor);
 	}
 
@@ -252,33 +242,6 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	void putContainerStatus(String instanceId, MDTInstanceStatus status) {
 		m_instanceStatus.put(instanceId, status);
 	}
-
-//	@SuppressWarnings("unused")
-//	private DockerInstance toInstance(Container container) throws MDTInstanceManagerException {
-//		String id = container.names().get(0).substring(1);
-//		
-//		Map<String,String> labels = container.labels();
-//		String aasId = labels.get("mdt-aas-id");
-//		String aasIdShort = labels.get("mdt-aas-idshort");
-//		String assetId = labels.get("mdt-asset-id");
-//		String assetType = labels.get("mdt-asset-type");
-//		
-//		String modelFilePath = new File(new File(getWorkspaceDir(), id), MDTInstanceManager.CANONICAL_MODEL_FILE).getAbsolutePath();
-//		DockerExecutionArguments args = DockerExecutionArguments.builder()
-//													.imageId(container.image())
-//													.modelFile(modelFilePath)
-//													.build();
-//		try {
-//			String argsJson = m_mapper.writeValueAsString(args);
-//			JpaInstanceDescriptor desc = new JpaInstanceDescriptor(id, aasId, aasIdShort, assetId, assetType,
-//															argsJson, null, Lists.newArrayList());
-//			
-//			return new DockerInstance(this, desc, container);
-//		}
-//		catch ( JsonProcessingException e ) {
-//			throw new MDTInstanceManagerException("" + e);
-//		}
-//	}
 	
 	private int getRepositoryPort(ContainerInfo info) {
 		List<PortBinding> hostPorts = info.networkSettings().ports().get("443/tcp");

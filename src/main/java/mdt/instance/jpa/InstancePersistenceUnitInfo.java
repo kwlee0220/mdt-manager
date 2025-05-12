@@ -13,7 +13,7 @@ import com.zaxxer.hikari.HikariDataSource;
 
 import mdt.MDTConfiguration.JdbcConfiguration;
 import mdt.MDTConfiguration.JpaConfiguration;
-import mdt.workflow.JpaWorkflowDescriptor;
+import mdt.workflow.JpaWorkflowModel;
 
 import jakarta.persistence.SharedCacheMode;
 import jakarta.persistence.ValidationMode;
@@ -34,7 +34,10 @@ public class InstancePersistenceUnitInfo implements PersistenceUnitInfo {
 		JpaAASDescriptor.class.getName(),
 		JpaAASSubmodelDescriptor.class.getName(),
 		
-		JpaWorkflowDescriptor.class.getName()
+		JpaAssetParameterDescriptor.class.getName(),
+		JpaMDTOperationDescriptor.class.getName(),
+		
+		JpaWorkflowModel.class.getName()
 	);
 	
 	private final String m_punitName;

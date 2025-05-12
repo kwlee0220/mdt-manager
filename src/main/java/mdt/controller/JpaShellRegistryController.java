@@ -25,17 +25,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import utils.stream.FStream;
-
-import mdt.instance.AbstractJpaInstanceManager;
-import mdt.instance.JpaInstance;
-import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.instance.jpa.JpaInstanceDescriptorManager;
-import mdt.instance.jpa.JpaProcessor;
-import mdt.model.AASUtils;
-import mdt.model.MDTModelSerDe;
-import mdt.model.instance.MDTInstance;
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -44,7 +33,17 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import jakarta.persistence.EntityManagerFactory;
+
+import utils.jpa.JpaSession;
+import utils.stream.FStream;
+
+import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.JpaInstance;
+import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.instance.jpa.JpaInstanceDescriptorManager;
+import mdt.model.AASUtils;
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.MDTInstance;
 
 
 /**
@@ -57,13 +56,9 @@ public class JpaShellRegistryController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(JpaShellRegistryController.class);
 	
 	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
-	@Autowired EntityManagerFactory m_emFact;
-	private JpaProcessor m_jpaProcessor;
 
 	@Override
 	public void afterPropertiesSet() throws Exception {
-		m_jpaProcessor = new JpaProcessor(m_emFact);
-		
 		if ( s_logger.isInfoEnabled() ) {
 			s_logger.info("loaded {}", getClass());
 		}
@@ -87,12 +82,9 @@ public class JpaShellRegistryController implements InitializingBean {
     public ResponseEntity<String> getAssetAdministrationShellDescriptorById(@PathVariable("aasId") String aasId)
     	throws SerializationException {
 		String decoded = AASUtils.decodeBase64UrlSafe(aasId);
-		
-		AssetAdministrationShellDescriptor desc = m_jpaProcessor.get(em -> {
-			m_instanceManager.setEntityManager(em);
-			MDTInstance inst = m_instanceManager.getInstanceByAasId(decoded);
-			return inst.getAASDescriptor();
-		});
+
+		MDTInstance inst = m_instanceManager.getInstanceByAasId(decoded);
+		AssetAdministrationShellDescriptor desc = inst.getAASDescriptor();
 		
 		String descJson = MDTModelSerDe.getJsonSerializer().write(desc);
 		return ResponseEntity.ok(descJson);
@@ -115,23 +107,14 @@ public class JpaShellRegistryController implements InitializingBean {
     @GetMapping({"/shell-descriptors"})
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getAllAssetAdministrationShellDescriptors(
-    										@RequestParam(name="idShort", required=false) String idShort)
+    													@RequestParam(name="idShort", required=false) String idShort)
     	throws SerializationException {
-    	List<AssetAdministrationShellDescriptor> descList = m_jpaProcessor.get(em -> {
-    		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
-    		
-    		List<JpaInstanceDescriptor> matches;
-    		if ( idShort != null ) {
-    			matches = instDescMgr.getInstanceDescriptorAllByAasIdShort(idShort);
-    		}
-    		else {
-    			matches = instDescMgr.getInstanceDescriptorAll();
-    		}
-    		
-    		return FStream.from(matches)
-	    				.map(d -> d.toAssetAdministrationShellDescriptor())
-	    				.toList();
-    	});
+		List<? extends MDTInstance> instList = (idShort != null)
+												? m_instanceManager.getInstanceAllByAasIdShort(idShort)
+												: m_instanceManager.getInstanceAll();
+    	List<AssetAdministrationShellDescriptor> descList = FStream.from(instList)
+																	.map(MDTInstance::getAASDescriptor)
+																	.toList();
 
 		String descListJson = MDTModelSerDe.getJsonSerializer().write(descList);
 		return ResponseEntity.ok(descListJson);
@@ -143,15 +126,11 @@ public class JpaShellRegistryController implements InitializingBean {
     getAllAssetAdministrationShellDescriptorByAssetId(@PathVariable("assetId") String encodedAssetId)
     	throws SerializationException {
     	String assetId = AASUtils.decodeBase64UrlSafe(encodedAssetId);
-    	List<AssetAdministrationShellDescriptor> descList = m_jpaProcessor.get(em -> {
-    		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
-    		
-    		List<JpaInstanceDescriptor> matches = instDescMgr.getInstanceDescriptorAllByAssetId(assetId);
-    		return FStream.from(matches)
-	    				.map(d -> d.toAssetAdministrationShellDescriptor())
-	    				.toList();
-    	});
-
+    	
+    	List<? extends MDTInstance> matches = m_instanceManager.getInstanceAllByAssetId(assetId);
+    	List<AssetAdministrationShellDescriptor> descList = FStream.from(matches)
+														    		.map(inst -> inst.getAASDescriptor())
+														    		.toList();
 		return ResponseEntity.ok()
 							.contentType(MediaType.APPLICATION_JSON)
 							.body(descList);
@@ -231,10 +210,10 @@ public class JpaShellRegistryController implements InitializingBean {
     public void updateAssetAdministrationShellDescriptor(@RequestBody String aasJson) throws IOException {
 		AssetAdministrationShellDescriptor aas = MDTModelSerDe.readValue(aasJson,
 																		AssetAdministrationShellDescriptor.class);
-		m_jpaProcessor.run(em -> {
-    		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
+		try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		JpaInstanceDescriptorManager instDescMgr = m_instanceManager.useInstanceDescriptorManager();
     		JpaInstanceDescriptor instDesc = instDescMgr.getInstanceDescriptor(aas.getId());
     		instDesc.updateFrom(aas);
-		});
+		};
     }
 }

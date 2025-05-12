@@ -7,11 +7,11 @@ plugins {
 }
 
 group = 'etri'
-version = '0.9.1'
+version = '1.0.0'
 
 java {
-	sourceCompatibility = JavaVersion.VERSION_17
-	targetCompatibility = JavaVersion.VERSION_17
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
 }
 	
 [compileJava,compileTestJava]*.options*.encoding = 'UTF-8'
@@ -36,6 +36,9 @@ dependencies {
 	implementation project(":utils")
 	implementation project(":mdt-client")
 //	implementation project(":mdt-faaast")
+	
+	implementation project(":argo-java-client")
+	implementation project(":mdt-argo-workflow")
 
 	// Guava (from the project :utils)
 	implementation "com.google.guava:guava:${guava_version}"
@@ -52,8 +55,18 @@ dependencies {
 	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-aasx:${aas4j_version}"
 	
 	implementation 'org.apache.poi:poi-ooxml:5.2.2'
+		
+	// HTTP Client
+	implementation group: 'com.squareup.okhttp3', name: 'okhttp', version: "${okhttp_version}"
 	
-	
+	// jackson 
+	implementation "com.fasterxml.jackson.core:jackson-databind:${jackson_version}"
+	implementation "com.fasterxml.jackson.core:jackson-core:${jackson_version}"
+	implementation "com.fasterxml.jackson.core:jackson-annotations:${jackson_version}"
+	implementation "com.fasterxml.jackson.dataformat:jackson-dataformat-xml:${jackson_version}"
+	implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jackson_version}"
+	implementation "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jackson_version}"
+
 	// Spring boot
 	implementation "org.springframework.boot:spring-boot-starter-web:${spring_boot_version}"
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0'
@@ -79,9 +92,6 @@ dependencies {
 	
 	// Kubernetes client
 	implementation "io.fabric8:kubernetes-client:${fabric8_version}"
-	
-	// Argo Java-Client
-	implementation "io.argoproj.workflow:argo-client-java:${argo_client_java}"
 }
 configurations {
 	all {
@@ -123,14 +133,14 @@ eclipse {
 				Map entryByPath = cp.entries.groupBy { entry -> entry.path }
 				entryByPath.each { key, values ->
 					if ( values.size() > 1 ) {
-						def entry = values.first()
-						if ( entry.kind == 'src' ) {
-							entry.includes = []
-							entry.excludes = []
-						}
-						int index = cp.entries.indexOf entry
-						cp.entries.removeAll values
-						cp.entries.add index, entry
+            			def entry = values.first()
+            			if ( entry.kind == 'src' ) {
+            				entry.includes = []
+            				entry.excludes = []
+            			}
+            			int index = cp.entries.indexOf entry
+            			cp.entries.removeAll values
+            			cp.entries.add index, entry
 					}
 				}
 				cp.entries.each { entry ->

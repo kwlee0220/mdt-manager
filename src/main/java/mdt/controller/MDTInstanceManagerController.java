@@ -29,14 +29,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import utils.Throwables;
-import utils.func.Try;
-import utils.http.RESTfulErrorEntity;
-import utils.io.FileUtils;
-import utils.io.IOUtils;
-import utils.io.ZipFile;
-import utils.stream.FStream;
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -45,27 +37,36 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityManagerFactory;
+
+import utils.Throwables;
+import utils.func.Try;
+import utils.http.RESTfulErrorEntity;
+import utils.io.FileUtils;
+import utils.io.IOUtils;
+import utils.io.ZipFile;
+import utils.jpa.JpaSession;
+import utils.stream.FStream;
+
 import mdt.Globals;
 import mdt.MDTConfiguration.MDTInstanceManagerConfiguration;
 import mdt.client.instance.InstanceDescriptorSerDe;
-import mdt.instance.AbstractInstance;
 import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.JpaInstance;
 import mdt.instance.external.ExternalInstance;
 import mdt.instance.external.ExternalInstanceManager;
-import mdt.instance.jpa.JpaInstanceDescriptorManager;
-import mdt.instance.jpa.JpaProcessor;
+import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.InvalidResourceStatusException;
-import mdt.model.MDTModelSerDe;
 import mdt.model.ModelValidationException;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.instance.DefaultMDTInstanceInfo;
+import mdt.model.ServiceFactory;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
+import mdt.model.instance.MDTModelService;
+
+import jakarta.persistence.EntityManagerFactory;
 
 
 /**
@@ -76,12 +77,13 @@ import mdt.model.instance.MDTInstanceManagerException;
 @RequestMapping(value={"/instance-manager"})
 public class MDTInstanceManagerController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(MDTInstanceManagerController.class);
-    private static final String DOCKER_FILE = "Dockerfile";
+    @SuppressWarnings("unused")
+	private static final String DOCKER_FILE = "Dockerfile";
 	
-	@Autowired AbstractJpaInstanceManager<? extends AbstractInstance> m_instanceManager;
+    @Autowired ServiceFactory m_serviceFactory;
+	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
 	@Autowired EntityManagerFactory m_emFact;
 	@Autowired MDTInstanceManagerConfiguration m_instanceManagerConf;
-	private JpaProcessor m_processor;
 	@Value("${server.host}")
 	private String m_host;
 	@Value("${server.port}")
@@ -91,12 +93,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 	@Override
 	public void afterPropertiesSet() throws Exception {
 		// JPA 기반 InstanceDescriptorManager를 사용하기 위한 초기화 수행.
-		m_processor = new JpaProcessor(m_emFact);
-    	m_processor.run(m_instanceManager, () -> {
-    		EntityManager em = m_instanceManager.getEntityManager();
-    		JpaInstanceDescriptorManager instDescMgr = new JpaInstanceDescriptorManager(em);
-        	m_instanceManager.initialize(instDescMgr, m_processor);
-    	});
+    	m_instanceManager.initialize(m_serviceFactory, m_emFact);
 		
 		if ( s_logger.isInfoEnabled() ) {
 			s_logger.info("{} is ready to serve: {}:{}", getClass().getName(), m_host, m_port);
@@ -117,13 +114,23 @@ public class MDTInstanceManagerController implements InitializingBean {
     @GetMapping("/instances/{id}")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getInstance(@PathVariable("id") String id) {
-    	MDTInstance inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
-    	if ( inst != null ) {
-    		return ResponseEntity.ok(m_serde.toJson(inst.getInstanceDescriptor()));
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+        	JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
+    		return ResponseEntity.ok(m_serde.toJson(desc));
     	}
-    	else {
-    		throw new ResourceNotFoundException("MDTInstance", "id=" + id);
+    }
+    
+    @GetMapping("/instances/{id}/$mdt-info")
+    @ResponseStatus(HttpStatus.OK)
+    public ResponseEntity<?> getInstanceMDTInfo(@PathVariable("id") String id) {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		JpaInstance instance = m_instanceManager.getInstance(id);
+    		MDTModelService mdtModel = MDTModelService.of(instance);
+    		return ResponseEntity.ok(mdtModel.toJsonString(true));
     	}
+		catch ( IOException e ) {
+			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
+		}
     }
     
     @Operation(summary = "MDTInstanceManager에 등록된 모든 MDTInstance 등록정보들을 반환한다.")
@@ -141,66 +148,16 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping("/instances")
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<String> getInstanceAll(@RequestParam(name="filter", required=false) String filter,
-    											@RequestParam(name="aggregate", required=false) String aggregate) {
-    	return m_processor.get(m_instanceManager, () -> {
-        	List<MDTInstance> matches;
-    		if ( filter != null ) {
-    			matches = m_instanceManager.getInstanceAllByFilter(filter);
-    		}
-    		else if ( aggregate != null ) {
-    			switch ( aggregate.toLowerCase() ) {
-    				case "count":
-    					return ResponseEntity.ok("" + m_instanceManager.countInstances());
-    				default:
-    					throw new IllegalArgumentException("unknown Aggregate: " + aggregate); 
-    			}
-    		}
-    		else {
-    			matches = m_instanceManager.getInstanceAll();
-    		}
-    		
-    		List<InstanceDescriptor> descList = FStream.from(matches)
-									    				.map(MDTInstance::getInstanceDescriptor)
-									    				.toList();
-    		
-    		return ResponseEntity.ok(m_serde.toJson(descList));
-    	});
-    }
-
-    @GetMapping("/instances/{id}/info")
-    @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<String> getInstanceInfo(@PathVariable("id") String id) {
-    	return m_processor.get(m_instanceManager, () -> {
-        	MDTInstance inst = m_instanceManager.getInstance(id);
-    		if ( inst != null ) {
-        		DefaultMDTInstanceInfo instInfo = DefaultMDTInstanceInfo.builder(inst).build();
-        		return ResponseEntity.ok(MDTModelSerDe.toJsonString(instInfo));
-    		}
-        	else {
-        		throw new ResourceNotFoundException("MDTInstance", "id=" + id);
-        	}
-    	});
-    }
-    
-    @GetMapping("/instance-infos")
-    @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<String> getInstanceInfoAll(@RequestParam(name="filter", required=false) String filter) {
-    	return m_processor.get(m_instanceManager, () -> {
-        	List<MDTInstance> matches;
-    		if ( filter != null ) {
-    			matches = m_instanceManager.getInstanceAllByFilter(filter);
-    		}
-    		else {
-    			matches = m_instanceManager.getInstanceAll();
-    		};
-    		
-    		List<DefaultMDTInstanceInfo> infoList
-	    				= FStream.from(matches)
-								.map(inst -> DefaultMDTInstanceInfo.builder(inst).build())
-								.toList();
-        	return ResponseEntity.ok(MDTModelSerDe.toJsonString(infoList));
-    	});
+    public ResponseEntity<String> getInstanceAll(@RequestParam(name="filter", required=false) String filter) {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+	    	List<? extends JpaInstance> matches = ( filter != null )
+						    					? m_instanceManager.getInstanceAllByFilter(filter)
+						    					: m_instanceManager.getInstanceAll();
+			List<InstanceDescriptor> descList = FStream.from(matches)
+														.map(MDTInstance::getInstanceDescriptor)
+														.toList();
+			return ResponseEntity.ok(m_serde.toJson(descList));
+    	}
     }
 
     @Operation(summary = "MDTInstance에 포함된 AssetAdministrationShell 모델 기술자를 반환한다.")
@@ -216,12 +173,11 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping({"instances/{id}/aas_descriptor"})
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<String> getAasDescriptor(@PathVariable("id") String id) throws SerializationException {
-    	AssetAdministrationShellDescriptor aasDesc = m_processor.get(m_instanceManager,
-									    							() -> m_instanceManager.getInstance(id)
-									    													.getAASDescriptor());
-    	String json = MDTModelSerDe.getJsonSerializer().write(aasDesc);
-    	return ResponseEntity.ok(json);
+    public AssetAdministrationShellDescriptor getAasDescriptor(@PathVariable("id") String id)
+    	throws SerializationException {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		return m_instanceManager.getInstance(id).getAASDescriptor();
+    	}
     }
 
     @Operation(summary = "MDTInstance에 포함된 모든 Submodel 기술자들을 반환한다.")
@@ -238,9 +194,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     @ResponseStatus(HttpStatus.OK)
     public List<SubmodelDescriptor> getSubmodelDescriptors(@PathVariable("id") String id)
     	throws SerializationException {
-    	return m_processor.get(m_instanceManager,
-    							() -> m_instanceManager.getInstance(id)
-    													.getSubmodelDescriptorAll());
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		return m_instanceManager.getInstance(id).getSubmodelDescriptorAll();
+    	}
     }
 
 //    @Operation(summary = "MDTInstanceManager에 주어진 MDTInstance 등록정보를 등록시킨다.")
@@ -316,32 +272,33 @@ public class MDTInstanceManagerController implements InitializingBean {
 								@RequestParam("port") int port,
 								@RequestParam(name="bundle", required=true) MultipartFile zipFile)
 		throws IOException, ModelValidationException, MDTInstanceManagerException {
-		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
-		
-    	// 입력 받은 zip 파일을 풀어서 bundle directory를 생성한다.
-    	File bundleDir = buildBundle(id, zipFile);
-    	try {
-	    	// Bundle directory의 내용을 이용해서 InstanceDescriptor를 생성하여 등록하고,
-    		// 이를 통해 MDTInstance를 생성한다.
-			MDTInstance inst = m_processor.get(m_instanceManager,
-												() -> m_instanceManager.addInstance(id, port, bundleDir));
-			String descJson = m_serde.toJson(inst.getInstanceDescriptor());
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
-
-			return descJson;
-    	}
-		catch ( IOException | ModelValidationException | MDTInstanceManagerException e ) {
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
-			throw e;
-		}
-    	catch ( Throwable e ) {
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
-			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new MDTInstanceManagerException("failed to add MDTInstance: id=" + id, cause);
-    	}
-    	finally {
-	    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
-	    	Try.accept(bundleDir, FileUtils::deleteDirectory);
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
+			
+	    	// 입력 받은 zip 파일을 풀어서 bundle directory를 생성한다.
+	    	File bundleDir = buildBundle(id, zipFile);
+	    	try {
+		    	// Bundle directory의 내용을 이용해서 InstanceDescriptor를 생성하여 등록하고,
+	    		// 이를 통해 MDTInstance를 생성한다.
+	    		MDTInstance inst = m_instanceManager.addInstance(id, port, bundleDir);
+				String descJson = m_serde.toJson(inst.getInstanceDescriptor());
+				Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
+	
+				return descJson;
+	    	}
+			catch ( IOException | ModelValidationException | MDTInstanceManagerException e ) {
+				Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
+				throw e;
+			}
+	    	catch ( Throwable e ) {
+				Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
+				Throwable cause = Throwables.unwrapThrowable(e);
+				throw new MDTInstanceManagerException("failed to add MDTInstance: id=" + id, cause);
+	    	}
+	    	finally {
+		    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
+		    	Try.accept(bundleDir, FileUtils::deleteDirectory);
+	    	}
     	}
     }
 
@@ -355,8 +312,17 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @DeleteMapping("/instances/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removeInstance(@PathVariable("id") String id) {
-		m_processor.run(m_instanceManager, () -> m_instanceManager.removeInstance(id));
+    public ResponseEntity<?> removeInstance(@PathVariable("id") String id) {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		m_instanceManager.removeInstance(id);
+    		return ResponseEntity.noContent().build();
+    	}
+		catch ( ResourceNotFoundException e ) {
+			return ResponseEntity.notFound().build();
+		}
+    	catch ( InvalidResourceStatusException e ) {
+    		return ResponseEntity.badRequest().body(RESTfulErrorEntity.of(e));
+    	}
     }
 
     @Operation(summary = "MDTInstanceManager에 등록된 모든 MDTInstance 등록정보를 삭제한다.")
@@ -365,8 +331,10 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @DeleteMapping("/instances")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removeInstanceAll() throws SerializationException {
-    	Try.run(() -> m_processor.run(m_instanceManager, () -> m_instanceManager.removeInstanceAll()));
+    public void removeInstanceAll() {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		m_instanceManager.removeInstanceAll();
+    	}
     }
 
     @Operation(summary = "MDTInstance 식별자에 해당하는 MDTInstance를 시작시킨다.")
@@ -383,16 +351,22 @@ public class MDTInstanceManagerController implements InitializingBean {
     @PutMapping("/instances/{id}/start")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> startInstance(@PathVariable("id") String id) throws InterruptedException {
-		AbstractInstance inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
+    	JpaInstance inst;
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+	    	inst = m_instanceManager.getInstance(id);
+    	}
+    	
 		try {
-			inst.startAsync();
+			inst.start(null, null);
 		}
 		catch ( Exception e ) {
 			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
 		}
 
-		inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
-		return ResponseEntity.ok(m_serde.toJson(inst.getInstanceDescriptor()));
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+			InstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
+			return ResponseEntity.ok(m_serde.toJson(desc));
+    	}
     }
 
     @Operation(
@@ -411,12 +385,23 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @PutMapping("/instances/{id}/stop")
     @ResponseStatus(HttpStatus.OK)
-    public String stopInstance(@PathVariable("id") String id) {
-    	AbstractInstance inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
-    	inst.stopAsync();
-
-    	inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
-    	return m_serde.toJson(inst.getInstanceDescriptor());
+    public ResponseEntity<?> stopInstance(@PathVariable("id") String id) {
+    	JpaInstance inst;
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+	    	inst = m_instanceManager.getInstance(id);
+    	}
+    	
+    	try {
+			inst.stop(null, null);
+		}
+		catch ( Exception e ) {
+			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
+		}
+    	
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+			InstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
+			return ResponseEntity.ok(m_serde.toJson(desc));
+    	}
     }
     
     @PostMapping("/registry/{id}")
@@ -426,18 +411,22 @@ public class MDTInstanceManagerController implements InitializingBean {
     	if ( !(m_instanceManager instanceof ExternalInstanceManager) ) {
 			throw new UnsupportedOperationException("registerInstance: not supported");
     	}
+    	
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+        	ExternalInstanceManager extInstMgr = (ExternalInstanceManager)m_instanceManager;
+        	ExternalInstance intance = extInstMgr.register(id, repoEndpoint);
 
-    	ExternalInstanceManager extInstMgr = (ExternalInstanceManager)m_instanceManager;
-		ExternalInstance intance = m_processor.get(extInstMgr, () -> extInstMgr.register(id, repoEndpoint));
-
-		return ResponseEntity.ok(m_serde.toJson(intance.getInstanceDescriptor()));
+    		return ResponseEntity.ok(m_serde.toJson(intance.getInstanceDescriptor()));
+    	}
     }
 
     @DeleteMapping("/registry/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void unregisterInstance(@PathVariable("id") String id) {
 		if ( m_instanceManager instanceof ExternalInstanceManager extInstMgr ) {
-			m_processor.run(extInstMgr, () -> extInstMgr.unregister(id));
+	    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+	    		extInstMgr.unregister(id);
+	    	}
 		}
 		else {
 			throw new UnsupportedOperationException("unregisterInstance: not supported");
@@ -455,7 +444,7 @@ public class MDTInstanceManagerController implements InitializingBean {
         })
     @GetMapping("/instances/{id}/log")
     public ResponseEntity<?> getOutputLog(@PathVariable("id") String id) throws IOException {
-    	AbstractInstance inst = m_processor.get(m_instanceManager, () -> m_instanceManager.getInstance(id));
+    	JpaInstance inst = m_instanceManager.getInstance(id);
     	try {
 			String log = inst.getOutputLog();
 			return ResponseEntity.ok(log);

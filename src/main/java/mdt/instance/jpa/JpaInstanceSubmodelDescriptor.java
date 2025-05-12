@@ -9,16 +9,10 @@ import org.eclipse.digitaltwin.aas4j.v3.model.ReferenceTypes;
 import org.eclipse.digitaltwin.aas4j.v3.model.Submodel;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 
+import com.fasterxml.jackson.annotation.JsonIncludeProperties;
 import com.google.common.base.Preconditions;
 
-import lombok.Getter;
-import lombok.Setter;
-
 import utils.func.FOption;
-
-import mdt.model.DescriptorUtils;
-import mdt.model.MDTModelSerDe;
-import mdt.model.instance.InstanceSubmodelDescriptor;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -32,6 +26,11 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
+import mdt.model.DescriptorUtils;
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.InstanceSubmodelDescriptor;
 
 
 /**
@@ -46,6 +45,7 @@ import jakarta.persistence.Table;
 		@Index(name="submodel_id_idx", columnList="id", unique=true),
 		@Index(name="submodel_idshort_idx", columnList="id_short")
 	})
+@JsonIncludeProperties({"id", "idShort", "semanticId"})
 public class JpaInstanceSubmodelDescriptor implements InstanceSubmodelDescriptor {
 	@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
 	@Column(name="row_id")
@@ -89,7 +89,7 @@ public class JpaInstanceSubmodelDescriptor implements InstanceSubmodelDescriptor
 	}
 	
 	public void setSemanticIdReference(Reference semanticId) {
-		if ( semanticId != null  && semanticId.getType() == ReferenceTypes.EXTERNAL_REFERENCE ) {
+		if ( semanticId != null  /*&& semanticId.getType() == ReferenceTypes.EXTERNAL_REFERENCE*/ ) {
 			List<Key> keys = semanticId.getKeys();
 			if ( keys.size() == 1 ) {
 				setSemanticId(keys.get(0).getValue());

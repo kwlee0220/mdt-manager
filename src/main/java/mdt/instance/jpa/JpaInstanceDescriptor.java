@@ -11,21 +11,12 @@ import org.eclipse.digitaltwin.aas4j.v3.model.AssetKind;
 import org.eclipse.digitaltwin.aas4j.v3.model.Submodel;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-
 import utils.InternalException;
 import utils.stream.FStream;
-
-import mdt.model.DescriptorUtils;
-import mdt.model.MDTModelSerDe;
-import mdt.model.instance.InstanceDescriptor;
-import mdt.model.instance.InstanceSubmodelDescriptor;
-import mdt.model.instance.MDTInstanceStatus;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -41,6 +32,17 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import mdt.model.DescriptorUtils;
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.InstanceSubmodelDescriptor;
+import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.instance.MDTOperationDescriptor;
+import mdt.model.instance.MDTParameterDescriptor;
+import mdt.model.sm.SubmodelUtils;
 
 
 /**
@@ -78,6 +80,12 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 
 	@OneToMany(fetch=FetchType.EAGER, cascade=CascadeType.ALL, mappedBy="instance", orphanRemoval=true)
 	private List<JpaInstanceSubmodelDescriptor> submodels = Lists.newArrayList();
+
+	@OneToMany(fetch=FetchType.EAGER, cascade=CascadeType.ALL, mappedBy="instance", orphanRemoval=true)
+	private List<JpaAssetParameterDescriptor>parameters = Lists.newArrayList();
+
+	@OneToMany(fetch=FetchType.EAGER, cascade=CascadeType.ALL, mappedBy="instance", orphanRemoval=true)
+	private List<JpaMDTOperationDescriptor> operations = Lists.newArrayList();
 	
 	private JpaInstanceDescriptor(String instId, AssetAdministrationShellDescriptor aasDesc) {
 		try {
@@ -100,11 +108,16 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 			throw new InternalException("" + e);
 		}
 	}
+	
+	public void addAssetOperationDescrriptor(JpaMDTOperationDescriptor opDesc) {
+		opDesc.setInstance(this);
+		this.operations.add(opDesc);
+	}
 
-	public static JpaInstanceDescriptor from(String instId, AssetAdministrationShell aas,
-											List<Submodel> submodels) {
+	public static JpaInstanceDescriptor from(String instId, AssetAdministrationShell shell,
+												List<Submodel> submodels) {
 		AssetAdministrationShellDescriptor aasDesc
-							= DescriptorUtils.createAssetAdministrationShellDescriptor(aas, null);
+							= DescriptorUtils.createAssetAdministrationShellDescriptor(shell, null);
 		List<SubmodelDescriptor> smDescList
 					= FStream.from(submodels)
 							.map(sm -> DescriptorUtils.createSubmodelDescriptor(sm, null))
@@ -112,7 +125,24 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 							.toList();
 		aasDesc.setSubmodelDescriptors(smDescList);
 		
-		return from(instId, aasDesc);
+		JpaInstanceDescriptor instDesc = from(instId, aasDesc);
+		for ( Submodel submodel: submodels ) {
+			if ( SubmodelUtils.isDataSubmodel(submodel) ) {
+				instDesc.parameters = JpaAssetParameterDescriptor.loadJpaAssetParameterList(instDesc, submodel);
+			}
+			else if ( SubmodelUtils.isSimulationSubmodel(submodel) ) {
+				JpaMDTOperationDescriptor opDesc = JpaMDTOperationDescriptor.loadSimulationDescriptor(instDesc,
+																											submodel);
+				instDesc.operations.add(opDesc);
+			}
+			else if ( SubmodelUtils.isAISubmodel(submodel) ) {
+				JpaMDTOperationDescriptor opDesc = JpaMDTOperationDescriptor.loadAIDescriptor(instDesc,
+																									submodel);
+				instDesc.operations.add(opDesc);
+			}
+		}
+	
+		return instDesc;
 	}
 
 	public static JpaInstanceDescriptor from(String instId, AssetAdministrationShellDescriptor aasDesc) {
@@ -122,10 +152,10 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 	public void updateFrom(AssetAdministrationShellDescriptor aasDesc) {
 		Preconditions.checkArgument(getId().equals(aasDesc.getId()));
 		
-		setAasIdShort(aasDesc.getIdShort());
-		setGlobalAssetId(aasDesc.getGlobalAssetId());
-		setAssetType(aasDesc.getAssetType());
-		setAssetKind(aasDesc.getAssetKind());
+		this.aasId = aasDesc.getIdShort();
+		this.globalAssetId = aasDesc.getGlobalAssetId();
+		this.assetType = aasDesc.getAssetType();
+		this.assetKind = aasDesc.getAssetKind();
 		
 		try {
 			String aasJson = MDTModelSerDe.getJsonSerializer().write(aasDesc);
@@ -133,7 +163,8 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 			
 			List<JpaInstanceSubmodelDescriptor> updateds = Lists.newArrayList();
 			Map<String,JpaInstanceSubmodelDescriptor> prevMap = FStream.from(this.submodels)
-																		.toMap(InstanceSubmodelDescriptor::getIdShort);
+																		.tagKey(InstanceSubmodelDescriptor::getIdShort)
+																		.toMap();
 			for ( SubmodelDescriptor smDesc: aasDesc.getSubmodelDescriptors() ) {
 				JpaInstanceSubmodelDescriptor jid = prevMap.remove(smDesc.getIdShort());
 				if ( jid != null ) {
@@ -145,7 +176,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 				updateds.add(jid);
 			}
 			FStream.from(updateds).forEach(jisd -> jisd.setInstance(this));
-			setSubmodels(updateds);
+			this.submodels = updateds;
 		}
 		catch ( SerializationException  e ) {
 			throw new IllegalArgumentException("Failed to serialize JSON, cause=" + e);
@@ -153,8 +184,21 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 	}
 
 	@Override
-	public List<InstanceSubmodelDescriptor> getInstanceSubmodelDescriptors() {
+	@JsonIgnore
+	public List<InstanceSubmodelDescriptor> getInstanceSubmodelDescriptorAll() {
 		return FStream.from(this.submodels).cast(InstanceSubmodelDescriptor.class).toList();
+	}
+
+	@Override
+	@JsonIgnore
+	public List<MDTParameterDescriptor> getMDTParameterDescriptorAll() {
+		return FStream.from(this.parameters).cast(MDTParameterDescriptor.class).toList();
+	}
+	
+	@Override
+	@JsonIgnore
+	public List<MDTOperationDescriptor> getMDTOperationDescriptorAll() {
+		return FStream.from(this.operations).cast(MDTOperationDescriptor.class).toList();
 	}
 	
 	public AssetAdministrationShellDescriptor toAssetAdministrationShellDescriptor() {
@@ -182,7 +226,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 	public SubmodelDescriptor toSubmodelDescriptor(JpaInstanceSubmodelDescriptor ismDesc) {
 		try {
 			SubmodelDescriptor smDesc = MDTModelSerDe.getJsonDeserializer()
-												.read(ismDesc.getJson(), SubmodelDescriptor.class);
+													.read(ismDesc.getJson(), SubmodelDescriptor.class);
 			if ( getBaseEndpoint() != null ) {
 				String smEp = DescriptorUtils.toSubmodelServiceEndpointString(getBaseEndpoint(), ismDesc.getId());
 				smDesc.setEndpoints(DescriptorUtils.newEndpoints(smEp, "SUBMODEL-3.0"));

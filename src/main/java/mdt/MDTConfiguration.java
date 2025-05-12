@@ -10,6 +10,7 @@ import org.hibernate.jpa.HibernatePersistenceProvider;
 import org.mandas.docker.client.exceptions.DockerException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -36,6 +37,11 @@ import mdt.instance.jar.JarInstanceManager;
 import mdt.instance.jpa.InstancePersistenceUnitInfo;
 import mdt.instance.k8s.KubernetesInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
+import mdt.workflow.JpaWorkflowModelManager;
+import mdt.workflow.MDTWorkflowManagerConfiguration;
+import mdt.workflow.OpenApiArgoWorkflowManager;
+import mdt.workflow.WorkflowManager;
+import mdt.workflow.WorkflowModelManager;
 
 import jakarta.persistence.EntityManagerFactory;
 
@@ -142,6 +148,16 @@ public class MDTConfiguration {
 		
 		return instManager;
 	}
+	
+//	@Bean
+//	WorkflowManager getWorkflowManager() {
+//		return new OpenApiArgoWorkflowManager();
+//	}
+//	
+//	@Bean
+//	WorkflowModelManager getWorkflowModelManager() {
+//		return new JpaWorkflowModelManager();
+//	}
 
 	@Bean
 	@ConfigurationProperties(prefix = "executor")
@@ -236,5 +252,12 @@ public class MDTConfiguration {
 		public String toString() {
 			return String.format("url=%s, user=%s", this.url, this.user);
 		}
+	}
+	
+	@Autowired private MDTWorkflowManagerConfiguration m_workflowConf;
+	@Bean
+	WorkflowManager getWorkflowManager() {
+		WorkflowModelManager modelMgr = new JpaWorkflowModelManager(getEntityManagerFactory());
+		return new OpenApiArgoWorkflowManager(modelMgr, m_workflowConf);
 	}
 }

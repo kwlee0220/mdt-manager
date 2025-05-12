@@ -15,23 +15,24 @@ import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.Service;
 
 import utils.Throwables;
-import utils.func.FOption;
 import utils.io.FileUtils;
+import utils.jpa.JpaSession;
 import utils.stream.FStream;
 
 import mdt.MDTConfiguration;
 import mdt.instance.AbstractJpaInstanceManager;
-import mdt.instance.InstanceDescriptorManager;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
-import mdt.instance.jpa.JpaProcessor;
 import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.instance.InstanceDescriptor;
+import mdt.model.ServiceFactory;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+
+import jakarta.persistence.EntityManagerFactory;
+
 
 /**
  *
@@ -41,7 +42,6 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	private static final Logger s_logger = LoggerFactory.getLogger(ExternalInstanceManager.class);
 	
 	private final ExternalConfiguration m_extConfig;
-	private JpaProcessor m_jpaProcessor;
 	
 	public ExternalInstanceManager(MDTConfiguration conf) {
 		super(conf);
@@ -51,22 +51,21 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	}
 
 	@Override
-	public void initialize(InstanceDescriptorManager instDescManager, JpaProcessor jpaProcessor)
-		throws MDTInstanceManagerException {
-		Preconditions.checkArgument(instDescManager instanceof JpaInstanceDescriptorManager,
-									"JpaInstanceDescriptorManager required");
-		JpaInstanceDescriptorManager jpaInstDescManager = (JpaInstanceDescriptorManager)instDescManager;
-		Preconditions.checkArgument(jpaInstDescManager.getEntityManager() != null, "EntityManager is not assigned");
+	public void initialize(ServiceFactory svcFact, EntityManagerFactory emFact) throws IOException {
 		checkExternalConfigurationValidity(m_extConfig);
 		
-		super.initialize(instDescManager, jpaProcessor);
+		super.initialize(svcFact, emFact);
 		
-		for ( JpaInstanceDescriptor desc: instDescManager.getInstanceDescriptorAll() ) {
-			desc.setStatus(MDTInstanceStatus.STOPPED);
-			desc.setBaseEndpoint(null);
-		}
+		// 등록된 모든 InstanceDescriptor의 상태를 STOPPED로 변경
+    	try ( JpaSession session = allocateJpaSession() ) {
+			JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
+			instDescMgr.getInstanceDescriptorAll()
+						.forEach(desc -> {
+							desc.setStatus(MDTInstanceStatus.STOPPED);
+							desc.setBaseEndpoint(null);
+						});
+    	}
 		
-		m_jpaProcessor = jpaProcessor;
 		m_healthCheckService.startAsync();
 	}
 
@@ -99,69 +98,50 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	}
 	
 	public ExternalInstance register(String id, String serviceEndpoint) throws ResourceNotFoundException {
-		JpaInstanceDescriptorManager instDescMgr = getInstanceDescriptorManager();
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 		JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
 		if ( desc == null ) {
 			throw new ResourceNotFoundException("MDTInstance", "id=" + id);
 		}
 
 		try {
-			ExternalInstanceArguments args = m_mapper.readValue(desc.getArguments(), ExternalInstanceArguments.class);
+			// update the last modified time
+			ExternalInstanceArguments args = m_mapper.readValue(desc.getArguments(),
+																ExternalInstanceArguments.class);
 			args.setLastModified(System.currentTimeMillis());
 			desc.setArguments(m_mapper.writeValueAsString(args));
 		}
 		catch ( Exception e ) { }
-		
-		if ( desc.getStatus() != MDTInstanceStatus.RUNNING ) {
-			desc.setBaseEndpoint(serviceEndpoint);
-			desc.setStatus(MDTInstanceStatus.RUNNING);
-			
-			if ( getLogger().isInfoEnabled() ) {
-				getLogger().info("Registered MDTInstance: id={}, endpoint={}", id, serviceEndpoint);
-			}
+
+		desc.setStatus(MDTInstanceStatus.RUNNING);
+		desc.setBaseEndpoint(serviceEndpoint);
+		if ( getLogger().isInfoEnabled() ) {
+			getLogger().info("Registered MDTInstance: id={}, endpoint={}", id, serviceEndpoint);
 		}
-		instDescMgr.updateInstanceDescriptor(desc);
 		
 		return toInstance(desc);
 	}
 	
 	public void unregister(String id) {
-		JpaInstanceDescriptorManager instDescMgr = getInstanceDescriptorManager();
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 		JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
 		if ( desc == null ) {
-			throw new ResourceNotFoundException("MDTInstance", "id=" + id);
-		}
+            throw new ResourceNotFoundException("MDTInstance", "id=" + id);
+        }
 		
-		unregister(instDescMgr, desc);
+		desc.setStatus(MDTInstanceStatus.STOPPED);
+		desc.setBaseEndpoint(null);
+		if ( getLogger().isInfoEnabled() ) {
+			getLogger().info("Unregistered MDTInstance: id={}", id);
+		}
 	}
 
 	@Override
-	public MDTInstanceStatus getInstanceStatus(String id) {
-		return FOption.mapOrElse(getInstanceDescriptorManager().getInstanceDescriptor(id),
-								InstanceDescriptor::getStatus, MDTInstanceStatus.REMOVED);
-	}
-
-	@Override
-	public String getInstanceServiceEndpoint(String id) {
-		return FOption.map(getInstanceDescriptorManager().getInstanceDescriptor(id),
-							InstanceDescriptor::getBaseEndpoint);
-	}
+	protected void updateInstanceDescriptor(JpaInstanceDescriptor desc) { }
 
 	@Override
 	protected ExternalInstance toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException {
 		return new ExternalInstance(this, descriptor);
-	}
-	
-	private void unregister(JpaInstanceDescriptorManager instDescMgr, JpaInstanceDescriptor desc) {
-		if ( desc.getStatus() != MDTInstanceStatus.STOPPED ) {
-			desc.setBaseEndpoint(null);
-			desc.setStatus(MDTInstanceStatus.STOPPED);
-			instDescMgr.updateInstanceDescriptor(desc);
-
-			if ( getLogger().isInfoEnabled() ) {
-				getLogger().info("Unregistered MDTInstance: id={}", desc.getId());
-			}
-		}
 	}
 	
 	private void checkExternalConfigurationValidity(ExternalConfiguration config) {
@@ -183,8 +163,9 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 			
 			final long now = System.currentTimeMillis();
 			final Duration timeout = m_extConfig.getConnectionTimeout();
-			JpaInstanceDescriptorManager instDescMgr = getInstanceDescriptorManager();
-			m_jpaProcessor.run(instDescMgr, () -> {
+			
+			try ( JpaSession session = allocateJpaSession() ) {
+				JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 				FStream.from(instDescMgr.getInstanceDescriptorAll())
 						.filter(desc -> desc.getStatus() == MDTInstanceStatus.RUNNING)
 						.forEach(desc -> {
@@ -193,14 +174,18 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 																					ExternalInstanceArguments.class);
 								Duration idleDuration = Duration.ofMillis(now - args.getLastModified());
 								if ( idleDuration.compareTo(timeout) >= 0 ) {
-									unregister(instDescMgr, desc);
+									desc.setStatus(MDTInstanceStatus.STOPPED);
+									desc.setBaseEndpoint(null);
+									if ( getLogger().isInfoEnabled() ) {
+										getLogger().info("MDTInstance is stopped due to inactivity: id={}", desc.getId());
+									}
 								}
 							}
 							catch ( Exception e ) {
 								getLogger().error("Failed to check health of MDTInstance: id=" + desc.getId(), e);
 							}
 						});
-			});
+			}
 		}
 
 		@Override
