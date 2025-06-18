@@ -16,26 +16,19 @@ import com.google.common.base.Objects;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class DockerExecutionArguments {
 	@JsonProperty("imageRepoName") private final String m_imageRepoName;
-	@JsonProperty("faaastPort") private final int m_faaastPort;
 	
 	@JsonCreator
-	public DockerExecutionArguments(@JsonProperty("imageRepoName") String imageRepoName,
-									@JsonProperty("faaastPort") int faaastPort) {
+	public DockerExecutionArguments(@JsonProperty("imageRepoName") String imageRepoName) {
 		this.m_imageRepoName = imageRepoName;
-		this.m_faaastPort = faaastPort;
 	}
 	
 	public String getImageRepoName() {
 		return m_imageRepoName;
 	}
 	
-	public int getFaaastPort() {
-		return m_faaastPort;
-	}
-	
 	@Override
 	public String toString() {
-		return String.format("dockerImage=%s, faaastPort=%d", m_imageRepoName, m_faaastPort);
+		return String.format("dockerImage=%s", m_imageRepoName);
 	}
 	
 	@Override
@@ -48,7 +41,6 @@ public class DockerExecutionArguments {
 		}
 		
 		DockerExecutionArguments other = (DockerExecutionArguments)obj;
-		return Objects.equal(m_imageRepoName, other.m_imageRepoName)
-				&& m_faaastPort == other.m_faaastPort;
+		return Objects.equal(m_imageRepoName, other.m_imageRepoName);
 	}
 }

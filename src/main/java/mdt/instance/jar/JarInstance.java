@@ -41,7 +41,7 @@ public class JarInstance extends JpaInstance implements MDTInstance {
 
 		JarInstanceExecutor exector = mgr.getInstanceExecutor();
 		if ( getLogger().isInfoEnabled() ) {
-			getLogger().info("starting: {}, port={}...", this, jargs.getPort());
+			getLogger().info("starting: {}...", this);
 		}
 		CompletableFuture.runAsync(() -> exector.start(getId(), getAasId(), jargs));
 	}

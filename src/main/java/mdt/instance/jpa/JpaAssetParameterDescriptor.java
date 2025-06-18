@@ -70,20 +70,25 @@ public class JpaAssetParameterDescriptor implements MDTParameterDescriptor {
 			throw new IllegalArgumentException("instance assetType is null: instance=" + instDesc.getId());
 		}
 		
-		switch ( instDesc.getAssetType().toUpperCase() ) {
-			case "EQUIPMENT":
+		switch ( instDesc.getAssetType() ) {
+			case Machine:
 				if ( s_logger.isDebugEnabled() ) {
 					s_logger.debug("loading EQUIPMENT parameters: instance=" + instDesc.getId());
 				}
 				return loadEquipmentParameters(instDesc, submodel);
-			case "PROCESS":
+			case Process:
 				if ( s_logger.isDebugEnabled() ) {
 					s_logger.debug("loading OPERATION parameters: instance=" + instDesc.getId());
 				}
 				return loadOperationParameters(instDesc, submodel);
-			case "LINE":
+			case Line:
 				if ( s_logger.isDebugEnabled() ) {
 					s_logger.debug("loading Line parameters: instance=" + instDesc.getId());
+				}
+				return Collections.emptyList();
+			case Factory:
+				if ( s_logger.isDebugEnabled() ) {
+					s_logger.debug("loading Factory parameters: instance=" + instDesc.getId());
 				}
 				return Collections.emptyList();
 			default:

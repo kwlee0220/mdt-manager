@@ -16,12 +16,13 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
 
+import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.Service;
+
 import utils.InternalException;
 import utils.io.FileUtils;
 
-import io.fabric8.kubernetes.api.model.Pod;
-import io.fabric8.kubernetes.api.model.Service;
-import mdt.MDTConfiguration;
+import mdt.MDTConfigurations;
 import mdt.controller.DockerCommandUtils;
 import mdt.controller.DockerCommandUtils.StandardOutputHandler;
 import mdt.instance.AbstractJpaInstanceManager;
@@ -44,20 +45,19 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 	private static final Logger s_logger = LoggerFactory.getLogger(KubernetesInstanceManager.class);
 	public static final String NAMESPACE = "mdt-instance";
 	
-	private final String m_dockerEndpoint;
 	private final HarborConfiguration m_harborConf;
-	
-	public KubernetesInstanceManager(MDTConfiguration conf) {
-		super(conf);
-		
-		DockerConfiguration dockerConf = conf.getDockerConfiguration();
-		Preconditions.checkNotNull(dockerConf.getDockerEndpoint());
+	private final DockerConfiguration m_dockerConf;
+	private final String m_dockerEndpoint;
 
-		m_dockerEndpoint = dockerConf.getDockerEndpoint();
-		m_harborConf = conf.getHarborConfiguration();
-		Preconditions.checkNotNull(m_harborConf);
-		
+	public KubernetesInstanceManager(MDTConfigurations configs) throws Exception {
+		super(configs);
 		setLogger(s_logger);
+		
+		m_dockerConf = configs.getDockerConfig();
+		Preconditions.checkNotNull(m_dockerConf.getDockerEndpoint());
+		m_dockerEndpoint = m_dockerConf.getDockerEndpoint();
+		
+		m_harborConf = configs.getHarborConfig();
 	}
 	
 	public HarborConfiguration getHarborConfiguration() {
@@ -158,7 +158,7 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 	}
 
 	@Override
-	public MDTInstance addInstance(String id, int faaastPort, File bundleDir)
+	public MDTInstance addInstance(String id, File bundleDir)
 		throws ModelValidationException, IOException {
 		String repoName = deployInstanceDockerImage(id, bundleDir, m_dockerEndpoint, getHarborConfiguration());
 		

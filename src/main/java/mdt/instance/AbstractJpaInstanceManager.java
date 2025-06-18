@@ -1,7 +1,6 @@
 package mdt.instance;
 
 import java.io.File;
-import java.io.IOException;
 import java.net.InetAddress;
 import java.util.List;
 
@@ -26,9 +25,9 @@ import utils.jpa.JpaSession;
 import utils.stream.FStream;
 
 import mdt.Globals;
-import mdt.MDTConfiguration;
-import mdt.MDTConfiguration.MDTInstanceManagerConfiguration;
-import mdt.MDTConfiguration.MqttConfiguration;
+import mdt.MDTConfigurations;
+import mdt.MDTInstanceManagerConfiguration;
+import mdt.MqttConfiguration;
 import mdt.instance.docker.DockerInstanceManager;
 import mdt.instance.external.ExternalInstanceManager;
 import mdt.instance.jar.JarInstanceManager;
@@ -55,27 +54,30 @@ import jakarta.persistence.EntityManagerFactory;
 public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 										implements MDTInstanceManagerProvider, LoggerSettable {
 	private static final Logger s_logger = LoggerFactory.getLogger(AbstractJpaInstanceManager.class);
-	
-	private ServiceFactory m_serviceFact;
-	private EntityManagerFactory m_emFact;
 
-	private final MDTInstanceManagerConfiguration m_conf;
+	protected final MDTInstanceManagerConfiguration m_conf;
+	protected final MqttConfiguration m_mqttConf;
 	private final String m_repositoryEndpointFormat;
 	private final MDTInstanceStatusMqttPublisher m_mqttEventPublisher;
+	
+    private final ServiceFactory m_serviceFact;
+	private final EntityManagerFactory m_emFact;
 	
 	protected final JsonMapper m_mapper = MDTModelSerDe.getJsonMapper();
 	private Logger m_logger = s_logger;
 
 	protected abstract void updateInstanceDescriptor(JpaInstanceDescriptor desc);
 	protected abstract T toInstance(JpaInstanceDescriptor descriptor) throws MDTInstanceManagerException;
-	
-	protected AbstractJpaInstanceManager(MDTConfiguration conf) throws MDTInstanceManagerException {
-		m_conf = conf.getMDTInstanceManagerConfiguration();
+
+	protected AbstractJpaInstanceManager(MDTConfigurations configs) throws Exception {
+		m_conf = configs.getInstanceManagerConfig();
+		m_mqttConf = configs.getMqttConfig();
+		m_serviceFact = configs.getServiceFactory();
+		m_emFact = configs.getEntityManagerFactory();
 		
-		String epFormat = m_conf.getRepositoryEndpointFormat();
+		String epFormat = m_conf.getInstanceEndpointFormat();
 		if ( epFormat == null ) {
 			try {
-//				List<String> addrList = NetUtils.getLocalHostAddresses();
 				String host = InetAddress.getLocalHost().getHostAddress();
 				epFormat = "https:" + host + ":%d/api/v3.0";
 			}
@@ -89,13 +91,12 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		}
 
 		Globals.EVENT_BUS.register(this);
-		MqttConfiguration mqttConf = conf.getMqttConfiguration();
-		if ( mqttConf.getEndpoint() != null ) {
+		if ( m_mqttConf.getEndpoint() != null ) {
 			m_mqttEventPublisher = MDTInstanceStatusMqttPublisher.builder()
-																.mqttServerUri(mqttConf.getEndpoint())
-																.clientId(mqttConf.getClientId())
-																.qos(mqttConf.getQos())
-																.reconnectInterval(mqttConf.getReconnectInterval())
+																.mqttServerUri(m_mqttConf.getEndpoint())
+																.clientId(m_mqttConf.getClientId())
+																.qos(m_mqttConf.getQos())
+																.reconnectInterval(m_mqttConf.getReconnectInterval())
 																.build();
 			m_mqttEventPublisher.startAsync();
 			Globals.EVENT_BUS.register(m_mqttEventPublisher);
@@ -103,11 +104,6 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		else {
 			m_mqttEventPublisher = null;
 		}
-	}
-	
-	public void initialize(ServiceFactory svcFact, EntityManagerFactory fact) throws IOException {
-		m_serviceFact = svcFact;
-		m_emFact = fact;
 		
 		if ( !getInstancesDir().exists() ) {
 			FileUtils.createDirectory(getInstancesDir());
@@ -115,6 +111,10 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		if ( !getBundlesDir().exists() ) {
 			FileUtils.createDirectory(getBundlesDir());
 		}
+	}
+	
+	public MDTInstanceManagerConfiguration getConfiguration() {
+		return m_conf;
 	}
 
 	@Override

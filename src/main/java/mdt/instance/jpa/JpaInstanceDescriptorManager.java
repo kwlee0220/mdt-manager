@@ -60,7 +60,7 @@ public class JpaInstanceDescriptorManager implements InstanceDescriptorManager {
 	public List<JpaInstanceDescriptor> getInstanceDescriptorAll() {
 		EntityManager em = checkEntityManager();
 		
-		return em.createQuery("select d from JpaInstanceDescriptor d",
+		return em.createQuery("select d from JpaInstanceDescriptor d order by rowId",
 								JpaInstanceDescriptor.class).getResultList();
 	}
 	

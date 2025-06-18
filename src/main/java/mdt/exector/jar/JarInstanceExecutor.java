@@ -14,8 +14,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
 
-import javax.annotation.Nullable;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +34,7 @@ import utils.io.FileUtils;
 import utils.io.LogTailer;
 import utils.stream.FStream;
 
-import mdt.MDTConfiguration.JarExecutorConfiguration;
+import mdt.MDTInstanceManagerConfiguration;
 import mdt.instance.jar.JarExecutionArguments;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstanceManagerException;
@@ -50,10 +48,11 @@ import mdt.model.instance.MDTInstanceStatus;
 public class JarInstanceExecutor {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceExecutor.class);
 	
+	private static final String DEFAULT_HEAP_SIZE = "512m";
+	
+	private final MDTInstanceManagerConfiguration m_mgrConfig;
+	private final JarExecutorConfiguration m_execConfig;
 	private final File m_workspaceDir;
-	private final Duration m_sampleInterval;
-	@Nullable private final Duration m_startTimeout;
-	private final String m_heapSize;
 	private final Semaphore m_startSemaphore;	// 동시에 시작할 수 있는 프로세스 수 제한
 	
 	private final Guard m_guard = Guard.create();
@@ -61,31 +60,29 @@ public class JarInstanceExecutor {
 	private final Map<String,ProcessDesc> m_runningInstances = Maps.newHashMap();
 	private final Set<JarExecutionListener> m_listeners = Sets.newConcurrentHashSet();
 	
-	public JarInstanceExecutor(JarExecutorConfiguration conf) throws MDTInstanceManagerException {
+	public JarInstanceExecutor(MDTInstanceManagerConfiguration mgrConf, JarExecutorConfiguration conf)
+		throws MDTInstanceManagerException {
 		Preconditions.checkArgument(conf != null, "JarExecutorConfiguration is null");
 		Preconditions.checkArgument(conf.getWorkspaceDir() != null, "JarExecutorConfiguration.workspaceDir is null");
 		
+		m_mgrConfig = mgrConf;
+		m_execConfig = conf;
 		m_workspaceDir = conf.getWorkspaceDir();
 		Try.accept(m_workspaceDir, FileUtils::createDirectory);
 		
-		m_sampleInterval = conf.getSampleInterval();
-		m_startTimeout = conf.getStartTimeout();
 		m_startSemaphore = new Semaphore(conf.getStartConcurrency());
-		m_heapSize = conf.getHeapSize();
 	}
 	
 	public File getWorkspaceDir() {
 		return m_workspaceDir;
 	}
 	
-	public Tuple<MDTInstanceStatus,Integer> start(String id, String aasId, JarExecutionArguments args)
+	public Tuple<MDTInstanceStatus,String> start(String id, String aasId, JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
 		try {
 			// 동시에 실행할 수 있는 프로세스 수 제한을 위해 semaphore를 획득한다.
 			m_startSemaphore.acquire();
-			if ( s_logger.isDebugEnabled() ) {
-				s_logger.debug("acquired start-semaphore: thead=" + Thread.currentThread().getName());
-			}
+			s_logger.debug("acquired start-semaphore: thead={}", Thread.currentThread().getName());
 		}
 		catch ( InterruptedException e ) {
 			throw new MDTInstanceExecutorException("" + e);
@@ -96,13 +93,11 @@ public class JarInstanceExecutor {
 		}
 		finally {
 			m_startSemaphore.release();
-			if ( s_logger.isDebugEnabled() ) {
-				s_logger.debug("released a start-semaphore: thead=" + Thread.currentThread().getName());
-			}
+			s_logger.debug("released a start-semaphore: thead={}", Thread.currentThread().getName());
 		}
 	}
 	
-	private Tuple<MDTInstanceStatus,Integer> startWithSemaphore(String id, String aasId, JarExecutionArguments args)
+	private Tuple<MDTInstanceStatus,String> startWithSemaphore(String id, String aasId, JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
     	File jobDir = new File(m_workspaceDir, id);
 		File logDir = new File(jobDir, "logs");
@@ -110,18 +105,27 @@ public class JarInstanceExecutor {
 		// 혹시나 있지 모를 'logs' 디렉토리 삭제.
     	Try.accept(logDir, FileUtils::deleteDirectory);
     	
-    	String heapSize = FOption.getOrElse(m_heapSize, "512m");
+    	String heapSize = FOption.getOrElse(m_execConfig.getHeapSize(), DEFAULT_HEAP_SIZE);
     	String initialHeap = String.format("-Xms%s", heapSize);
     	String maxHeap = String.format("-Xmx%s", heapSize);
     	String encoding = "-Dfile.encoding=UTF-8";
-    	String logLevel = "--loglevel-external=INFO";
-//    	String noValid = "--no-validation";
     	
+    	String argHomeDir = String.format("--home=%s/%s", m_workspaceDir.getAbsolutePath(), id);
+//    	String argId = String.format("--id=%s", id);
+//    	String instanceEndpoint = String.format(m_mgrConfig.getInstanceEndpointFormat(), args.getPort());
+//    	String argInstanceEndpoint = String.format("--instanceEndpoint=%s", instanceEndpoint);
+//    	String argManagerEndpoint = String.format("--managerEndpoint=%s", m_mgrConfig.getEndpoint());
+//    	String argType = String.format("--type=jar");
+//    	String argKeyStorePath = String.format("--keyStore=%s", m_mgrConfig.getKeyStoreFile().getAbsolutePath());   	
+//    	String argVerbose = "-v";
+//    	String noValid = "--no-validation";
+
     	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
-    												"-jar", args.getJarFile(), logLevel);
-    	if ( args.getPort() > 0 ) {
-    		argList.add(String.format("endpoints[0].port=%d", args.getPort()));
-    	}
+    												"-jar", args.getJarFile(), argHomeDir);
+//    	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
+//    												"-jar", args.getJarFile(), argHomeDir, argId,
+//    												argInstanceEndpoint, argManagerEndpoint, argType,
+//    												argKeyStorePath, argVerbose);
     	
 		ProcessBuilder builder = new ProcessBuilder(argList);
 		builder.directory(jobDir);
@@ -151,7 +155,7 @@ public class JarInstanceExecutor {
 			}
 			m_guard.run(() -> {
 				procDesc.m_status = MDTInstanceStatus.FAILED;
-				procDesc.m_repoPort = -1;
+				procDesc.m_endpoint = null;
 				notifyStatusChanged(procDesc);
 			});
 			
@@ -161,7 +165,7 @@ public class JarInstanceExecutor {
 			}
 			m_startSemaphore.release();
 			
-			return Tuple.of(procDesc.m_status, procDesc.m_repoPort);
+			return Tuple.of(procDesc.m_status, procDesc.m_endpoint);
 		}
 		
 		// 프로세스를 시작시킨 후, 출력 메시지를 검사하여 서비스 포트가 오픈될 때까지 대기한다.
@@ -169,7 +173,7 @@ public class JarInstanceExecutor {
 	}
 	
 	@SuppressWarnings("null")
-	public Tuple<MDTInstanceStatus,Integer> waitWhileStarting(String id) throws InterruptedException {
+	public Tuple<MDTInstanceStatus,String> waitWhileStarting(String id) throws InterruptedException {
 		return m_guard.awaitCondition(() -> {
 							// procDesc의 상태가 STARTING인 동안은 계속 대기한다.
 							ProcessDesc procDesc = m_runningInstances.get(id);
@@ -177,8 +181,8 @@ public class JarInstanceExecutor {
 				        })
 						.andGet(() -> {
 							ProcessDesc procDesc = m_runningInstances.get(id);
-							return (procDesc != null) ? Tuple.of(procDesc.m_status, procDesc.m_repoPort)
-									                    : Tuple.of(MDTInstanceStatus.STOPPED, -1);
+							return (procDesc != null) ? Tuple.of(procDesc.m_status, procDesc.m_endpoint)
+									                    : Tuple.of(MDTInstanceStatus.STOPPED, null);
 						});
 	}
 	
@@ -206,7 +210,7 @@ public class JarInstanceExecutor {
 		}
 	}
 
-    public Tuple<MDTInstanceStatus,Integer> stop(final String instanceId) {
+    public Tuple<MDTInstanceStatus,String> stop(final String instanceId) {
     	ProcessDesc procDesc = m_guard.get(() -> {
         	ProcessDesc desc = m_runningInstances.get(instanceId);
         	if ( desc != null ) {
@@ -217,7 +221,7 @@ public class JarInstanceExecutor {
                     		s_logger.debug("stopping MDTInstance: {}", instanceId);
                     	}
                 		desc.m_status = MDTInstanceStatus.STOPPING;
-        				desc.m_repoPort = -1;
+        				desc.m_endpoint = null;
                 		notifyStatusChanged(desc);
                 		
 //            			Executions.runAsync(() -> waitWhileStopping(instanceId, desc));
@@ -234,14 +238,14 @@ public class JarInstanceExecutor {
     	return (procDesc != null) ? procDesc.toResult() : null;
     }
 
-    public Tuple<MDTInstanceStatus,Integer> getStatus(String instanceId) {
+    public Tuple<MDTInstanceStatus,String> getStatus(String instanceId) {
     	return m_guard.get(() -> {
     		ProcessDesc desc = m_runningInstances.get(instanceId);
         	if ( desc != null ) {
         		return desc.toResult();
         	}
         	else {
-        		return Tuple.of(MDTInstanceStatus.STOPPED, -1);
+        		return Tuple.of(MDTInstanceStatus.STOPPED, null);
         	}
     	});
     }
@@ -308,7 +312,7 @@ public class JarInstanceExecutor {
 		private final String m_id;
 		private Process m_process;
 		private MDTInstanceStatus m_status;
-		private int m_repoPort = -1;
+		private String m_endpoint = null;
 		private final File m_stdoutLogFile;
 		
 		public ProcessDesc(String id, Process process, MDTInstanceStatus status,
@@ -319,30 +323,30 @@ public class JarInstanceExecutor {
 			this.m_stdoutLogFile = stdoutLogFile;
 		}
 		
-		public Tuple<MDTInstanceStatus,Integer> toResult() {
-			return Tuple.of(m_status, m_repoPort);
+		public Tuple<MDTInstanceStatus,String> toResult() {
+			return Tuple.of(m_status, m_endpoint);
 		}
 		
 		@Override
 		public String toString() {
-			return String.format("JarInstanceProcess(id=%s, proc=%d, status=%s, repo_port=%s)",
-									m_id, m_process.toHandle().pid(), m_status, m_repoPort);
+			return String.format("JarInstanceProcess(id=%s, proc=%d, status=%s, endpoint=%s)",
+									m_id, m_process.toHandle().pid(), m_status, m_endpoint);
 		}
 	}
 	
-	private Tuple<MDTInstanceStatus,Integer> waitWhileStarting(final String instId, ProcessDesc procDesc) {
+	private Tuple<MDTInstanceStatus,String> waitWhileStarting(final String instId, ProcessDesc procDesc) {
 		Instant started = Instant.now();
 		
 		LogTailer tailer = LogTailer.builder()
 									.file(procDesc.m_stdoutLogFile)
 									.startAtBeginning(true)
-									.sampleInterval(this.m_sampleInterval)
-									.timeout(this.m_startTimeout)
+									.sampleInterval(m_execConfig.getSampleInterval())
+									.timeout(m_execConfig.getStartTimeout())
 									.build();
 		
 		// 0: HTTP endpoint available on port (성공적으로 시작된 경우)
 		// 1: ERROR (실패한 경우)
-		List<String> sentinels = Arrays.asList("HTTP endpoint available on port", "ERROR");
+		List<String> sentinels = Arrays.asList("[***MARKER***]", "ERROR");
 		SentinelFinder finder = new SentinelFinder(sentinels);
 		tailer.addLogTailerListener(finder);
 		
@@ -365,14 +369,14 @@ public class JarInstanceExecutor {
 					}
 					
 					String[] parts = sentinel.value().split(" ");
-					procDesc.m_repoPort = Integer.parseInt(parts[parts.length-1]);
+					procDesc.m_endpoint = parts[parts.length-1];
 					procDesc.m_status = MDTInstanceStatus.RUNNING;
 
 					if ( s_logger.isInfoEnabled() ) {
 						long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
 			    		String elapsedStr = UnitUtils.toSecondString(elapsedMillis);
-			    		s_logger.info("started MDTInstance: id={}, port={}, elapsed={}",
-			    						instId, procDesc.m_repoPort, elapsedStr);
+			    		s_logger.info("started MDTInstance: id={}, endpoint={}, elapsed={}",
+			    						instId, procDesc.m_endpoint, elapsedStr);
 					}
 					notifyStatusChanged(procDesc);
 
@@ -387,7 +391,7 @@ public class JarInstanceExecutor {
 			    		s_logger.info("kill fa3st-repository process: {}", procDesc.m_process.toHandle().pid());
 			    	}
 					procDesc.m_status = MDTInstanceStatus.FAILED;
-					procDesc.m_repoPort = -1;
+					procDesc.m_endpoint = null;
 					
 			    	// 프로세스가 수행 중인 상태이기 때문에 강제로 프로세스를 강제로 종료시킨다.
 			    	procDesc.m_process.destroyForcibly();
@@ -406,7 +410,7 @@ public class JarInstanceExecutor {
 	    	}
 	    	notifyStatusChanged(procDesc);
 	    	
-			return Tuple.of(MDTInstanceStatus.FAILED, -1);
+			return Tuple.of(MDTInstanceStatus.FAILED, null);
 		}
 	}
     
@@ -415,8 +419,8 @@ public class JarInstanceExecutor {
 			LogTailer tailer = LogTailer.builder()
 										.file(procDesc.m_stdoutLogFile)
 										.startAtBeginning(false)
-										.sampleInterval(this.m_sampleInterval)
-										.timeout(this.m_startTimeout)
+										.sampleInterval(m_execConfig.getSampleInterval())
+										.timeout(m_execConfig.getStartTimeout())
 										.build();
 			
 			List<String> sentinels = Arrays.asList("Goodbye!");
@@ -457,7 +461,7 @@ public class JarInstanceExecutor {
     }
 	
 	private void notifyStatusChanged(ProcessDesc pdesc) {
-		Tuple<MDTInstanceStatus, Integer> result = pdesc.toResult();
+		Tuple<MDTInstanceStatus, String> result = pdesc.toResult();
     	for ( JarExecutionListener listener: m_listeners ) {
     		Unchecked.runOrIgnore(() -> listener.stausChanged(pdesc.m_id, result._1, result._2));
     	}

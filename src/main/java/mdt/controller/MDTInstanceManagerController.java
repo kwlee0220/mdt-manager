@@ -2,6 +2,7 @@ package mdt.controller;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -48,7 +49,6 @@ import utils.jpa.JpaSession;
 import utils.stream.FStream;
 
 import mdt.Globals;
-import mdt.MDTConfiguration.MDTInstanceManagerConfiguration;
 import mdt.client.instance.InstanceDescriptorSerDe;
 import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.JpaInstance;
@@ -59,14 +59,11 @@ import mdt.model.InvalidResourceStatusException;
 import mdt.model.ModelValidationException;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.ServiceFactory;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTModelService;
-
-import jakarta.persistence.EntityManagerFactory;
 
 
 /**
@@ -80,10 +77,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     @SuppressWarnings("unused")
 	private static final String DOCKER_FILE = "Dockerfile";
 	
-    @Autowired ServiceFactory m_serviceFactory;
 	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
-	@Autowired EntityManagerFactory m_emFact;
-	@Autowired MDTInstanceManagerConfiguration m_instanceManagerConf;
 	@Value("${server.host}")
 	private String m_host;
 	@Value("${server.port}")
@@ -92,9 +86,6 @@ public class MDTInstanceManagerController implements InitializingBean {
 
 	@Override
 	public void afterPropertiesSet() throws Exception {
-		// JPA 기반 InstanceDescriptorManager를 사용하기 위한 초기화 수행.
-    	m_instanceManager.initialize(m_serviceFactory, m_emFact);
-		
 		if ( s_logger.isInfoEnabled() ) {
 			s_logger.info("{} is ready to serve: {}:{}", getClass().getName(), m_host, m_port);
 		}
@@ -252,8 +243,6 @@ public class MDTInstanceManagerController implements InitializingBean {
     @Operation(summary = "MDTInstanceManager에 주어진 MDTInstance 등록정보를 등록시킨다.")
     @Parameters({
     	@Parameter(name = "id", description = "등록 MDTInstance 식별자"),
-    	@Parameter(name = "port", description = "등록될 MDTInstance가 사용할 포트번호. "
-    											+ "0보다 작거나 같은 경우는 기본 설정 값을 사용한다."),
     	@Parameter(name = "instance",
     			description = "MDTInstance 모델 디렉토리 파일 경로."),
     })
@@ -269,7 +258,6 @@ public class MDTInstanceManagerController implements InitializingBean {
     @PostMapping({"/instances"})
     @ResponseStatus(HttpStatus.CREATED)
     public String addInstance(@RequestParam("id") String id,
-								@RequestParam("port") int port,
 								@RequestParam(name="bundle", required=true) MultipartFile zipFile)
 		throws IOException, ModelValidationException, MDTInstanceManagerException {
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
@@ -280,7 +268,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 	    	try {
 		    	// Bundle directory의 내용을 이용해서 InstanceDescriptor를 생성하여 등록하고,
 	    		// 이를 통해 MDTInstance를 생성한다.
-	    		MDTInstance inst = m_instanceManager.addInstance(id, port, bundleDir);
+	    		MDTInstance inst = m_instanceManager.addInstance(id, bundleDir);
 				String descJson = m_serde.toJson(inst.getInstanceDescriptor());
 				Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
 	
@@ -318,7 +306,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     		return ResponseEntity.noContent().build();
     	}
 		catch ( ResourceNotFoundException e ) {
-			return ResponseEntity.notFound().build();
+			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(e));
 		}
     	catch ( InvalidResourceStatusException e ) {
     		return ResponseEntity.badRequest().body(RESTfulErrorEntity.of(e));
@@ -357,7 +345,10 @@ public class MDTInstanceManagerController implements InitializingBean {
     	}
     	
 		try {
-			inst.start(null, null);
+			Duration pollInterval = null;
+			Duration timeout = null;
+			
+			inst.start(pollInterval, timeout);
 		}
 		catch ( Exception e ) {
 			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
@@ -409,7 +400,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> registerInstance(@PathVariable("id") String id, @RequestBody String repoEndpoint)
     	throws InterruptedException {
     	if ( !(m_instanceManager instanceof ExternalInstanceManager) ) {
-			throw new UnsupportedOperationException("registerInstance: not supported");
+			throw new MDTInstanceManagerException(
+					"MDTInstance registration is only supported for ExternalInstanceManager: type="
+					+ m_instanceManager.getClass().getName());
     	}
     	
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {

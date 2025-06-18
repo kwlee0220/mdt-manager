@@ -9,8 +9,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
-import javax.annotation.Nullable;
-
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetKind;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
@@ -36,6 +34,12 @@ import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.sm.data.Data;
+import mdt.model.sm.data.DefaultDataInfo;
+import mdt.model.sm.data.ParameterCollection;
+import mdt.model.sm.info.MDTAssetType;
+
+import jakarta.annotation.Nullable;
 
 
 /**
@@ -151,7 +155,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	}
 
 	@Override
-	public String getAssetType() {
+	public MDTAssetType getAssetType() {
 		return m_desc.get().getAssetType();
 	}
 
@@ -286,6 +290,25 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		return FStream.from(getSubmodelDescriptorAll())
 						.map(desc -> toSubmodelService(desc.getId()))
 						.toList();
+	}
+	
+	@Override
+	public ParameterCollection getParameterCollection() {
+		SubmodelService svc = FStream.from(getSubmodelServiceAllBySemanticId(Data.SEMANTIC_ID))
+									.findFirst()
+									.getOrThrow(() -> new ResourceNotFoundException("Submodel",
+																				"semanticId=" + Data.SEMANTIC_ID));
+		DefaultDataInfo dataInfo = new DefaultDataInfo();
+		dataInfo.updateFromAasModel(svc.getSubmodelElementByPath("DataInfo"));
+		if ( dataInfo.isEquipment() ) {
+			return dataInfo.getEquipment();
+		}
+		else if ( dataInfo.isOperation() ) {
+			return dataInfo.getOperation();
+		}
+		else {
+			throw new ResourceNotFoundException("ParameterCollection", "id=" + getId());
+		}
 	}
 
 	@Override

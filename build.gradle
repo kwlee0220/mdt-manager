@@ -35,13 +35,14 @@ repositories {
 dependencies {
 	implementation project(":utils")
 	implementation project(":mdt-client")
-//	implementation project(":mdt-faaast")
-	
-	implementation project(":argo-java-client")
-	implementation project(":mdt-argo-workflow")
+	// implementation project(":argo-java-client")
+	// implementation project(":mdt-argo-workflow")
 
 	// Guava (from the project :utils)
 	implementation "com.google.guava:guava:${guava_version}"
+	
+	// Checker framework
+	implementation("org.checkerframework:checker:${checker_version}")
 
 	// Lombok (from the project :utils)
 	compileOnly "org.projectlombok:lombok:${lombok_version}"
@@ -77,6 +78,9 @@ dependencies {
 
 	// H2
 	implementation "com.h2database:h2:${h2_version}"
+	
+	// PostgreSQL
+	implementation "org.postgresql:postgresql:${postgresql_version}"
 	
 	// MQTT
 	implementation "org.eclipse.paho:org.eclipse.paho.client.mqttv3:${paho_version}"

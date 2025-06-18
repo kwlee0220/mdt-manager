@@ -19,19 +19,16 @@ import utils.io.FileUtils;
 import utils.jpa.JpaSession;
 import utils.stream.FStream;
 
-import mdt.MDTConfiguration;
+import mdt.MDTConfigurations;
 import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
 import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.ServiceFactory;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
-
-import jakarta.persistence.EntityManagerFactory;
 
 
 /**
@@ -42,19 +39,12 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	private static final Logger s_logger = LoggerFactory.getLogger(ExternalInstanceManager.class);
 	
 	private final ExternalConfiguration m_extConfig;
-	
-	public ExternalInstanceManager(MDTConfiguration conf) {
-		super(conf);
+
+	public ExternalInstanceManager(MDTConfigurations configs) throws Exception {
+		super(configs);
 		setLogger(s_logger);
 		
-		m_extConfig = conf.getExternalConfiguration();
-	}
-
-	@Override
-	public void initialize(ServiceFactory svcFact, EntityManagerFactory emFact) throws IOException {
-		checkExternalConfigurationValidity(m_extConfig);
-		
-		super.initialize(svcFact, emFact);
+		m_extConfig = configs.getExternalConfig();
 		
 		// 등록된 모든 InstanceDescriptor의 상태를 STOPPED로 변경
     	try ( JpaSession session = allocateJpaSession() ) {
@@ -70,7 +60,7 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	}
 
 	@Override
-	public MDTInstance addInstance(String id, int faaastPort, File bundleDir)
+	public MDTInstance addInstance(String id, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
 		ExternalInstanceArguments args = new ExternalInstanceArguments();
 		try {

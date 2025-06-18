@@ -9,14 +9,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.common.base.Preconditions;
 
 import utils.InternalException;
 import utils.Throwables;
 import utils.io.FileUtils;
 import utils.jpa.JpaSession;
 
-import mdt.MDTConfiguration;
+import mdt.MDTConfigurations;
 import mdt.exector.jar.JarExecutionListener;
 import mdt.exector.jar.JarInstanceExecutor;
 import mdt.instance.AbstractJpaInstanceManager;
@@ -25,13 +24,10 @@ import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
 import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
-import mdt.model.ServiceFactory;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
-
-import jakarta.persistence.EntityManagerFactory;
 
 
 /**
@@ -41,27 +37,20 @@ import jakarta.persistence.EntityManagerFactory;
 public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceManager.class);
 	
-	private final JarInstanceExecutor m_executor;
-	private final File m_defaultInstanceJarFile;
+	private JarInstanceExecutor m_executor;
+	private File m_defaultInstanceJarFile;
 	
-	public JarInstanceManager(MDTConfiguration conf) {
-		super(conf);
+	public JarInstanceManager(MDTConfigurations configs) throws Exception {
+		super(configs);
 		setLogger(s_logger);
-		
-		m_defaultInstanceJarFile = conf.getJarExecutorConfiguration().getDefaultMDTInstanceJarFile();
+
+		m_defaultInstanceJarFile = m_conf.getDefaultMDTInstanceJarFile();
 		if ( getLogger().isInfoEnabled() ) {
 			getLogger().info("use default MDTInstance jar file: {}", m_defaultInstanceJarFile.getAbsolutePath());
 		}
 
-		m_executor = new JarInstanceExecutor(conf.getJarExecutorConfiguration());
+		m_executor = new JarInstanceExecutor(configs.getInstanceManagerConfig(), configs.getJarExecutorConfig());
 		m_executor.addExecutionListener(m_execListener);
-	}
-
-	@Override
-	public void initialize(ServiceFactory svcFact, EntityManagerFactory fact) throws IOException {
-		Preconditions.checkArgument(fact != null, "EntityManager is not assigned");
-		
-		super.initialize(svcFact, fact);
 		
 		// 모든 instance를 STOPPED 상태로 초기화한다.
 		try ( JpaSession session = allocateJpaSession() ) {
@@ -82,10 +71,8 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	}
 
 	@Override
-	public MDTInstance addInstance(String id, int faaastPort, File bundleDir)
+	public MDTInstance addInstance(String id, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
-		Preconditions.checkArgument(faaastPort > 0);
-		
 		try {
 			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
 			// instances 디렉토리로 이동시킨다.
@@ -94,14 +81,14 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			FileUtils.move(bundleDir, instDir);
 			
 			// FA3ST jar file이 없는 경우에는 default jar 파일을 사용한다.
-			File fa3stJarFile = new File(instDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME);
-			if ( !fa3stJarFile.exists() ) {
+			File instanceJarFile = new File(instDir, MDTInstanceManager.MDT_INSTANCE_JAR_FILE_NAME);
+			if ( !instanceJarFile.exists() ) {
 				File defaultJarFile = m_defaultInstanceJarFile;
 				if ( defaultJarFile == null || !defaultJarFile.exists() ) {
 					throw new IllegalStateException("No default MDTInstance jar file exists: path=" + defaultJarFile);
 				}
 				
-				FileUtils.copy(defaultJarFile, fa3stJarFile);
+				FileUtils.copy(defaultJarFile, instanceJarFile);
 			}
 
 			// Global 설정 파일이 없는 경우에는 default 설정 파일을 사용한다.
@@ -126,8 +113,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			}
 			
 			JarExecutionArguments args = JarExecutionArguments.builder()
-																.jarFile(FA3ST_JAR_FILE_NAME)
-																.port(faaastPort)
+																.jarFile(instanceJarFile.getAbsolutePath())
 																.build();
 			
 			File modelFile = FileUtils.path(instDir, MODEL_AASX_NAME);
@@ -138,10 +124,8 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			String arguments = m_mapper.writeValueAsString(args);
 			
 			JpaInstanceDescriptor desc = addInstanceDescriptor(id, env, arguments);
-			if ( getLogger().isInfoEnabled() ) {
-				getLogger().info("added JarInstance: id={}, port={}, instanceDir={}",
-									desc.getId(), faaastPort, instDir);
-			}
+			getLogger().info("added JarInstance: id={}, instanceDir={}", desc.getId(), instDir);
+			
 			return toInstance(desc);
 		}
 		catch ( IOExceptionList e) {
@@ -181,12 +165,12 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	
 	private final JarExecutionListener m_execListener = new JarExecutionListener() {
 		@Override
-		public void stausChanged(String id, MDTInstanceStatus status, int repoPort) {
+		public void stausChanged(String id, MDTInstanceStatus status, String endpoint) {
 			try ( JpaSession session = allocateJpaSession() ) {
 				JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 				JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
 				desc.setStatus(status);
-				desc.setBaseEndpoint((repoPort > 0) ? toServiceEndpoint(repoPort) : null);
+				desc.setBaseEndpoint(endpoint);
 			}
 		}
 		

@@ -2,13 +2,24 @@ package mdt.instance.external;
 
 import java.time.Duration;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.experimental.Accessors;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
+@Getter @Setter
+@NoArgsConstructor
+@Accessors(prefix = "m_")
+@JsonInclude(Include.NON_NULL)
 public class ExternalConfiguration {
 	/**
 	 * Health check interval for the external instance.

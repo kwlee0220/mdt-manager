@@ -15,8 +15,22 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import utils.InternalException;
 import utils.stream.FStream;
+
+import mdt.model.DescriptorUtils;
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.InstanceDescriptor;
+import mdt.model.instance.InstanceSubmodelDescriptor;
+import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.instance.MDTOperationDescriptor;
+import mdt.model.instance.MDTParameterDescriptor;
+import mdt.model.sm.SubmodelUtils;
+import mdt.model.sm.info.MDTAssetType;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -32,17 +46,6 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-import mdt.model.DescriptorUtils;
-import mdt.model.MDTModelSerDe;
-import mdt.model.instance.InstanceDescriptor;
-import mdt.model.instance.InstanceSubmodelDescriptor;
-import mdt.model.instance.MDTInstanceStatus;
-import mdt.model.instance.MDTOperationDescriptor;
-import mdt.model.instance.MDTParameterDescriptor;
-import mdt.model.sm.SubmodelUtils;
 
 
 /**
@@ -71,7 +74,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 	@Column(name="aas_id", length=255, nullable=false, unique=true) private String aasId;
 	@Column(name="aas_id_short", length=64) private String aasIdShort;
 	@Column(name="asset_id", length=255) private String globalAssetId;
-	@Column(name="asset_type", length=64) private String assetType;
+	@Column(name="asset_type", length=64) @Enumerated(EnumType.STRING) private MDTAssetType assetType;
 	@Column(name="asset_kind", length=32) @Enumerated(EnumType.STRING) private AssetKind assetKind;
 
 	@OneToOne(fetch=FetchType.LAZY, cascade=CascadeType.ALL, orphanRemoval=true)
@@ -93,7 +96,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 			this.aasId = aasDesc.getId();
 			this.aasIdShort = aasDesc.getIdShort();
 			this.globalAssetId = aasDesc.getGlobalAssetId();
-			this.assetType = aasDesc.getAssetType();
+			this.assetType = MDTAssetType.valueOf(aasDesc.getAssetType());
 			this.assetKind = aasDesc.getAssetKind();
 			this.aasDescriptor = new JpaAASDescriptor(MDTModelSerDe.getJsonSerializer().write(aasDesc));
 			
@@ -154,7 +157,7 @@ public class JpaInstanceDescriptor implements InstanceDescriptor {
 		
 		this.aasId = aasDesc.getIdShort();
 		this.globalAssetId = aasDesc.getGlobalAssetId();
-		this.assetType = aasDesc.getAssetType();
+		this.assetType = MDTAssetType.valueOf(aasDesc.getAssetType());
 		this.assetKind = aasDesc.getAssetKind();
 		
 		try {

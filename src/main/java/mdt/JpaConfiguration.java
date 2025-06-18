@@ -1,4 +1,6 @@
-package mdt.instance.docker;
+package mdt;
+
+import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
@@ -8,6 +10,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 
+import utils.jdbc.JdbcConfiguration;
+
+
 /**
  *
  * @author Kang-Woo Lee (ETRI)
@@ -16,10 +21,7 @@ import lombok.experimental.Accessors;
 @NoArgsConstructor
 @Accessors(prefix = "m_")
 @JsonInclude(Include.NON_NULL)
-public class HarborConfiguration {
-	private String m_host;
-	private String m_endpoint;
-	private String m_project;
-	private String m_user;
-	private String m_password;
+public class JpaConfiguration {
+	private JdbcConfiguration m_jdbc;
+	private Map<String,String> m_properties;
 }

@@ -29,7 +29,7 @@ import utils.Tuple;
 import utils.func.Try;
 import utils.io.FileUtils;
 
-import mdt.MDTConfiguration;
+import mdt.MDTConfigurations;
 import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.AASUtils;
@@ -51,15 +51,15 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	private final DockerConfiguration m_dockerConf;
 	private final HarborConfiguration m_harborConf;
 	private final Map<String,MDTInstanceStatus> m_instanceStatus = Maps.newHashMap();
-	
-	public DockerInstanceManager(MDTConfiguration conf) {
-		super(conf);
+
+	public DockerInstanceManager(MDTConfigurations configs) throws Exception {
+		super(configs);
 		setLogger(s_logger);
 		
-		m_dockerConf = conf.getDockerConfiguration();
+		m_dockerConf = configs.getDockerConfig();
 		Preconditions.checkNotNull(m_dockerConf.getDockerEndpoint());
 		
-		m_harborConf = conf.getHarborConfiguration();
+		m_harborConf = configs.getHarborConfig();
 	}
 
 	Tuple<MDTInstanceStatus,String> getInstanceState(String instanceId, DockerClient docker, Container container) {
@@ -91,11 +91,11 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	}
 
 	@Override
-	public MDTInstance addInstance(String id, int faaastPort, File bundleDir)
+	public MDTInstance addInstance(String id, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
 		String repoName = "kwlee0220/faaast-starter:latest";
 		
-		DockerExecutionArguments args = new DockerExecutionArguments(repoName, faaastPort);
+		DockerExecutionArguments args = new DockerExecutionArguments(repoName);
 		try {
 			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
 			// instances 디렉토리로 이동시킨다.
@@ -133,8 +133,8 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 			
 			JpaInstanceDescriptor desc = addInstanceDescriptor(id, env, arguments);
 			if ( getLogger().isInfoEnabled() ) {
-				getLogger().info("added DockerInstance: id={}, port={}, instanceDir={}",
-									desc.getId(), faaastPort, instDir);
+				getLogger().info("added DockerInstance: id={}, instanceDir={}",
+									desc.getId(), instDir);
 			}
 			
 			return toInstance(desc);

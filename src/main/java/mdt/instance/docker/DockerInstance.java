@@ -109,8 +109,7 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 						.ifPresent(cont -> stopAndRemoveContainer(docker, cont.id()));
 
 			// Docker container를 생성한다.
-			String containerId = createInstanceContainer(docker, getId(), m_execArgs.getImageRepoName(),
-														m_execArgs.getFaaastPort());
+			String containerId = createInstanceContainer(docker, getId(), m_execArgs.getImageRepoName());
 			
 			try {
 				// 생성한 docker container를 시작시킨다.
@@ -188,8 +187,10 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 						);
 	}
 
-	private String createInstanceContainer(DockerClient docker, String instanceId, String imageId, int svcPort)
+	private String createInstanceContainer(DockerClient docker, String instanceId, String imageId)
 		throws DockerException, InterruptedException {
+		int svcPort = 443;
+		
 		// 443 port binding
 		Map<String,List<PortBinding>> portBindings = Maps.newHashMap();
 		if ( svcPort > 0 ) {

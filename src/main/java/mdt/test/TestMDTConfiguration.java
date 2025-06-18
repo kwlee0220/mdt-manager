@@ -8,7 +8,12 @@ import org.hibernate.jpa.HibernatePersistenceProvider;
 
 import com.google.common.collect.Maps;
 
-import mdt.MDTConfiguration;
+import utils.jdbc.JdbcConfiguration;
+
+import mdt.JpaConfiguration;
+import mdt.MDTConfigurations;
+import mdt.MqttConfiguration;
+import mdt.exector.jar.JarExecutorConfiguration;
 import mdt.instance.jpa.InstancePersistenceUnitInfo;
 
 import jakarta.persistence.EntityManagerFactory;
@@ -17,7 +22,7 @@ import jakarta.persistence.EntityManagerFactory;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class TestMDTConfiguration extends MDTConfiguration {
+public class TestMDTConfiguration extends MDTConfigurations {
 	public MqttConfiguration getMqttConfiguration() {
 		MqttConfiguration c = new MqttConfiguration();
 		c.setClientId("MDTInstanceManager");
@@ -42,7 +47,7 @@ public class TestMDTConfiguration extends MDTConfiguration {
 		props.put("hibernate.hbm2ddl.auto", "create");
 		
 		JdbcConfiguration jdbcConfig = new JdbcConfiguration();
-		jdbcConfig.setUrl("jdbc:h2:~/mdt-descriptors");
+		jdbcConfig.setJdbcUrl("jdbc:h2:~/mdt-descriptors");
 		jdbcConfig.setUser("sa");
 		jdbcConfig.setPassword("");
 		

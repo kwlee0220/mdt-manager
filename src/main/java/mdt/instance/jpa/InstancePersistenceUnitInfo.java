@@ -11,9 +11,9 @@ import org.hibernate.jpa.HibernatePersistenceProvider;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
-import mdt.MDTConfiguration.JdbcConfiguration;
-import mdt.MDTConfiguration.JpaConfiguration;
-import mdt.workflow.JpaWorkflowModel;
+import utils.jdbc.JdbcConfiguration;
+
+import mdt.JpaConfiguration;
 
 import jakarta.persistence.SharedCacheMode;
 import jakarta.persistence.ValidationMode;
@@ -35,9 +35,9 @@ public class InstancePersistenceUnitInfo implements PersistenceUnitInfo {
 		JpaAASSubmodelDescriptor.class.getName(),
 		
 		JpaAssetParameterDescriptor.class.getName(),
-		JpaMDTOperationDescriptor.class.getName(),
+		JpaMDTOperationDescriptor.class.getName()
 		
-		JpaWorkflowModel.class.getName()
+//		JpaWorkflowModel.class.getName()
 	);
 	
 	private final String m_punitName;
@@ -68,7 +68,7 @@ public class InstancePersistenceUnitInfo implements PersistenceUnitInfo {
 		JdbcConfiguration jdbcConf = m_jpaConf.getJdbc();
 		
 		HikariConfig hikariConfig = new HikariConfig();
-		hikariConfig.setJdbcUrl(jdbcConf.getUrl());
+		hikariConfig.setJdbcUrl(jdbcConf.getJdbcUrl());
 		hikariConfig.setUsername(jdbcConf.getUser());
 		hikariConfig.setPassword(jdbcConf.getPassword());
 		
