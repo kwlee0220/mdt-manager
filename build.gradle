@@ -35,8 +35,6 @@ repositories {
 dependencies {
 	implementation project(":utils")
 	implementation project(":mdt-client")
-	// implementation project(":argo-java-client")
-	// implementation project(":mdt-argo-workflow")
 
 	// Guava (from the project :utils)
 	implementation "com.google.guava:guava:${guava_version}"
