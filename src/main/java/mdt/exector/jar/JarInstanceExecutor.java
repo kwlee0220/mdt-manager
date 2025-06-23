@@ -24,6 +24,7 @@ import com.google.common.collect.Sets;
 
 import utils.KeyValue;
 import utils.StopWatch;
+import utils.Throwables;
 import utils.Tuple;
 import utils.UnitUtils;
 import utils.async.Guard;
@@ -149,10 +150,10 @@ public class JarInstanceExecutor {
 							.whenCompleteAsync((proc, error) -> onProcessTerminated(procDesc, error));
 			m_guard.run(() -> procDesc.m_process = instanceProcess);
 		}
-		catch ( IOException e ) {
-			if ( s_logger.isWarnEnabled() ) {
-				s_logger.warn("failed to start jar application: cause={}", e);
-			}
+		catch ( Exception e ) {
+			Throwable cause = Throwables.unwrapThrowable(e);
+			s_logger.warn("failed to start jar application: id={}, argList={}, cause={}",
+							id, argList, ""+cause);
 			m_guard.run(() -> {
 				procDesc.m_status = MDTInstanceStatus.FAILED;
 				procDesc.m_endpoint = null;
@@ -163,7 +164,6 @@ public class JarInstanceExecutor {
 				s_logger.debug("releasing a start semaphore due to failure: thead={}",
 								Thread.currentThread().getName());
 			}
-			m_startSemaphore.release();
 			
 			return Tuple.of(procDesc.m_status, procDesc.m_endpoint);
 		}

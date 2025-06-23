@@ -371,4 +371,17 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	public void setLogger(Logger logger) {
 		m_logger = logger;
 	}
+	
+	protected void updateInstanceDescriptor(String id, MDTInstanceStatus status, String endpoint) {
+		try ( JpaSession session = allocateJpaSession() ) {
+			JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
+			JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
+			if ( status != null ) {
+				desc.setStatus(status);
+			}
+			if ( endpoint != null ) {
+				desc.setBaseEndpoint(endpoint);
+			}
+		}
+	}
 }
