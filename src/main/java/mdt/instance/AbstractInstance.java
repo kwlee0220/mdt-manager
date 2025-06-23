@@ -170,7 +170,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	}
 	
 	@Override
-	public String getBaseEndpoint() {
+	public String getServiceEndpoint() {
 		return m_desc.get().getBaseEndpoint();
 	}
 	
@@ -184,11 +184,13 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 			throw new InvalidResourceStatusException("MDTInstance", getId(), status);
 		}
 		
+		// MDTInstance가 시작될 때 상태를 STOPPED로 설정한다.
+		getInstanceManager().updateInstanceDescriptor(getId(), MDTInstanceStatus.STOPPED, null);
+		
 		startAsync();
 		try {
 			// MDTInstance가 시작될 때까지 대기한다.
-			waitWhileStatus(state -> state == MDTInstanceStatus.STOPPED || state ==  MDTInstanceStatus.FAILED,
-							DEFAULT_POLL_INTERVAL, timeout);
+			waitWhileStatus(state -> state == MDTInstanceStatus.STOPPED, DEFAULT_POLL_INTERVAL, timeout);
 		}
 		catch ( ExecutionException e ) {
 			throw new MDTInstanceManagerException(e.getCause());
@@ -248,7 +250,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public AssetAdministrationShellService getAssetAdministrationShellService()
 		throws InvalidResourceStatusException {
-		String instSvcEp = getBaseEndpoint();
+		String instSvcEp = getServiceEndpoint();
 		if ( instSvcEp == null ) {
 			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), getStatus());
 		}
@@ -347,7 +349,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public String toString() {
 		return String.format("id=%s, aas=%s, base-endpoint=%s, status=%s",
-								getId(), getAasId(), getBaseEndpoint(), getStatus());
+								getId(), getAasId(), getServiceEndpoint(), getStatus());
 	}
 	
 	public void waitWhileStatus(Predicate<MDTInstanceStatus> waitCond, Duration pollInterval, Duration timeout)
@@ -365,7 +367,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	}
 	
 	private SubmodelService toSubmodelService(String submodelId) {
-		String instSvcEp = getBaseEndpoint();
+		String instSvcEp = getServiceEndpoint();
 		if ( instSvcEp == null ) {
 			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), getStatus());
 		}
