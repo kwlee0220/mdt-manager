@@ -24,7 +24,7 @@ import utils.io.LogTailerListener;
 public class SentinelFinder implements LogTailerListener {
 	private final List<String> m_sentinels;
 	
-	@Nullable private KeyValue<Integer,String> m_sentinel;
+	private @Nullable KeyValue<Integer,String> m_sentinel;
 	
 	/**
 	 * Sentinel 감지기 객체를 생성한다.

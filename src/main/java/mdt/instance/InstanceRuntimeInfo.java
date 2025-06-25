@@ -17,7 +17,7 @@ import mdt.model.instance.MDTInstanceStatus;
 @JsonIncludeProperties({"status", "baseEndpoint"})
 public final class InstanceRuntimeInfo {
 	private final MDTInstanceStatus m_status;
-	@Nullable private final String m_baseEndpoint;
+	private final @Nullable String m_baseEndpoint;
 	
 	public InstanceRuntimeInfo(@JsonProperty("status") MDTInstanceStatus status,
 								@JsonProperty("baseEndpoint") @Nullable String baseEndpoint) {

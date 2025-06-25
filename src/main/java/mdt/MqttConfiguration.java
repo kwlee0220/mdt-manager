@@ -23,7 +23,7 @@ import utils.func.FOption;
 @Accessors(prefix = "m_")
 @JsonInclude(Include.NON_NULL)
 public class MqttConfiguration {
-	@Nullable private String m_clientId = null;
+	private @Nullable String m_clientId = null;
 	private String m_endpoint;
 	private int m_qos = 0;
 	private Duration m_reconnectInterval = Duration.ofSeconds(5);
