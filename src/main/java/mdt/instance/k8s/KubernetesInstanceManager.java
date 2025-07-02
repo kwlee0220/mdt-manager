@@ -2,6 +2,7 @@ package mdt.instance.k8s;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetAddress;
 
 import javax.annotation.Nullable;
 
@@ -48,6 +49,7 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 	private final HarborConfiguration m_harborConf;
 	private final DockerConfiguration m_dockerConf;
 	private final String m_dockerEndpoint;
+	private final String m_repositoryEndpointFormat;
 
 	public KubernetesInstanceManager(MDTConfigurations configs) throws Exception {
 		super(configs);
@@ -58,6 +60,21 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 		m_dockerEndpoint = m_dockerConf.getDockerEndpoint();
 		
 		m_harborConf = configs.getHarborConfig();
+		
+		String epFormat = m_conf.getInstanceEndpointFormat();
+		if ( epFormat == null ) {
+			try {
+				String host = InetAddress.getLocalHost().getHostAddress();
+				epFormat = "https:" + host + ":%d/api/v3.0";
+			}
+			catch ( Exception e ) {
+				throw new MDTInstanceManagerException("" + e);
+			}
+		}
+		m_repositoryEndpointFormat = epFormat;
+		if ( getLogger().isInfoEnabled() ) {
+			getLogger().info("use MDTInstance endpoint format: {}", m_repositoryEndpointFormat);
+		}
 	}
 	
 	public HarborConfiguration getHarborConfiguration() {
@@ -185,6 +202,10 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 
 	KubernetesRemote newKubernetesRemote() {
 		return KubernetesRemote.connect();
+	}
+	
+	private String toServiceEndpoint(int repoPort) {
+		return String.format(m_repositoryEndpointFormat, repoPort);
 	}
 	
 	private String deployInstanceDockerImage(String id, File bundleDir, String dockerEndpoint,

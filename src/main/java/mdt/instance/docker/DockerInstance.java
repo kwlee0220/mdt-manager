@@ -236,6 +236,15 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 		return getServicePort(info);
 	}
 	
+	private int getServicePort(ContainerInfo contInfo) {
+		List<PortBinding> hostPorts = contInfo.networkSettings().ports().get("443/tcp");
+		if ( hostPorts == null || hostPorts.size() == 0 ) {
+			throw new InternalException("Cannot find external port");
+		}
+		
+		return Integer.parseInt(hostPorts.get(0).hostPort());
+	}
+	
 	private void stopAndRemoveContainer(DockerClient docker, String contId) {
 		// 검색된 container를 중지시킨다.
 		Unchecked.runOrIgnore(() -> docker.stopContainer(contId, SECONDS_TO_WAIT_BEFORE_KILLING));
@@ -245,15 +254,6 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 		
 		// 검색된 container를 제거한다.
 		Unchecked.runOrIgnore(() -> docker.removeContainer(contId, RemoveContainerParam.forceKill()));
-	}
-	
-	private int getServicePort(ContainerInfo contInfo) {
-		List<PortBinding> hostPorts = contInfo.networkSettings().ports().get("443/tcp");
-		if ( hostPorts == null || hostPorts.size() == 0 ) {
-			throw new InternalException("Cannot find external port");
-		}
-		
-		return Integer.parseInt(hostPorts.get(0).hostPort());
 	}
 	
 	private MDTInstanceStatus waitUntilStarted(String instId, Duration sampleInterval, Duration timeout) {

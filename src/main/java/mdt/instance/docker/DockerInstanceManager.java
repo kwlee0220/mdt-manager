@@ -2,6 +2,7 @@ package mdt.instance.docker;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;
 
@@ -50,6 +51,7 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 
 	private final DockerConfiguration m_dockerConf;
 	private final HarborConfiguration m_harborConf;
+	private final String m_repositoryEndpointFormat;
 	private final Map<String,MDTInstanceStatus> m_instanceStatus = Maps.newHashMap();
 
 	public DockerInstanceManager(MDTConfigurations configs) throws Exception {
@@ -60,6 +62,21 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 		Preconditions.checkNotNull(m_dockerConf.getDockerEndpoint());
 		
 		m_harborConf = configs.getHarborConfig();
+		
+		String epFormat = m_conf.getInstanceEndpointFormat();
+		if ( epFormat == null ) {
+			try {
+				String host = InetAddress.getLocalHost().getHostAddress();
+				epFormat = "https:" + host + ":%d/api/v3.0";
+			}
+			catch ( Exception e ) {
+				throw new MDTInstanceManagerException("" + e);
+			}
+		}
+		m_repositoryEndpointFormat = epFormat;
+		if ( getLogger().isInfoEnabled() ) {
+			getLogger().info("use MDTInstance endpoint format: {}", m_repositoryEndpointFormat);
+		}
 	}
 
 	Tuple<MDTInstanceStatus,String> getInstanceState(String instanceId, DockerClient docker, Container container) {
@@ -169,6 +186,10 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	@Override
 	public String toString() {
 		return String.format("%s[dockerHost=%s]", getClass().getSimpleName(), m_dockerConf.getDockerEndpoint());
+	}
+	
+	public String toServiceEndpoint(int repoPort) {
+		return String.format(m_repositoryEndpointFormat, repoPort);
 	}
 	
 	public DockerExecutionArguments getExecutionArguments(JpaInstanceDescriptor desc) {

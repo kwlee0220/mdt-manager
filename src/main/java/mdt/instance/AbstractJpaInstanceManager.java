@@ -1,7 +1,6 @@
 package mdt.instance;
 
 import java.io.File;
-import java.net.InetAddress;
 import java.util.List;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShell;
@@ -57,7 +56,6 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 
 	protected final MDTInstanceManagerConfiguration m_conf;
 	protected final MqttConfiguration m_mqttConf;
-	private final String m_repositoryEndpointFormat;
 	private final MDTInstanceStatusMqttPublisher m_mqttEventPublisher;
 	
     private final ServiceFactory m_serviceFact;
@@ -74,21 +72,6 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		m_mqttConf = configs.getMqttConfig();
 		m_serviceFact = configs.getServiceFactory();
 		m_emFact = configs.getEntityManagerFactory();
-		
-		String epFormat = m_conf.getInstanceEndpointFormat();
-		if ( epFormat == null ) {
-			try {
-				String host = InetAddress.getLocalHost().getHostAddress();
-				epFormat = "https:" + host + ":%d/api/v3.0";
-			}
-			catch ( Exception e ) {
-				throw new MDTInstanceManagerException("" + e);
-			}
-		}
-		m_repositoryEndpointFormat = epFormat;
-		if ( getLogger().isInfoEnabled() ) {
-			getLogger().info("use MDTInstance endpoint format: {}", m_repositoryEndpointFormat);
-		}
 
 		Globals.EVENT_BUS.register(this);
 		if ( m_mqttConf.getEndpoint() != null ) {
@@ -168,6 +151,10 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	
 	public File getBundlesDir() {
 		return FOption.getOrElse(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
+	}
+	
+	public File getShareDir() {
+		return FOption.getOrElse(m_conf.getShareDir(), () -> FileUtils.path(getHomeDir(), "share"));
 	}
 	
 	public File getInstanceHomeDir(String id) {
@@ -298,14 +285,6 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 
 		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
 		instDescMgr.removeInstanceDescriptor(id);
-	}
-	
-	public String toServiceEndpoint(int repoPort) {
-		return String.format(m_repositoryEndpointFormat, repoPort);
-	}
-	
-	public String getRepositoryEndpointFormat() {
-		return m_repositoryEndpointFormat;
 	}
 	
 	/**

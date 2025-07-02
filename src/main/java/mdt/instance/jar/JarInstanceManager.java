@@ -80,7 +80,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			FileUtils.deleteDirectory(instDir);
 			FileUtils.move(bundleDir, instDir);
 			
-			// FA3ST jar file이 없는 경우에는 default jar 파일을 사용한다.
+			// mdt-instance-all.jar file이 없는 경우에는 default jar 파일을 사용한다.
 			File instanceJarFile = new File(instDir, MDTInstanceManager.MDT_INSTANCE_JAR_FILE_NAME);
 			if ( !instanceJarFile.exists() ) {
 				File defaultJarFile = m_defaultInstanceJarFile;
@@ -91,26 +91,26 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 				FileUtils.copy(defaultJarFile, instanceJarFile);
 			}
 
-			// Global 설정 파일이 없는 경우에는 default 설정 파일을 사용한다.
-			File globalConfFile = new File(instDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
-			if ( !globalConfFile.exists() ) {
-				File defaultGlobalConfFile = new File(getHomeDir(), MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
-				if ( !defaultGlobalConfFile.exists()) {
-					throw new IllegalStateException("No default global configuration file exists: path="
-														+ defaultGlobalConfFile);
-				}
-				FileUtils.copy(defaultGlobalConfFile, globalConfFile);
-			}
-			
-			// Certificate 파일이 없는 instDir default 파일을 사용한다.
-			File certFile = new File(instDir, MDTInstanceManager.CERT_FILE_NAME);
-			if ( !certFile.exists() ) {
-				File defaultCertFile = new File(getHomeDir(), MDTInstanceManager.CERT_FILE_NAME);
-				if ( !defaultCertFile.exists() ) {
-					throw new IllegalStateException("No default certificate file exists: path=" + defaultCertFile);
-				}
-				FileUtils.copy(defaultCertFile, certFile);
-			}
+//			// Global 설정 파일이 없는 경우에는 default 설정 파일을 사용한다.
+//			File globalConfFile = new File(instDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
+//			if ( !globalConfFile.exists() ) {
+//				File defaultGlobalConfFile = new File(getShareDir(), MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
+//				if ( !defaultGlobalConfFile.exists()) {
+//					throw new IllegalStateException("No default global configuration file exists: path="
+//														+ defaultGlobalConfFile);
+//				}
+//				FileUtils.copy(defaultGlobalConfFile, globalConfFile);
+//			}
+//			
+//			// Certificate 파일이 없는 instDir default 파일을 사용한다.
+//			File certFile = new File(instDir, MDTInstanceManager.CERT_FILE_NAME);
+//			if ( !certFile.exists() ) {
+//				File defaultCertFile = new File(getShareDir(), MDTInstanceManager.CERT_FILE_NAME);
+//				if ( !defaultCertFile.exists() ) {
+//					throw new IllegalStateException("No default certificate file exists: path=" + defaultCertFile);
+//				}
+//				FileUtils.copy(defaultCertFile, certFile);
+//			}
 			
 			JarExecutionArguments args = JarExecutionArguments.builder()
 																.jarFile(instanceJarFile.getAbsolutePath())
