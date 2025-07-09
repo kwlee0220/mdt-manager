@@ -116,7 +116,7 @@ public class KubernetesInstance extends JpaInstance implements MDTInstance {
 		catch ( Exception e ) {
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(desc.getId()));
 			
-			Unchecked.acceptOrIgnore(k8s::deleteDeployment, deployment);
+			Unchecked.acceptOrIgnore(deployment, k8s::deleteDeployment);
 			Throwables.throwIfInstanceOf(e, MDTInstanceManagerException.class);
 			throw new MDTInstanceManagerException("Failed to start MDTInstance: id=" + getId() + ", cause=" + e);
 		}
