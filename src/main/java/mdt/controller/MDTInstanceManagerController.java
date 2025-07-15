@@ -64,6 +64,7 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTModelService;
+import mdt.model.sm.ref.ResolvedElementReference;
 
 
 /**
@@ -447,6 +448,26 @@ public class MDTInstanceManagerController implements InitializingBean {
 			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(msg, e));
 		}
     }
+
+    @GetMapping("/utils/resolveElementReference")
+    public ResponseEntity<?> resolveElementReference(@RequestParam("ref") String elmRefString) {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		ResolvedElementReference resolved = m_instanceManager.resolveElementReference(elmRefString);
+    		return ResponseEntity.ok(resolved);
+    	}
+		catch ( IllegalArgumentException e ) {
+			return ResponseEntity.badRequest().body(RESTfulErrorEntity.of(e));
+		}
+		catch ( ResourceNotFoundException e ) {
+			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(e));
+		}
+		catch ( InvalidResourceStatusException e ) {
+			return ResponseEntity.status(HttpStatus.FORBIDDEN).body(RESTfulErrorEntity.of(e));
+		}
+		catch ( Exception e ) {
+			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
+		}
+    }
     
     @ExceptionHandler()
     public ResponseEntity<RESTfulErrorEntity> handleException(Exception e) {
@@ -463,7 +484,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     		return ResponseEntity.status(HttpStatus.CONFLICT).body(RESTfulErrorEntity.of(cause));
     	}
     	else if ( cause instanceof InvalidResourceStatusException ) {
-    		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(RESTfulErrorEntity.of(cause));
+    		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(RESTfulErrorEntity.of(cause));
     	}
     	else if ( cause instanceof IllegalArgumentException ) {
     		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(RESTfulErrorEntity.of(cause));
