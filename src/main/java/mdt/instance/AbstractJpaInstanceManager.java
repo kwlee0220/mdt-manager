@@ -1,6 +1,7 @@
 package mdt.instance;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.List;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShell;
@@ -43,6 +44,8 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.instance.MDTModel;
+import mdt.model.instance.MDTModelService;
 import mdt.model.sm.ref.ElementReferences;
 import mdt.model.sm.ref.MDTElementReference;
 import mdt.model.sm.ref.ResolvedElementReference;
@@ -271,6 +274,18 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
     	else {
     		throw new IllegalArgumentException("not supported ElementReference type: " + ref);
     	}
+	}
+
+	@Override
+	public MDTModel getMDTModel(String id) throws ResourceNotFoundException, IOException {
+		JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
+		JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
+		if ( desc == null ) {
+			throw new ResourceNotFoundException("MDTInstance", "id=" + id);
+		}
+
+		MDTModelService mdtModelSvc = MDTModelService.of(this, desc);
+		return mdtModelSvc.readModel();
 	}
 	
 	/**

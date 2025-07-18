@@ -4,12 +4,14 @@ import java.io.File;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.SerializationException;
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
+import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
@@ -39,6 +41,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 
+import utils.KeyValue;
 import utils.Throwables;
 import utils.func.Try;
 import utils.http.RESTfulErrorEntity;
@@ -56,6 +59,7 @@ import mdt.instance.external.ExternalInstance;
 import mdt.instance.external.ExternalInstanceManager;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.InvalidResourceStatusException;
+import mdt.model.MDTModelSerDe;
 import mdt.model.ModelValidationException;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
@@ -63,8 +67,16 @@ import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
+import mdt.model.instance.MDTModel;
 import mdt.model.instance.MDTModelService;
+import mdt.model.sm.ref.ElementReference;
+import mdt.model.sm.ref.ElementReferences;
+import mdt.model.sm.ref.MDTElementReference;
 import mdt.model.sm.ref.ResolvedElementReference;
+import mdt.model.sm.value.ElementValue;
+import mdt.model.sm.value.ElementValues;
+import mdt.model.sm.variable.AbstractVariable.ReferenceVariable;
+import mdt.model.sm.variable.Variable;
 
 
 /**
@@ -112,13 +124,15 @@ public class MDTInstanceManagerController implements InitializingBean {
     	}
     }
     
-    @GetMapping("/instances/{id}/$mdt-info")
+    @GetMapping("/instances/{id}/$mdt-model")
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<?> getInstanceMDTInfo(@PathVariable("id") String id) {
+    public ResponseEntity<?> getMDTModel(@PathVariable("id") String id) {
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
-    		JpaInstance instance = m_instanceManager.getInstance(id);
-    		MDTModelService mdtModel = MDTModelService.of(instance);
-    		return ResponseEntity.ok(mdtModel.toJsonString(true));
+    		JpaInstanceDescriptor instDesc = m_instanceManager.getInstanceDescriptor(id);
+    		MDTModelService mdtModelSvc = MDTModelService.of(m_instanceManager, instDesc);
+    		
+    		MDTModel mdtModel = mdtModelSvc.readModel();
+    		return ResponseEntity.ok(mdtModel);
     	}
 		catch ( IOException e ) {
 			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
@@ -449,24 +463,86 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
     }
 
-    @GetMapping("/utils/resolveElementReference")
-    public ResponseEntity<?> resolveElementReference(@RequestParam("ref") String elmRefString) {
+    @GetMapping("/readElementReference")
+    public ResponseEntity<?> readElementReference(@RequestParam("reference") String elmRefString) throws IOException {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
+			if ( ref instanceof MDTElementReference mdtRef ) {
+				mdtRef.activate(m_instanceManager);
+			}
+    		SubmodelElement sme = ref.read();
+    		return ResponseEntity.ok(MDTModelSerDe.toJsonString(sme));
+    	}
+    }
+
+    @GetMapping("/readElementReference/$value")
+    public ResponseEntity<?> readElementValueReference(@RequestParam("reference") String elmRefString) throws IOException {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
+			if ( ref instanceof MDTElementReference mdtRef ) {
+				mdtRef.activate(m_instanceManager);
+			}
+    		ElementValue smev = ref.readValue();
+    		return ResponseEntity.ok(smev.toValueJsonString());
+    	}
+    }
+    
+    @PostMapping("/updateWithValueJsonString")
+    public ResponseEntity<?> updateWithValueJsonString(@RequestParam("reference") String elmRefString,
+														@RequestBody String valueJsonString) throws IOException {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
+			if ( ref instanceof MDTElementReference mdtRef ) {
+				mdtRef.activate(m_instanceManager);
+			}
+			
+			ref.updateWithValueJsonString(valueJsonString);
+			return ResponseEntity.noContent().build();
+    	}
+    }
+
+    @GetMapping("/resolveElementReference")
+    public ResponseEntity<?> resolveElementReference(@RequestParam("reference") String elmRefString) {
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
     		ResolvedElementReference resolved = m_instanceManager.resolveElementReference(elmRefString);
     		return ResponseEntity.ok(resolved);
     	}
-		catch ( IllegalArgumentException e ) {
-			return ResponseEntity.badRequest().body(RESTfulErrorEntity.of(e));
-		}
-		catch ( ResourceNotFoundException e ) {
-			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(e));
-		}
-		catch ( InvalidResourceStatusException e ) {
-			return ResponseEntity.status(HttpStatus.FORBIDDEN).body(RESTfulErrorEntity.of(e));
-		}
-		catch ( Exception e ) {
-			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
-		}
+    }
+
+    @PostMapping("/getUpdatedOperationVariables")
+    public ResponseEntity<?> getUpdatedOperationVariables(@RequestParam("reference") String elmRefString,
+    													@RequestBody String initializer) throws IOException {
+    	List<Variable> initVars = MDTModelSerDe.readValueList(initializer, Variable.class);
+    	Map<String,Variable> initializers = FStream.from(initVars)
+									    			.peek(var -> {
+									    				if ( var instanceof ReferenceVariable refVar ) {
+									    					refVar.activate(m_instanceManager);
+									    				}
+									    			})
+									    			.mapToKeyValue(var -> KeyValue.of(var.getName(), var))
+									    			.toMap();
+    	
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
+			if ( ref instanceof MDTElementReference mdtRef ) {
+				mdtRef.activate(m_instanceManager);
+			}
+			SubmodelElement sme = ref.read();
+			if ( !(sme instanceof org.eclipse.digitaltwin.aas4j.v3.model.Operation) ) {
+				RESTfulErrorEntity error = RESTfulErrorEntity.ofMessage("Element is not Operation: " + elmRefString);
+				return ResponseEntity.badRequest().body(error);
+			}
+			org.eclipse.digitaltwin.aas4j.v3.model.Operation op
+														= (org.eclipse.digitaltwin.aas4j.v3.model.Operation)sme;
+			FStream.from(op.getInputVariables())
+					.forEachOrThrow(var -> {
+						SubmodelElement varSme = var.getValue();
+						Variable initVar = initializers.get(varSme.getIdShort());
+						ElementValues.update(varSme, initVar.readValue());
+					});
+			String opJson = MDTModelSerDe.toJsonString(op);
+    		return ResponseEntity.ok(opJson);
+    	}
     }
     
     @ExceptionHandler()
