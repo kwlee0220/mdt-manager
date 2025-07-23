@@ -463,8 +463,9 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
     }
 
-    @GetMapping("/readElementReference")
-    public ResponseEntity<?> readElementReference(@RequestParam("reference") String elmRefString) throws IOException {
+    @GetMapping("/readFromElementReference")
+    public ResponseEntity<?> readFromElementReference(@RequestParam("reference") String elmRefString)
+    	throws IOException {
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
     		ElementReference ref = ElementReferences.parseExpr(elmRefString);
 			if ( ref instanceof MDTElementReference mdtRef ) {
@@ -475,8 +476,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     	}
     }
 
-    @GetMapping("/readElementReference/$value")
-    public ResponseEntity<?> readElementValueReference(@RequestParam("reference") String elmRefString) throws IOException {
+    @GetMapping("/readFromElementReference/$value")
+    public ResponseEntity<?> readValueFromElementReference(@RequestParam("reference") String elmRefString)
+    	throws IOException {
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
     		ElementReference ref = ElementReferences.parseExpr(elmRefString);
 			if ( ref instanceof MDTElementReference mdtRef ) {
@@ -487,16 +489,32 @@ public class MDTInstanceManagerController implements InitializingBean {
     	}
     }
     
-    @PostMapping("/updateWithValueJsonString")
-    public ResponseEntity<?> updateWithValueJsonString(@RequestParam("reference") String elmRefString,
-														@RequestBody String valueJsonString) throws IOException {
+    @PutMapping("/updateOfElementReference")
+    public ResponseEntity<?> updateOfElementReference(@RequestParam("reference") String elmRefString,
+														@RequestBody String newElementJson) throws IOException {
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
     		ElementReference ref = ElementReferences.parseExpr(elmRefString);
 			if ( ref instanceof MDTElementReference mdtRef ) {
 				mdtRef.activate(m_instanceManager);
 			}
 			
-			ref.updateWithValueJsonString(valueJsonString);
+			SubmodelElement newElement = MDTModelSerDe.readValue(newElementJson, SubmodelElement.class);
+			ElementValue smev = ElementValues.getValue(newElement);
+			ref.updateValue(smev);
+			return ResponseEntity.noContent().build();
+    	}
+    }
+    
+    @PutMapping("/updateOfElementReference/$value")
+    public ResponseEntity<?> updateValueOfElementReference(@RequestParam("reference") String elmRefString,
+															@RequestBody String newElementValueJson) throws IOException {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
+			if ( ref instanceof MDTElementReference mdtRef ) {
+				mdtRef.activate(m_instanceManager);
+			}
+			
+			ref.updateWithValueJsonString(newElementValueJson);
 			return ResponseEntity.noContent().build();
     	}
     }
@@ -509,8 +527,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     	}
     }
 
-    @PostMapping("/getUpdatedOperationVariables")
-    public ResponseEntity<?> getUpdatedOperationVariables(@RequestParam("reference") String elmRefString,
+    @PostMapping("/initializeOperationVariables")
+    public ResponseEntity<?> initializeOperationVariables(
+    													@RequestParam("reference") String opRefExpr,
     													@RequestBody String initializer) throws IOException {
     	List<Variable> initVars = MDTModelSerDe.readValueList(initializer, Variable.class);
     	Map<String,Variable> initializers = FStream.from(initVars)
@@ -523,18 +542,19 @@ public class MDTInstanceManagerController implements InitializingBean {
 									    			.toMap();
     	
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
-    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
+    		ElementReference ref = ElementReferences.parseExpr(opRefExpr);
 			if ( ref instanceof MDTElementReference mdtRef ) {
 				mdtRef.activate(m_instanceManager);
 			}
 			SubmodelElement sme = ref.read();
 			if ( !(sme instanceof org.eclipse.digitaltwin.aas4j.v3.model.Operation) ) {
-				RESTfulErrorEntity error = RESTfulErrorEntity.ofMessage("Element is not Operation: " + elmRefString);
+				RESTfulErrorEntity error = RESTfulErrorEntity.ofMessage("Element is not Operation: " + opRefExpr);
 				return ResponseEntity.badRequest().body(error);
 			}
 			org.eclipse.digitaltwin.aas4j.v3.model.Operation op
 														= (org.eclipse.digitaltwin.aas4j.v3.model.Operation)sme;
 			FStream.from(op.getInputVariables())
+					.concatWith(FStream.from(op.getInoutputVariables()))
 					.forEachOrThrow(var -> {
 						SubmodelElement varSme = var.getValue();
 						Variable initVar = initializers.get(varSme.getIdShort());
