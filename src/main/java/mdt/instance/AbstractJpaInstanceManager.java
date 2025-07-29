@@ -35,7 +35,6 @@ import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaInstanceDescriptorManager;
 import mdt.instance.jpa.JpaInstanceSubmodelDescriptor;
 import mdt.instance.k8s.KubernetesInstanceManager;
-import mdt.model.AASUtils;
 import mdt.model.InvalidResourceStatusException;
 import mdt.model.MDTModelSerDe;
 import mdt.model.ResourceNotFoundException;
@@ -46,10 +45,6 @@ import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 import mdt.model.instance.MDTModel;
 import mdt.model.instance.MDTModelService;
-import mdt.model.sm.ref.ElementReferences;
-import mdt.model.sm.ref.MDTElementReference;
-import mdt.model.sm.ref.ResolvedElementReference;
-import mdt.model.sm.ref.SubmodelBasedElementReference;
 
 import jakarta.persistence.EntityManagerFactory;
 
@@ -253,27 +248,6 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		for ( MDTInstance inst: getInstanceAll() ) {
 			Try.run(() -> removeInstance(inst.getId()));
 		}
-	}
-
-	@Override
-	public ResolvedElementReference resolveElementReference(String ref) {
-    	MDTElementReference elmRef = ElementReferences.parseExpr(ref);
-    	if ( elmRef instanceof SubmodelBasedElementReference smElmRef ) {
-    		smElmRef.activate(this);
-    		
-    		String instId = smElmRef.getInstanceId();
-    		String smId = smElmRef.getSubmodelReference().getSubmodelId();
-    		String idShortPath = smElmRef.getIdShortPath().toString();
-    		String baseEp = getInstanceDescriptor(instId).getBaseEndpoint();
-    		String reqUrl = String.format("%s/submodels/%s/submodel-elements/%s",
-    										baseEp, AASUtils.encodeBase64UrlSafe(smId),
-    										AASUtils.encodeIdShortPath(idShortPath));
-    		
-			return new ResolvedElementReference(instId, smId, idShortPath, reqUrl);
-    	}
-    	else {
-    		throw new IllegalArgumentException("not supported ElementReference type: " + ref);
-    	}
 	}
 
 	@Override

@@ -10,6 +10,7 @@ import java.util.concurrent.TimeoutException;
 
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.SerializationException;
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
+import org.eclipse.digitaltwin.aas4j.v3.model.Submodel;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElement;
 import org.slf4j.Logger;
@@ -58,25 +59,33 @@ import mdt.instance.JpaInstance;
 import mdt.instance.external.ExternalInstance;
 import mdt.instance.external.ExternalInstanceManager;
 import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.model.AASUtils;
 import mdt.model.InvalidResourceStatusException;
 import mdt.model.MDTModelSerDe;
 import mdt.model.ModelValidationException;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
+import mdt.model.expr.LiteralExpr;
+import mdt.model.expr.MDTElementReferenceExpr;
+import mdt.model.expr.MDTExpr;
+import mdt.model.expr.MDTExprParser;
+import mdt.model.expr.MDTSubmodelExpr;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTModel;
 import mdt.model.instance.MDTModelService;
+import mdt.model.sm.ref.DefaultSubmodelReference;
 import mdt.model.sm.ref.ElementReference;
 import mdt.model.sm.ref.ElementReferences;
 import mdt.model.sm.ref.MDTElementReference;
-import mdt.model.sm.ref.ResolvedElementReference;
+import mdt.model.sm.ref.SubmodelBasedElementReference;
 import mdt.model.sm.value.ElementValue;
 import mdt.model.sm.value.ElementValues;
 import mdt.model.sm.variable.AbstractVariable.ReferenceVariable;
 import mdt.model.sm.variable.Variable;
+import mdt.model.sm.variable.Variables;
 
 
 /**
@@ -123,7 +132,18 @@ public class MDTInstanceManagerController implements InitializingBean {
     		return ResponseEntity.ok(m_serde.toJson(desc));
     	}
     }
-    
+
+    @Operation(summary = "MDTInstance 식별자에 해당하는 MDTModel를 반환한다.")
+    @Parameters({
+    	@Parameter(name = "id", description = "검색할 MDTInstance 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+			content = {
+				@Content(schema = @Schema(implementation = MDTModel.class), mediaType = "application/json")
+			}),
+    	@ApiResponse(responseCode = "404", description = "식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.")
+    })
     @GetMapping("/instances/{id}/$mdt-model")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> getMDTModel(@PathVariable("id") String id) {
@@ -141,8 +161,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     
     @Operation(summary = "MDTInstanceManager에 등록된 모든 MDTInstance 등록정보들을 반환한다.")
     @Parameters({
-    	@Parameter(name = "filter", description = "검색 필터 표현식.", example = "idShort like \"abc%\""),
-    	@Parameter(name = "aggregate", description = "사용할 집계함수명", example = "count")
+    	@Parameter(name = "filter", description = "검색 필터 표현식.", example = "idShort like \"abc%\"")
     })
     @ApiResponses(value = {
     	@ApiResponse(responseCode = "200", description = "성공",
@@ -204,56 +223,6 @@ public class MDTInstanceManagerController implements InitializingBean {
     		return m_instanceManager.getInstance(id).getSubmodelDescriptorAll();
     	}
     }
-
-//    @Operation(summary = "MDTInstanceManager에 주어진 MDTInstance 등록정보를 등록시킨다.")
-//    @Parameters({
-//    	@Parameter(name = "id", description = "등록 MDTInstance 식별자"),
-//    	@Parameter(name = "port", description = "등록될 MDTInstance가 사용할 포트번호. "
-//    											+ "0보다 작거나 같은 경우는 기본 설정 값을 사용한다."),
-//    	@Parameter(name = "jar",
-//    			description = "(Jar기반 MDTInstance의 경우) MDTInstance 구현 Jar 파일 경로."),
-//    	@Parameter(name = "imageId",
-//    			description = "(Docker/Kubernetes기반 MDTInstance의 경우) MDTInstance 구현 docker 이미지 이름"),
-//    	@Parameter(name = "initialModel", description = "등록시킬 초기 AAS 모델 파일"),
-//    	@Parameter(name = "instanceConf", description = "등록시킬 MDTInstance의 설정 파일"),
-//    })
-//    @ApiResponses(value = {
-//        	@ApiResponse(responseCode = "200", description = "성공",
-//    			content = {
-//    				@Content(schema = @Schema(implementation = InstanceDescriptor.class),
-//    						mediaType = "application/json")
-//    			}),
-//        	@ApiResponse(responseCode = "400",
-//        				description = "식별자에 해당하는 MDTInstance가 이미 등록되어 있습니다.")
-//        })
-//    @PostMapping({"/instances2"})
-//    @ResponseStatus(HttpStatus.CREATED)
-//    public String addInstance(@RequestParam("id") String id,
-//    							@RequestParam("port") int port,
-//								@RequestParam(name="jar", required=false) MultipartFile mpfJar,
-//								@RequestParam(name="initialModel", required=false) MultipartFile mpfModel,
-//								@RequestParam(name="instanceConf", required=false) MultipartFile mpfConf)
-//		throws IOException, InterruptedException {
-//    	// TODO: 동일 instance에 대해 add/get/delete 연산들이 동시에 입력되는 경우
-//    	// 동시성 제어를 해야 하지만 시간이 부족하여 당분간 무시하도록 한다.
-//    	// TODO: add/start instance 연산의 경우 수행 소요시간이 장시간이 가능하여
-//    	// socket timeout이 발생될 가능성이 있다. 이를 효과적으로 처리할 수 있는 방법이 필요하다.
-//    	
-//    	// MDTInstance에 필요한 모든 파일을 하나의 bundle directory에 복사한다.
-//    	File bundleDir = buildBundle(id, mpfJar, mpfModel, mpfConf);
-//    	
-//    	// InstanceDescriptor를 생성하여 등록한다.
-//    	// InstanceDescriptor를 이용하여 MDTInstance를 생성한다.
-//		InstanceDescriptor instDesc = m_processor.get(m_instanceManager,
-//													() -> m_instanceManager.addInstance(id, port, bundleDir));
-//
-//    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
-//		// bundle directory는 오류가 발생한 경우 관련 로그 파일이 이 디렉토리에 생성되기 때문에
-//		// 예외가 발생한 경우 이 디렉토리를 지우면 안되기 때문에 addInstance가 성공한 경우만 수행되어야 한다.
-//    	Try.accept(bundleDir, FileUtils::deleteDirectory);
-//    	
-//		return m_serde.toJson(instDesc);
-//    }
 
     @Operation(summary = "MDTInstanceManager에 주어진 MDTInstance 등록정보를 등록시킨다.")
     @Parameters({
@@ -390,7 +359,6 @@ public class MDTInstanceManagerController implements InitializingBean {
     				description = "식별자에 해당하는 MDTInstance가 실행 중이지 않은 경우.")
     })
     @PutMapping("/instances/{id}/stop")
-    @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> stopInstance(@PathVariable("id") String id) {
     	JpaInstance inst;
     	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
@@ -409,9 +377,23 @@ public class MDTInstanceManagerController implements InitializingBean {
 			return ResponseEntity.ok(m_serde.toJson(desc));
     	}
     }
-    
+
+    @Operation(summary = "MDTInstance을 등록시킨다.")
+    @Parameters({
+    	@Parameter(name = "id", description = "등록시킬 MDTInstance 식별자")
+    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	description = "등록시킬 MDTInstance의 접속 endpoint URL",
+		content = @Content(schema = @Schema(implementation = String.class))
+	)
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+			content = {
+				@Content(schema = @Schema(implementation = JpaInstanceDescriptor.class), mediaType = "application/json")
+			}),
+    	@ApiResponse(responseCode = "404", description = "식별자에 해당하는 MDTInstance가 존재하지 않는 경우.")
+    })
     @PostMapping("/registry/{id}")
-    @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> registerInstance(@PathVariable("id") String id, @RequestBody String repoEndpoint)
     	throws InterruptedException {
     	if ( !(m_instanceManager instanceof ExternalInstanceManager) ) {
@@ -426,8 +408,20 @@ public class MDTInstanceManagerController implements InitializingBean {
 
     		return ResponseEntity.ok(m_serde.toJson(intance.getInstanceDescriptor()));
     	}
+    	catch ( ResourceNotFoundException e ) {
+    		String msg = String.format("MDTInstance is not present: id=%s, cause=%s", id, e.getMessage());
+			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(msg, e));
+    	}
     }
 
+    @Operation(summary = "MDTInstance 식별자에 해당하는 MDTInstance의 접속을 해제시킨다.")
+    @Parameters({
+    	@Parameter(name = "id", description = "접속 해제시킬 MDTInstance 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "204", description = "성공"),
+    	@ApiResponse(responseCode = "404", description = "식별자에 해당하는 MDTInstance가 접속되어 있지 않습니다.")
+    })
     @DeleteMapping("/registry/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void unregisterInstance(@PathVariable("id") String id) {
@@ -462,74 +456,287 @@ public class MDTInstanceManagerController implements InitializingBean {
 			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(msg, e));
 		}
     }
-
-    @GetMapping("/readFromElementReference")
-    public ResponseEntity<?> readFromElementReference(@RequestParam("reference") String elmRefString)
-    	throws IOException {
-    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
-    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
-			if ( ref instanceof MDTElementReference mdtRef ) {
-				mdtRef.activate(m_instanceManager);
-			}
-    		SubmodelElement sme = ref.read();
-    		return ResponseEntity.ok(MDTModelSerDe.toJsonString(sme));
-    	}
-    }
-
-    @GetMapping("/readFromElementReference/$value")
-    public ResponseEntity<?> readValueFromElementReference(@RequestParam("reference") String elmRefString)
-    	throws IOException {
-    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
-    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
-			if ( ref instanceof MDTElementReference mdtRef ) {
-				mdtRef.activate(m_instanceManager);
-			}
-    		ElementValue smev = ref.readValue();
-    		return ResponseEntity.ok(smev.toValueJsonString());
-    	}
+    
+    @Operation(summary = "주어진 참조 표현식에 해당하는 SubmodelElement를 반환한다.")
+    @Parameters({
+    	@Parameter(name = "ref", description = "참조 표현식")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+			content = {
+				@Content(schema = @Schema(implementation = SubmodelElement.class), mediaType = "application/json")
+			}),
+    	@ApiResponse(responseCode = "400", description = "참조 표현식에 오류가 있는 경우."),
+    	@ApiResponse(responseCode = "403", description = "참조 표현식과 관련된 resource가 비 정상적인 상태인 경우."),
+    	@ApiResponse(responseCode = "404", description = "참조 표현식과 관련된 resource가 존재하지 않는 경우."),
+    	@ApiResponse(responseCode = "500", description = "참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
+    @GetMapping("/references/{ref}")
+    public ResponseEntity<?> getReferenceElement(@PathVariable("ref") String refString) {
+    	return handleReference(refString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref, String refString) throws IOException, IllegalArgumentException {
+        		SubmodelElement sme = ref.read();
+        		return ResponseEntity.ok(MDTModelSerDe.toJsonString(sme));
+    		}
+    		
+    		@Override
+        	public ResponseEntity<?> handle(DefaultSubmodelReference ref, String refString) throws IOException, IllegalArgumentException {
+    			Submodel sm = ref.get().getSubmodel();
+        		return ResponseEntity.ok(MDTModelSerDe.toJsonString(sm));
+        	}
+    	});
     }
     
-    @PutMapping("/updateOfElementReference")
-    public ResponseEntity<?> updateOfElementReference(@RequestParam("reference") String elmRefString,
-														@RequestBody String newElementJson) throws IOException {
-    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
-    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
-			if ( ref instanceof MDTElementReference mdtRef ) {
-				mdtRef.activate(m_instanceManager);
-			}
-			
-			SubmodelElement newElement = MDTModelSerDe.readValue(newElementJson, SubmodelElement.class);
-			ElementValue smev = ElementValues.getValue(newElement);
-			ref.updateValue(smev);
-			return ResponseEntity.noContent().build();
-    	}
-    }
-    
-    @PutMapping("/updateOfElementReference/$value")
-    public ResponseEntity<?> updateValueOfElementReference(@RequestParam("reference") String elmRefString,
-															@RequestBody String newElementValueJson) throws IOException {
-    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
-    		ElementReference ref = ElementReferences.parseExpr(elmRefString);
-			if ( ref instanceof MDTElementReference mdtRef ) {
-				mdtRef.activate(m_instanceManager);
-			}
-			
-			ref.updateWithValueJsonString(newElementValueJson);
-			return ResponseEntity.noContent().build();
-    	}
+    @Operation(summary = "참조 표현식에 해당하는 SubmodelElement를 갱신한다.")
+    @Parameters({
+    	@Parameter(name = "ref", description = "갱신 대상 참조 표현식")
+    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	description = "갱신할 새 SubmodelElement의 JSON 표현식",
+		content = @Content(schema = @Schema(implementation = SubmodelElement.class))
+	)
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+			content = {
+				@Content(schema = @Schema(implementation = SubmodelElement.class), mediaType = "application/json")
+			}),
+    	@ApiResponse(responseCode = "400", description = "참조 표현식에 오류가 있는 경우."),
+    	@ApiResponse(responseCode = "403", description = "참조 표현식과 관련된 resource가 비 정상적인 상태인 경우."),
+    	@ApiResponse(responseCode = "404", description = "참조 표현식과 관련된 resource가 존재하지 않는 경우."),
+    	@ApiResponse(responseCode = "500", description = "참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
+    @PutMapping("/references/{ref}")
+    public ResponseEntity<?> putReferenceElement(@PathVariable("ref") String refString,
+												@RequestBody String newElementJson) throws IOException {
+    	return handleReference(refString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref, String refString) throws IOException, IllegalArgumentException {
+    			SubmodelElement newElement = MDTModelSerDe.readValue(newElementJson, SubmodelElement.class);
+    			ElementValue smev = ElementValues.getValue(newElement);
+    			ref.updateValue(smev);
+    			return ResponseEntity.noContent().build();
+    		}
+    	});
     }
 
-    @GetMapping("/resolveElementReference")
-    public ResponseEntity<?> resolveElementReference(@RequestParam("reference") String elmRefString) {
-    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
-    		ResolvedElementReference resolved = m_instanceManager.resolveElementReference(elmRefString);
-    		return ResponseEntity.ok(resolved);
+    @Operation(summary = "참조 표현식에 해당하는 SubmodelElement의 ValueOnly Serialization을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "ref", description = "참조 표현식")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+			content = {
+				@Content(schema = @Schema(implementation = SubmodelElement.class), mediaType = "application/json")
+			}),
+    	@ApiResponse(responseCode = "400", description = "참조 표현식에 오류가 있는 경우."),
+    	@ApiResponse(responseCode = "403", description = "참조 표현식과 관련된 resource가 비 정상적인 상태인 경우."),
+    	@ApiResponse(responseCode = "404", description = "참조 표현식과 관련된 resource가 존재하지 않는 경우."),
+    	@ApiResponse(responseCode = "500", description = "참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
+    @GetMapping("/references/{ref}/$value")
+    public ResponseEntity<?> getReferenceValue(@PathVariable("ref") String refString) {
+    	return handleReference(refString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref, String refString) throws IOException, IllegalArgumentException {
+        		ElementValue smev = ref.readValue();
+        		return ResponseEntity.ok(smev.toValueJsonString());
+    		}
+    	});
+    }
+    
+    @Operation(summary = "참조 표현식에 해당하는 SubmodelElement의 ValueOnly Serialization을 이용해 갱신한다.")
+    @Parameters({
+    	@Parameter(name = "ref", description = "갱신 대상 참조 표현식")
+    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	description = "갱신할 새 SubmodelElement의 ValueOnly Serialization",
+		content = {
+			@Content(schema = @Schema(implementation = String.class), mediaType = "application/json")
+		}
+	)
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "204", description = "성공"),
+    	@ApiResponse(responseCode = "400", description = "참조 표현식에 오류가 있는 경우."),
+    	@ApiResponse(responseCode = "403", description = "참조 표현식과 관련된 resource가 비 정상적인 상태인 경우."),
+    	@ApiResponse(responseCode = "404", description = "참조 표현식과 관련된 resource가 존재하지 않는 경우."),
+    	@ApiResponse(responseCode = "500", description = "참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
+    @PutMapping("/references/{ref}/$value")
+    public ResponseEntity<?> putReferenceValue(@PathVariable("ref") String refString,
+												@RequestBody String newElementValueJson) throws IOException {
+    	return handleReference(refString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref, String refString)
+        		throws IOException, IllegalArgumentException {
+    			ref.updateWithValueJsonString(newElementValueJson);
+    			return ResponseEntity.noContent().build();
+    		}
+    	});
+    }
+
+	/**
+	 * 주어진 element reference를 해석하여 이를 접근하기 위한 restful URI를 반환한다.
+	 *
+	 * @param refString	element reference expression.
+	 * @return	해석된 element reference에 해당하는 restful URI.
+	 */
+    @Operation(summary = "참조 표현식에 해당하는 SubmodelElement을 접근하는 URL을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "ref", description = "참조 표현식")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+					content = {@Content(schema = @Schema(implementation = String.class))}),
+    	@ApiResponse(responseCode = "400", description = "참조 표현식에 오류가 있는 경우."),
+    	@ApiResponse(responseCode = "403", description = "참조 표현식과 관련된 resource가 비 정상적인 상태인 경우."),
+    	@ApiResponse(responseCode = "404", description = "참조 표현식과 관련된 resource가 존재하지 않는 경우."),
+    	@ApiResponse(responseCode = "500", description = "참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
+    @GetMapping("/references/{ref}/$url")
+    public ResponseEntity<?> getReferenceUrl(@PathVariable("ref") String refString) {
+    	return handleReference(refString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref, String refString) throws IOException, IllegalArgumentException {
+    			SubmodelBasedElementReference smbeRef = (SubmodelBasedElementReference)ref;
+	    		String instId = ref.getInstanceId();
+	    		String smId = smbeRef.getSubmodelReference().getSubmodelId();
+	    		String idShortPath = smbeRef.getIdShortPath().toString();
+	    		String baseEp = m_instanceManager.getInstanceDescriptor(instId).getBaseEndpoint();
+	    		String reqUrl = String.format("%s/submodels/%s/submodel-elements/%s",
+	    										baseEp, AASUtils.encodeBase64UrlSafe(smId),
+	    										AASUtils.encodeIdShortPath(idShortPath));
+	    		
+				return ResponseEntity.ok(reqUrl);
+    		}
+    		
+    		@Override
+        	public ResponseEntity<?> handle(DefaultSubmodelReference ref, String refString) throws IOException, IllegalArgumentException {
+        		String instId = ref.getInstanceId();
+        		String smId = ref.getSubmodelId();
+        		String baseEp = m_instanceManager.getInstanceDescriptor(instId).getBaseEndpoint();
+    			String reqUrl = String.format("%s/submodels/%s", baseEp, AASUtils.encodeBase64UrlSafe(smId));
+        		
+    			return ResponseEntity.ok(reqUrl);
+        	}
+    	});
+    }
+
+    @Operation(summary = "참조 표현식의 JSON 표현식을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "ref", description = "참조 표현식")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+			content = {
+				@Content(schema = @Schema(implementation = MDTElementReference.class), mediaType = "application/json")
+			}),
+    	@ApiResponse(responseCode = "400", description = "참조 표현식에 오류가 있는 경우."),
+    	@ApiResponse(responseCode = "403", description = "참조 표현식과 관련된 resource가 비 정상적인 상태인 경우."),
+    	@ApiResponse(responseCode = "404", description = "참조 표현식과 관련된 resource가 존재하지 않는 경우."),
+    	@ApiResponse(responseCode = "500", description = "참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
+    @GetMapping("/references/{ref}/$json")
+    public ResponseEntity<?> getReferenceJson(@PathVariable("ref") String refString) {
+    	return handleReference(refString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref, String refString) throws IOException, IllegalArgumentException {
+				return ResponseEntity.ok(MDTModelSerDe.toJsonString(ref));
+    		}
+    		
+    		@Override
+        	public ResponseEntity<?> handle(DefaultSubmodelReference ref, String refString) throws IOException, IllegalArgumentException {
+				return ResponseEntity.ok(MDTModelSerDe.toJsonString(ref));
+        	}
+    	});
+    }
+
+    @Operation(summary = "표현식으로 정의된 변수의 JSON 표현식을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "expr", description = "표현식")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+			content = {
+				@Content(schema = @Schema(implementation = MDTElementReference.class), mediaType = "application/json")
+			}),
+    	@ApiResponse(responseCode = "400", description = "참조 표현식에 오류가 있는 경우."),
+    	@ApiResponse(responseCode = "403", description = "참조 표현식과 관련된 resource가 비 정상적인 상태인 경우."),
+    	@ApiResponse(responseCode = "404", description = "참조 표현식과 관련된 resource가 존재하지 않는 경우."),
+    	@ApiResponse(responseCode = "500", description = "참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
+    @GetMapping("/variables/{expr}/$json")
+    public ResponseEntity<?> getVariableJson(@PathVariable("expr") String exprString) {
+    	return handleReference(exprString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref, String refString) throws IOException, IllegalArgumentException {
+				Variable var = Variables.newInstance("", "", ref);
+				return ResponseEntity.ok(Variables.toJsonString(var));
+    		}
+    		
+    		@Override
+        	public ResponseEntity<?> handle(ElementValue literal, String refString) throws IOException, IllegalArgumentException {
+    			Variable var = Variables.newInstance("", "", literal);
+    			return ResponseEntity.ok(Variables.toJsonString(var));
+        	}
+    	});
+    }
+    
+    public interface ReferenceHandler {
+    	public ResponseEntity<?> handle(MDTElementReference ref, String refString)
+			throws IOException, IllegalArgumentException;
+    	default public ResponseEntity<?> handle(DefaultSubmodelReference ref, String refString)
+			throws IOException, IllegalArgumentException {
+			String msg = String.format("SubmodelReference is not supported for value: expr=%s", refString);
+			return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
     	}
+    	default public ResponseEntity<?> handle(ElementValue literal, String refString)
+			throws IOException, IllegalArgumentException {
+			String msg = String.format("Literal is not supported for value: expr=%s", refString);
+			return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
+    	}
+    };
+    private ResponseEntity<?> handleReference(String refString, ReferenceHandler handler) {
+    	try ( JpaSession session = m_instanceManager.allocateJpaSession() ) {
+    		Object ref = parseReference(refString);
+    		if ( ref instanceof MDTElementReference elmRef ) {
+    			return handler.handle(elmRef, refString);
+    		}
+    		else if ( ref instanceof DefaultSubmodelReference smRef ) {
+    			return handler.handle(smRef, refString);
+    		}
+			else if ( ref instanceof LiteralExpr lit ) {
+				return handler.handle(lit.evaluate(), refString);
+			}
+    		else {
+    			String msg = String.format("Unexpected reference expression: expr=%s", refString);
+				return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
+    		}
+    	}
+		catch ( IllegalArgumentException e ) {
+			return ResponseEntity.badRequest().body(RESTfulErrorEntity.of(e));
+		}
+		catch ( IOException e ) {
+			String msg = String.format("Failed to read reference: reference=%s, cause=%s", refString, e.getMessage());
+			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(msg, e));
+		}
+    	catch ( ResourceNotFoundException e ) {
+    		String msg = String.format("Reference not found: expr=%s, cause=%s", refString, e.getMessage());
+			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(msg, e));
+    	}
+    	catch ( InvalidResourceStatusException e ) {
+    		String msg = String.format("Invalid resource status: expr=%s, cause=%s", refString, e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(RESTfulErrorEntity.of(msg, e));
+    	}
+		catch ( Exception e ) {
+			String msg = String.format("Failed to parse variable: expr=%s, cause=%s", refString, e.getMessage());
+			RESTfulErrorEntity error = RESTfulErrorEntity.of(msg, e);
+			return ResponseEntity.internalServerError().body(error);
+		}
     }
 
     @PostMapping("/initializeOperationVariables")
-    public ResponseEntity<?> initializeOperationVariables(
-    													@RequestParam("reference") String opRefExpr,
+    public ResponseEntity<?> initializeOperationVariables(@RequestParam("reference") String opRefExpr,
     													@RequestBody String initializer) throws IOException {
     	List<Variable> initVars = MDTModelSerDe.readValueList(initializer, Variable.class);
     	Map<String,Variable> initializers = FStream.from(initVars)
@@ -591,6 +798,34 @@ public class MDTInstanceManagerController implements InitializingBean {
     	else {
     		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR) .body(RESTfulErrorEntity.of(cause));
     	}
+    }
+    
+    private Object parseReference(String refString) {
+		MDTExpr expr = MDTExprParser.parseExpr(refString);
+		if ( expr instanceof MDTElementReferenceExpr refExpr ) {
+			try {
+				MDTElementReference ref = refExpr.evaluate();
+				ref.activate(m_instanceManager);
+				return ref;
+			}
+			catch ( ResourceNotFoundException | InvalidResourceStatusException e ) {
+				throw e;
+			}
+			catch ( Exception e ) {
+				Throwable cause = Throwables.unwrapThrowable(e);
+				String msg = String.format("Failed to parse reference: expr=%s, cause=%s", refString, cause);
+				throw new IllegalArgumentException(msg);
+			}
+		}
+		else if ( expr instanceof MDTSubmodelExpr smExpr ) {
+			DefaultSubmodelReference smRef = smExpr.evaluate();
+			smRef.activate(m_instanceManager);
+			return smRef;
+		}
+		else {
+			String msg = String.format("Unexpected reference expression: expr=%s", refString);
+			throw new IllegalArgumentException(msg);
+		}
     }
     
     private File buildBundle(String id, MultipartFile zippedBundle) throws IOException {
