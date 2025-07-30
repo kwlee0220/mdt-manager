@@ -113,8 +113,8 @@ public class DockerCommandUtils {
 		
 		@Override
 		public CommandExecution.Builder setup(CommandExecution.Builder cmdBuilder) {
-			cmdBuilder = FOption.map(m_stdoutFile, cmdBuilder::redictStdoutToFile);
-			return FOption.map(m_stderrFile, cmdBuilder::redictStderrToFile);
+			cmdBuilder = FOption.map(m_stdoutFile, cmdBuilder::redirectStdoutToFile);
+			return FOption.map(m_stderrFile, cmdBuilder::redirectStderrToFile);
 		}
 	}
 }
