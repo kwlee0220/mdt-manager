@@ -1,7 +1,9 @@
-package mdt.exector.jar;
+package mdt.instance.jar;
 
 import java.io.File;
 import java.time.Duration;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -11,6 +13,7 @@ import lombok.experimental.Accessors;
  *
  * @author Kang-Woo Lee (ETRI)
  */
+@ConfigurationProperties(prefix = "executor")
 @Getter @Setter
 @Accessors(prefix = "m_")
 public class JarExecutorConfiguration {

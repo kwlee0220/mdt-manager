@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import utils.async.Executions;
 
@@ -39,6 +40,7 @@ public class MDTManagerController implements InitializingBean {
 		Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown));
 	}
 
+    @Tag(name = "MDTInstance 플랫폼 관리")
     @Operation(summary = "MDTManager의 동작 여부를 확인한다.")
     @Parameters()
     @ApiResponses(value = {

@@ -1,20 +1,27 @@
 package mdt.instance.jpa;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.SerializationException;
 import org.eclipse.digitaltwin.aas4j.v3.model.Key;
 import org.eclipse.digitaltwin.aas4j.v3.model.Reference;
-import org.eclipse.digitaltwin.aas4j.v3.model.ReferenceTypes;
 import org.eclipse.digitaltwin.aas4j.v3.model.Submodel;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 
-import com.fasterxml.jackson.annotation.JsonIncludeProperties;
 import com.google.common.base.Preconditions;
 
+import lombok.Getter;
+import lombok.Setter;
+
+import utils.InternalException;
 import utils.func.FOption;
 
-import jakarta.persistence.CascadeType;
+import mdt.model.DescriptorUtils;
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.MDTSubmodelDescriptor;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -24,13 +31,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
-import lombok.Getter;
-import lombok.Setter;
-import mdt.model.DescriptorUtils;
-import mdt.model.MDTModelSerDe;
-import mdt.model.instance.InstanceSubmodelDescriptor;
 
 
 /**
@@ -40,18 +41,17 @@ import mdt.model.instance.InstanceSubmodelDescriptor;
 @Getter @Setter
 @Entity
 @Table(
-	name="instance_submodel_descriptors",
+	name="submodel_descriptors",
 	indexes = {
 		@Index(name="submodel_id_idx", columnList="id", unique=true),
 		@Index(name="submodel_idshort_idx", columnList="id_short")
-	})
-@JsonIncludeProperties({"id", "idShort", "semanticId"})
-public class JpaInstanceSubmodelDescriptor implements InstanceSubmodelDescriptor {
+})
+public class JpaMDTSubmodelDescriptor {
 	@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
 	@Column(name="row_id")
 	private Long rowId;
 
-	@ManyToOne(fetch = FetchType.LAZY)
+	@ManyToOne(fetch = FetchType.EAGER)
 	@JoinColumn(name="instance_row_id")
 	private JpaInstanceDescriptor instance;
 	
@@ -63,29 +63,46 @@ public class JpaInstanceSubmodelDescriptor implements InstanceSubmodelDescriptor
 	
 	@Column(name="semanticId", length=255)
 	private String semanticId;
+	
+	@Column(columnDefinition = "bytea", nullable = false)
+	private byte[] aasSubmodelDescriptorJsonBytes;
 
-	@OneToOne(fetch=FetchType.LAZY, cascade=CascadeType.ALL, orphanRemoval=true)
-	@JoinColumn(name="aas_submodel_descriptor_id")
-	private JpaAASSubmodelDescriptor aasSubmodelDescriptor;
-
-	public static JpaInstanceSubmodelDescriptor from(Submodel submodel) throws SerializationException {
+	public static JpaMDTSubmodelDescriptor from(Submodel submodel) throws SerializationException {
 		SubmodelDescriptor smDesc = DescriptorUtils.createSubmodelDescriptor(submodel, null);
 		return from(smDesc);
 	}
 
-	public static JpaInstanceSubmodelDescriptor from(SubmodelDescriptor smDesc) throws SerializationException {
-		JpaInstanceSubmodelDescriptor desc = new JpaInstanceSubmodelDescriptor();
+	public static JpaMDTSubmodelDescriptor from(SubmodelDescriptor smDesc) throws SerializationException {
+		JpaMDTSubmodelDescriptor desc = new JpaMDTSubmodelDescriptor();
 		
 		desc.id = smDesc.getId();
 		desc.idShort = smDesc.getIdShort();
 		desc.setSemanticIdReference(smDesc.getSemanticId());
-		desc.aasSubmodelDescriptor = new JpaAASSubmodelDescriptor(MDTModelSerDe.getJsonSerializer().write(smDesc));
+		desc.setSubmodelDescriptor(smDesc);
 		
 		return desc;
 	}
 	
-	public String getJson() {
-		return this.aasSubmodelDescriptor.getJson();
+	public SubmodelDescriptor getAASSubmodelDescriptor() {
+		try {
+			String json = new String(this.aasSubmodelDescriptorJsonBytes, StandardCharsets.UTF_8);
+			return MDTModelSerDe.getJsonDeserializer().read(json, SubmodelDescriptor.class);
+		}
+		catch ( DeserializationException e ) {
+			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e);
+		}
+	}
+	
+	void setSubmodelDescriptor(SubmodelDescriptor smDesc) {
+		Preconditions.checkArgument(smDesc != null, "SubmodelDescriptor must not be null");
+		
+		try {
+			this.aasSubmodelDescriptorJsonBytes = MDTModelSerDe.getJsonSerializer().write(smDesc)
+																.getBytes(StandardCharsets.UTF_8);
+		}
+		catch ( SerializationException e ) {
+			throw new InternalException("Failed to serialize AAS Descriptor: " + e);
+		}
 	}
 	
 	public void setSemanticIdReference(Reference semanticId) {
@@ -106,12 +123,15 @@ public class JpaInstanceSubmodelDescriptor implements InstanceSubmodelDescriptor
 		
 		setIdShort(smDesc.getIdShort());
 		FOption.accept(smDesc.getSemanticId(), this::setSemanticIdReference);
-		
-		try {
-			getAasSubmodelDescriptor().setJson(MDTModelSerDe.getJsonSerializer().write(smDesc));
-		}
-		catch ( SerializationException e ) {
-			throw new IllegalArgumentException("Failed to JSON-serialize SubmodelDescriptor: desc=" + smDesc);
-		}
+		setSubmodelDescriptor(smDesc);
+	}
+	
+	public MDTSubmodelDescriptor toMDTSubmodelDescriptor() {
+		return new MDTSubmodelDescriptor(getId(), getIdShort(), getSemanticId());
+	}
+	
+	@Override
+	public String toString() {
+		return String.format("JpaMDTSubmodelDescriptor[%s]", this.idShort);
 	}
 }

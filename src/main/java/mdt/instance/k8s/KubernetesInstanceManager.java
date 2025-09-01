@@ -13,6 +13,8 @@ import org.mandas.docker.client.exceptions.DockerException;
 import org.mandas.docker.client.messages.Image;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
@@ -23,10 +25,11 @@ import io.fabric8.kubernetes.api.model.Service;
 import utils.InternalException;
 import utils.io.FileUtils;
 
-import mdt.MDTConfigurations;
 import mdt.controller.DockerCommandUtils;
 import mdt.controller.DockerCommandUtils.StandardOutputHandler;
 import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.MDTInstanceManagerConfiguration;
+import mdt.instance.MqttConfiguration;
 import mdt.instance.docker.DockerConfiguration;
 import mdt.instance.docker.DockerUtils;
 import mdt.instance.docker.HarborConfiguration;
@@ -36,12 +39,15 @@ import mdt.model.ModelValidationException;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+import mdt.repository.Repositories;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
+@Component
+@ConditionalOnProperty(prefix="instance-manager", name = "type", havingValue = "kubernetes")
 public class KubernetesInstanceManager extends AbstractJpaInstanceManager<KubernetesInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(KubernetesInstanceManager.class);
 	public static final String NAMESPACE = "mdt-instance";
@@ -51,15 +57,19 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 	private final String m_dockerEndpoint;
 	private final String m_repositoryEndpointFormat;
 
-	public KubernetesInstanceManager(MDTConfigurations configs) throws Exception {
-		super(configs);
+	public KubernetesInstanceManager(MDTInstanceManagerConfiguration mgrConf,
+										DockerConfiguration dockerConf,
+										HarborConfiguration harborConf,
+										Repositories repos,
+										MqttConfiguration mqttConf) throws Exception {
+		super(mgrConf, repos, mqttConf);
 		setLogger(s_logger);
 		
-		m_dockerConf = configs.getDockerConfig();
+		m_dockerConf = dockerConf;
 		Preconditions.checkNotNull(m_dockerConf.getDockerEndpoint());
 		m_dockerEndpoint = m_dockerConf.getDockerEndpoint();
 		
-		m_harborConf = configs.getHarborConfig();
+		m_harborConf = harborConf;
 		
 		String epFormat = m_conf.getInstanceEndpointFormat();
 		if ( epFormat == null ) {
@@ -134,7 +144,7 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 	}
 
 	@Override
-	protected void updateInstanceDescriptor(JpaInstanceDescriptor desc) {
+	protected void adaptInstanceDescriptor(JpaInstanceDescriptor desc) {
 		String id = desc.getId();
 		KubernetesRemote kube = newKubernetesRemote();
 		Pod pod = kube.getPod(NAMESPACE, id);

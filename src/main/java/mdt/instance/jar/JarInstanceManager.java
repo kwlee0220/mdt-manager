@@ -7,59 +7,59 @@ import org.apache.commons.io.IOExceptionList;
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 
 import utils.InternalException;
 import utils.Throwables;
 import utils.io.FileUtils;
-import utils.jpa.JpaSession;
 
-import mdt.MDTConfigurations;
 import mdt.exector.jar.JarExecutionListener;
 import mdt.exector.jar.JarInstanceExecutor;
 import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.JpaInstance;
+import mdt.instance.MDTInstanceManagerConfiguration;
+import mdt.instance.MqttConfiguration;
 import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.instance.jpa.JpaInstanceDescriptorManager;
 import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+import mdt.repository.Repositories;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
+@Component
+@ConditionalOnProperty(prefix="instance-manager", name = "type", havingValue = "jar")
 public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceManager.class);
 	
-	private JarInstanceExecutor m_executor;
-	private File m_defaultInstanceJarFile;
+	private final JarInstanceExecutor m_executor;
+	private final File m_defaultInstanceJarFile;
 	
-	public JarInstanceManager(MDTConfigurations configs) throws Exception {
-		super(configs);
+	public JarInstanceManager(MDTInstanceManagerConfiguration mgrConf,
+								Repositories repos,
+								JarExecutorConfiguration jarExecConf,
+								MqttConfiguration mqttConf) throws Exception {
+		super(mgrConf, repos, mqttConf);
 		setLogger(s_logger);
 
-		m_defaultInstanceJarFile = m_conf.getDefaultMDTInstanceJarFile();
+		m_defaultInstanceJarFile = mgrConf.getDefaultMDTInstanceJarFile();
 		if ( getLogger().isInfoEnabled() ) {
 			getLogger().info("use default MDTInstance jar file: {}", m_defaultInstanceJarFile.getAbsolutePath());
 		}
 
-		m_executor = new JarInstanceExecutor(configs.getInstanceManagerConfig(), configs.getJarExecutorConfig());
+		m_executor = new JarInstanceExecutor(jarExecConf);
 		m_executor.addExecutionListener(m_execListener);
 		
-		// 모든 instance를 STOPPED 상태로 초기화한다.
-		try ( JpaSession session = allocateJpaSession() ) {
-			JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
-			for ( JpaInstanceDescriptor desc: instDescMgr.getInstanceDescriptorAll() ) {
-				desc.setStatus(MDTInstanceStatus.STOPPED);
-				desc.setBaseEndpoint(null);
-			}
-		}
+		repos.instances().resetAll();
 	}
 	
 	public JarInstanceExecutor getInstanceExecutor() {
@@ -161,18 +161,13 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	}
 
 	@Override
-	protected void updateInstanceDescriptor(JpaInstanceDescriptor desc) { }
+	protected void adaptInstanceDescriptor(JpaInstanceDescriptor desc) { }
 	
 	// 프로세스의 상태 변화에 따라 InstanceDescriptor의 상태를 업데이트하는 모듈
 	private final JarExecutionListener m_execListener = new JarExecutionListener() {
 		@Override
 		public void stausChanged(String id, MDTInstanceStatus status, String endpoint) {
-			try ( JpaSession session = allocateJpaSession() ) {
-				JpaInstanceDescriptorManager instDescMgr = useInstanceDescriptorManager();
-				JpaInstanceDescriptor desc = instDescMgr.getInstanceDescriptor(id);
-				desc.setStatus(status);
-				desc.setBaseEndpoint(endpoint);
-			}
+			JarInstanceManager.this.updateInstanceDescriptor(id, status, endpoint);
 		}
 		
 		@Override

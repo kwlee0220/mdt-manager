@@ -34,7 +34,7 @@ public class JarInstance extends JpaInstance implements MDTInstance {
 
 	@Override
 	public void startAsync() throws MDTInstanceManagerException {
-		JpaInstanceDescriptor desc = getInstanceDescriptor();
+		JpaInstanceDescriptor desc = getJpaInstanceDescriptor();
 		
 		JarInstanceManager mgr = getInstanceManager();
 		JarExecutionArguments jargs = mgr.parseExecutionArguments(desc.getArguments());

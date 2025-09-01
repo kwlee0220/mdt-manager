@@ -1,17 +1,21 @@
 package mdt.instance.jpa;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
 
-import org.eclipse.digitaltwin.aas4j.v3.model.Property;
-import org.eclipse.digitaltwin.aas4j.v3.model.Submodel;
-import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElement;
-import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElementCollection;
-import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElementList;
+import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
 
-import com.fasterxml.jackson.annotation.JsonIncludeProperties;
+import lombok.Getter;
+import lombok.Setter;
 
-import utils.CSV;
+import utils.InternalException;
+import utils.func.FOption;
 import utils.stream.FStream;
+
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.MDTOperationDescriptor;
+import mdt.model.instance.MDTOperationDescriptor.ArgumentDescriptor;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -22,24 +26,16 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import lombok.Getter;
-import lombok.Setter;
-import mdt.model.instance.MDTOperationDescriptor;
-import mdt.model.sm.SubmodelUtils;
-import mdt.model.sm.value.NamedValueType;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@Getter @Setter
 @Entity
-@Table(
-	name="asset_operation_descriptors"
-)
-@JsonIncludeProperties({"name", "operationType", "inputArguments", "outputArguments"})
-public class JpaMDTOperationDescriptor implements MDTOperationDescriptor {
+@Table(name="operation_descriptors")
+@Getter @Setter
+public class JpaMDTOperationDescriptor {
 	@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
 	@Column(name="row_id")
 	private Long rowId;
@@ -48,89 +44,83 @@ public class JpaMDTOperationDescriptor implements MDTOperationDescriptor {
 	@JoinColumn(name="instance_row_id")
 	private JpaInstanceDescriptor instance;
 	
-	@Column(name="name", length=255)
-	private String name;
+	@Column(name="id", length=255)
+	private String id;
 	
-	@Column(name="operationType", length=255)
+	@Column(name="operationType", length=64)
 	private String operationType;
-
-	@Column(name="inputArgumentsString", length=1023)
-	private String inputArgumentsString;
-
-	@Column(name="outputArgumentsString", length=1023)
-	private String outputArgumentsString;
 	
-	@Override
-	public List<NamedValueType> getInputArguments() {
-		return CSV.parseCsv(inputArgumentsString, ',')
-					.map(NamedValueType::parseString)
-					.toList();
+	@Column(columnDefinition = "bytea", nullable = false)
+	private byte[] inputArgumentsJsonBytes;
+	
+	@Column(columnDefinition = "bytea", nullable = false)
+	private byte[] outputArgumentsJsonBytes;
+	
+	public List<ArgumentDescriptor> getInputArguments() {
+		if ( this.inputArgumentsJsonBytes == null ) {
+			return Collections.emptyList();
+		}
+		
+		try {
+			String json = new String(this.inputArgumentsJsonBytes, StandardCharsets.UTF_8);
+			return MDTModelSerDe.getJsonDeserializer().readList(json, ArgumentDescriptor.class);
+		}
+		catch ( DeserializationException e ) {
+			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e);
+		}
 	}
 	
-	@Override
-	public List<NamedValueType> getOutputArguments() {
-		return CSV.parseCsv(outputArgumentsString, ',')
-					.map(pair -> NamedValueType.parseString(pair.trim()))
-					.toList();
+	public void setInputArguments(List<ArgumentDescriptor> inArgs) {
+		try {
+			String json = MDTModelSerDe.getJsonSerializer().write(inArgs);
+			this.inputArgumentsJsonBytes = json.getBytes(StandardCharsets.UTF_8);
+		}
+		catch ( Exception e ) {
+			throw new InternalException("Failed to serialize inputArguments: " + e);
+		}
+	}
+	
+	public List<ArgumentDescriptor> getOutputArguments() {
+		if ( this.outputArgumentsJsonBytes == null ) {
+			return Collections.emptyList();
+		}
+		
+		try {
+			String json = new String(this.outputArgumentsJsonBytes, StandardCharsets.UTF_8);
+			return MDTModelSerDe.getJsonDeserializer().readList(json, ArgumentDescriptor.class);
+		}
+		catch ( DeserializationException e ) {
+			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e);
+		}
+	}
+	
+	public void setOutputArguments(List<ArgumentDescriptor> outArgs) {
+		try {
+			String json = MDTModelSerDe.getJsonSerializer().write(outArgs);
+			this.outputArgumentsJsonBytes = json.getBytes(StandardCharsets.UTF_8);
+		}
+		catch ( Exception e ) {
+			throw new InternalException("Failed to serialize outputArguments: " + e);
+		}
+	}
+	
+	public MDTOperationDescriptor toMDTOperationDescriptor() {
+		return new MDTOperationDescriptor(id, operationType, getInputArguments(), getOutputArguments());
 	}
 	
 	@Override
 	public String toString() {
-		String inArgsStr = FStream.from(getInputArguments())
-									.map(NamedValueType::getName)
-									.join(", ");
-		String outArgsStr = FStream.from(getOutputArguments())
-									.map(NamedValueType::getName)
-									.join(", ");
-		return String.format("%s(%s) -> %s", this.name, inArgsStr, outArgsStr);
+		String id = FOption.getOrElse(this.id, "?");
+		String inArgs = FStream.from(this.getInputArguments()).map(ArgumentDescriptor::getId).join(", ");
+		String outArgs = FStream.from(this.getOutputArguments()).map(ArgumentDescriptor::getId).join(", ");
+		return String.format("%s[%s]: (%s) -> (%s)", this.operationType, id, inArgs, outArgs);
 	}
 	
-	static JpaMDTOperationDescriptor loadSimulationDescriptor(JpaInstanceDescriptor instDesc, Submodel submodel) {
-		JpaMDTOperationDescriptor opDesc = new JpaMDTOperationDescriptor();
-		opDesc.setInstance(instDesc);
-		opDesc.setOperationType("Simulation");
-		opDesc.setName(submodel.getIdShort());
+	static JpaMDTOperationDescriptor from(MDTOperationDescriptor desc) {
+		JpaMDTOperationDescriptor jpaDesc = new JpaMDTOperationDescriptor();
+		jpaDesc.setId(desc.getId());
+		jpaDesc.setOperationType(null);
 		
-		List<SubmodelElement> inputs = SubmodelUtils.traverse(submodel, "SimulationInfo.Inputs",
-																SubmodelElementList.class).getValue();
-		opDesc.setInputArgumentsString(toArgumentsJson(inputs, "Input"));
-		
-		List<SubmodelElement> outputs = SubmodelUtils.traverse(submodel, "SimulationInfo.Outputs",
-																SubmodelElementList.class).getValue();
-		opDesc.setOutputArgumentsString(toArgumentsJson(outputs, "Output"));
-		
-		return opDesc;
-	}
-	
-	static JpaMDTOperationDescriptor loadAIDescriptor(JpaInstanceDescriptor instDesc, Submodel submodel) {
-		JpaMDTOperationDescriptor opDesc = new JpaMDTOperationDescriptor();
-		opDesc.setInstance(instDesc);
-		opDesc.setOperationType("AI");
-		opDesc.setName(submodel.getIdShort());
-		
-		List<SubmodelElement> inputs = SubmodelUtils.traverse(submodel, "AIInfo.Inputs",
-																SubmodelElementList.class).getValue();
-		opDesc.setInputArgumentsString(toArgumentsJson(inputs, "Input"));
-		
-		List<SubmodelElement> outputs = SubmodelUtils.traverse(submodel, "AIInfo.Outputs",
-																SubmodelElementList.class).getValue();
-		opDesc.setOutputArgumentsString(toArgumentsJson(outputs, "Output"));
-		
-		return opDesc;
-	}
-	
-	private static NamedValueType toNamedElementType(SubmodelElementCollection arg, String prefix) {
-		String argName = SubmodelUtils.traverse(arg, prefix + "ID", Property.class)
-										.getValue();
-		SubmodelElement argValue = SubmodelUtils.traverse(arg, prefix + "Value");
-		String argType = SubmodelUtils.getTypeString(argValue);
-		return new NamedValueType(argName, argType);
-	}
-	
-	private static String toArgumentsJson(List<SubmodelElement> args, String prefix) {
-		return FStream.from(args)
-						.castSafely(SubmodelElementCollection.class)
-						.map(arg -> toNamedElementType(arg, prefix))
-						.join(", ");
+		return jpaDesc;
 	}
 }

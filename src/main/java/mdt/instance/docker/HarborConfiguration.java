@@ -1,7 +1,6 @@
 package mdt.instance.docker;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonInclude.Include;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -12,10 +11,10 @@ import lombok.experimental.Accessors;
  *
  * @author Kang-Woo Lee (ETRI)
  */
+@ConfigurationProperties(prefix = "harbor")
 @Getter @Setter
 @NoArgsConstructor
 @Accessors(prefix = "m_")
-@JsonInclude(Include.NON_NULL)
 public class HarborConfiguration {
 	private String m_host;
 	private String m_endpoint;

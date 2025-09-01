@@ -19,6 +19,8 @@ import org.mandas.docker.client.messages.ContainerInfo;
 import org.mandas.docker.client.messages.PortBinding;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
@@ -30,21 +32,26 @@ import utils.Tuple;
 import utils.func.Try;
 import utils.io.FileUtils;
 
-import mdt.MDTConfigurations;
 import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.MDTInstanceManagerConfiguration;
+import mdt.instance.MqttConfiguration;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.AASUtils;
+import mdt.model.MDTModelSerDe;
 import mdt.model.ModelValidationException;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+import mdt.repository.Repositories;
 
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
+@Component
+@ConditionalOnProperty(prefix="instance-manager", name = "type", havingValue = "docker")
 public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(DockerInstanceManager.class);
 	static final String LABEL_NAME_MDT_TWIN_ID = "mdt-twin-id";
@@ -54,14 +61,18 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	private final String m_repositoryEndpointFormat;
 	private final Map<String,MDTInstanceStatus> m_instanceStatus = Maps.newHashMap();
 
-	public DockerInstanceManager(MDTConfigurations configs) throws Exception {
-		super(configs);
+	public DockerInstanceManager(MDTInstanceManagerConfiguration mgrConf,
+								DockerConfiguration dockerConf,
+								HarborConfiguration harborConf,
+								Repositories repos,
+								MqttConfiguration mqttConf) throws Exception {
+		super(mgrConf, repos, mqttConf);
 		setLogger(s_logger);
 		
-		m_dockerConf = configs.getDockerConfig();
+		m_dockerConf = dockerConf;
 		Preconditions.checkNotNull(m_dockerConf.getDockerEndpoint());
 		
-		m_harborConf = configs.getHarborConfig();
+		m_harborConf = harborConf;
 		
 		String epFormat = m_conf.getInstanceEndpointFormat();
 		if ( epFormat == null ) {
@@ -192,19 +203,20 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 		return String.format(m_repositoryEndpointFormat, repoPort);
 	}
 	
-	public DockerExecutionArguments getExecutionArguments(JpaInstanceDescriptor desc) {
+	public DockerExecutionArguments getExecutionArguments(String instanceId) {
+		JpaInstanceDescriptor jpaDesc = getJpaInstanceDescriptor(instanceId);
 		try {
-			return m_mapper.readValue(desc.getArguments(), DockerExecutionArguments.class);
+			return MDTModelSerDe.getJsonMapper().readValue(jpaDesc.getArguments(), DockerExecutionArguments.class);
 		}
 		catch ( Exception e ) {
 			String msg = String.format("Failed to read DockerExecutionArguments from JpaInstanceDescriptor: "
-										+ "args=%s, cause=%s", desc.getArguments(), e);
+										+ "args=%s, cause=%s", jpaDesc.getArguments(), e);
 			throw new InternalException(msg);
 		}
 	}
 
 	@Override
-	protected void updateInstanceDescriptor(JpaInstanceDescriptor desc) {
+	protected void adaptInstanceDescriptor(JpaInstanceDescriptor desc) {
 		String id = desc.getId();
 		try ( DockerClient docker = newDockerClient() ) {
 			ContainerInfo info = docker.inspectContainer(id);

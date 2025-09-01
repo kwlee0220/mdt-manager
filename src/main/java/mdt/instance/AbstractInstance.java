@@ -3,6 +3,7 @@ package mdt.instance;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -21,10 +22,11 @@ import utils.LoggerSettable;
 import utils.StateChangePoller;
 import utils.func.FOption;
 import utils.func.Funcs;
-import utils.jpa.JpaSession;
+import utils.func.Try;
 import utils.stream.FStream;
 
 import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.model.AASUtils;
 import mdt.model.AssetAdministrationShellService;
 import mdt.model.DescriptorUtils;
 import mdt.model.InvalidResourceStatusException;
@@ -34,6 +36,8 @@ import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.instance.MDTTwinCompositionDescriptor;
+import mdt.model.instance.MDTTwinCompositionDescriptor.MDTCompositionItem;
 import mdt.model.sm.data.Data;
 import mdt.model.sm.data.DefaultDataInfo;
 import mdt.model.sm.data.ParameterCollection;
@@ -60,7 +64,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	 * 
 	 * @return    AssetAdministrationShellDescriptor
 	 */
-	abstract public AssetAdministrationShellDescriptor getAASDescriptor();
+	abstract public AssetAdministrationShellDescriptor getAASShellDescriptor();
 	
 	/**
 	 * 본 MDTInstance에 속한 모든 SubmodelDescriptor를 반환한다.
@@ -69,7 +73,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	 * 
 	 * @return    SubmodelDescriptor 리스트
 	 */
-	abstract public List<SubmodelDescriptor> getSubmodelDescriptorAll();
+	abstract public List<SubmodelDescriptor> getAASSubmodelDescriptorAll();
 	
 	/**
 	 * 본 MDTInstance를 비동기적으로 시작시킨다.
@@ -101,7 +105,8 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	 * @return   InstanceDescriptor
 	 */
 	protected InstanceDescriptor reloadInstanceDescriptor() {
-		JpaInstanceDescriptor desc = m_manager.getInstanceDescriptor(getId());
+		JpaInstanceDescriptor jpaDesc = m_manager.getInstanceDescriptor(getId());
+		InstanceDescriptor desc = jpaDesc.toInstanceDescriptor();
 		m_desc.set(desc);
 		
 		return desc;
@@ -248,8 +253,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	}
 
 	@Override
-	public AssetAdministrationShellService getAssetAdministrationShellService()
-		throws InvalidResourceStatusException {
+	public AssetAdministrationShellService getAssetAdministrationShellService() throws InvalidResourceStatusException {
 		String instSvcEp = getServiceEndpoint();
 		if ( instSvcEp == null ) {
 			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), getStatus());
@@ -262,7 +266,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public SubmodelService getSubmodelServiceById(String submodelId)
 		throws InvalidResourceStatusException, ResourceNotFoundException {
-		if ( !Funcs.exists(getInstanceSubmodelDescriptorAll(), desc -> desc.getId().equals(submodelId)) ) {
+		if ( !Funcs.exists(getMDTSubmodelDescriptorAll(), desc -> desc.getId().equals(submodelId)) ) {
 			throw new ResourceNotFoundException("Submodel", "id=" + submodelId);
 		}
 		return toSubmodelService(submodelId);
@@ -271,7 +275,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public SubmodelService getSubmodelServiceByIdShort(String submodelIdShort)
 		throws InvalidResourceStatusException, ResourceNotFoundException {
-		String submodelId = Funcs.findFirst(getSubmodelDescriptorAll(),
+		String submodelId = Funcs.findFirst(getAASSubmodelDescriptorAll(),
 											desc -> submodelIdShort.equals(desc.getIdShort()))
 								.map(SubmodelDescriptor::getId)
 								.getOrThrow(() -> new ResourceNotFoundException("Submodel",
@@ -281,7 +285,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 
 	@Override
 	public List<SubmodelService> getSubmodelServiceAllBySemanticId(String semanticId) {
-		return FStream.from(getInstanceSubmodelDescriptorAll())
+		return FStream.from(getMDTSubmodelDescriptorAll())
 						.filter(desc -> semanticId.equals(desc.getSemanticId()))
 						.map(desc -> toSubmodelService(desc.getId()))
 						.toList();
@@ -289,7 +293,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 
 	@Override
 	public List<SubmodelService> getSubmodelServiceAll() {
-		return FStream.from(getSubmodelDescriptorAll())
+		return FStream.from(getAASSubmodelDescriptorAll())
 						.map(desc -> toSubmodelService(desc.getId()))
 						.toList();
 	}
@@ -311,6 +315,40 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		else {
 			throw new ResourceNotFoundException("ParameterCollection", "id=" + getId());
 		}
+	}
+	
+	@Override
+	public List<MDTInstance> getTargetInstanceAllOfDependency(String depType) {
+		MDTTwinCompositionDescriptor twinComp = m_manager.getTwinCompositionDescriptor(getId());
+		Map<String, MDTCompositionItem> itemMap = FStream.from(twinComp.getCompositionItems())
+																	.tagKey(MDTCompositionItem::getId)
+																	.toMap();
+
+		String myId = twinComp.getId();
+		return FStream.from(twinComp.getCompositionDependencies())
+						.filter(dep -> dep.getType().equals(depType) && dep.getSourceItem().equals(myId))
+						.flatMapNullable(dep -> itemMap.get(dep.getTargetItem()))
+						.map(MDTCompositionItem::getReference)
+						.flatMapTry(aasId -> Try.get(() -> m_manager.getInstanceByAasId(aasId)))
+						.cast(MDTInstance.class)
+						.toList();
+	}
+
+	@Override
+	public List<MDTInstance> getSourceInstanceAllOfDependency(String depType) {
+		MDTTwinCompositionDescriptor twinComp = m_manager.getTwinCompositionDescriptor(getId());
+		Map<String, MDTCompositionItem> itemMap = FStream.from(twinComp.getCompositionItems())
+																	.tagKey(MDTCompositionItem::getId)
+																	.toMap();
+
+		String myId = twinComp.getId();
+		return FStream.from(twinComp.getCompositionDependencies())
+						.filter(dep -> dep.getType().equals(depType) && dep.getTargetItem().equals(myId))
+						.flatMapNullable(dep -> itemMap.get(dep.getSourceItem()))
+						.map(MDTCompositionItem::getReference)
+						.flatMapTry(aasId -> Try.get(() -> m_manager.getInstanceByAasId(aasId)))
+						.cast(MDTInstance.class)
+						.toList();
 	}
 
 	@Override
@@ -355,10 +393,8 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	public void waitWhileStatus(Predicate<MDTInstanceStatus> waitCond, Duration pollInterval, Duration timeout)
 		throws TimeoutException, InterruptedException, ExecutionException {
 		StateChangePoller.pollWhile(() -> {
-							try (JpaSession session = m_manager.allocateJpaSession()) {
-								InstanceDescriptor desc = reloadInstanceDescriptor();
-								return waitCond.test(desc.getStatus());
-							}
+							InstanceDescriptor desc = reloadInstanceDescriptor();
+							return waitCond.test(desc.getStatus());
 						})
 						.pollInterval(pollInterval)
 						.timeout(timeout)
@@ -372,7 +408,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), getStatus());
 		}
 		
-		String smEp = DescriptorUtils.toSubmodelServiceEndpointString(instSvcEp, submodelId);
+		String smEp = AASUtils.toSubmodelServiceEndpointString(instSvcEp, submodelId);
 		return m_manager.getServiceFactory().getSubmodelService(smEp);
 	}
 }

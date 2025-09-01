@@ -1,9 +1,8 @@
-package mdt;
+package mdt.instance;
 
 import java.io.File;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonInclude.Include;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -14,10 +13,10 @@ import lombok.experimental.Accessors;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@Getter @Setter
+@ConfigurationProperties(prefix = "instance-manager")
 @NoArgsConstructor
 @Accessors(prefix = "m_")
-@JsonInclude(Include.NON_NULL)
+@Getter @Setter
 public class MDTInstanceManagerConfiguration {
 	private String m_type;						// "jar", "docker", "kubernetes", "external"
 	private String m_endpoint;                	// MDTInstanceManager 접속을 위한 URL

@@ -2,8 +2,8 @@ package mdt.instance.external;
 
 import java.time.Duration;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonInclude.Include;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import lombok.Getter;
@@ -16,10 +16,10 @@ import lombok.experimental.Accessors;
  *
  * @author Kang-Woo Lee (ETRI)
  */
+@ConfigurationProperties(prefix = "external")
 @Getter @Setter
 @NoArgsConstructor
 @Accessors(prefix = "m_")
-@JsonInclude(Include.NON_NULL)
 public class ExternalConfiguration {
 	/**
 	 * Health check interval for the external instance.

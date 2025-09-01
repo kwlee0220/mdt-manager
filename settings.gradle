@@ -12,8 +12,5 @@ project(':mdt-faaast').projectDir = file('../mdt-faaast')
 include ':faaast-lib'
 project(':faaast-lib').projectDir = file('../faaast/faaast-lib')
 
-include ':mdt-argo-workflow'
-project(':mdt-argo-workflow').projectDir = file('../mdt-argo-workflow')
-
 include ':argo-java-client'
 project(':argo-java-client').projectDir = file('../../misc/argo-java-client')

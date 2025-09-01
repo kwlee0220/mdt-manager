@@ -3,8 +3,6 @@ package mdt.instance;
 import java.util.List;
 
 import mdt.instance.jpa.JpaInstanceDescriptor;
-import mdt.instance.jpa.JpaInstanceDescriptorManager.InstanceDescriptorTransform;
-import mdt.instance.jpa.JpaInstanceDescriptorManager.SearchCondition;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.MDTInstanceManagerException;
@@ -30,7 +28,7 @@ public interface InstanceDescriptorManager {
 	 * 
 	 * @return 모든 InstanceDescriptor
 	 */
-	public List<JpaInstanceDescriptor> getInstanceDescriptorAll() throws MDTInstanceManagerException;
+	public Iterable<JpaInstanceDescriptor> getInstanceDescriptorAll() throws MDTInstanceManagerException;
 	
 	/**
 	 * 주어진 필터 조건에 해당하는 InstanceDescriptor를 검색한다.
@@ -62,6 +60,4 @@ public interface InstanceDescriptorManager {
 	public void removeInstanceDescriptor(String id) throws MDTInstanceManagerException;
 	
 	public long count();
-
-	public <S> List<S> query(SearchCondition cond, InstanceDescriptorTransform<S> transform);
 }

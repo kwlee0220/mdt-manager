@@ -35,8 +35,8 @@ import utils.io.FileUtils;
 import utils.io.LogTailer;
 import utils.stream.FStream;
 
-import mdt.MDTInstanceManagerConfiguration;
 import mdt.instance.jar.JarExecutionArguments;
+import mdt.instance.jar.JarExecutorConfiguration;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
@@ -51,7 +51,6 @@ public class JarInstanceExecutor {
 	
 	private static final String DEFAULT_HEAP_SIZE = "512m";
 	
-	private final MDTInstanceManagerConfiguration m_mgrConfig;
 	private final JarExecutorConfiguration m_execConfig;
 	private final File m_workspaceDir;
 	private final Semaphore m_startSemaphore;	// 동시에 시작할 수 있는 프로세스 수 제한
@@ -60,13 +59,11 @@ public class JarInstanceExecutor {
 	// 이 JarInstanceExecutor를 통해 실행 중인 모든 프로세스들의 등록정보
 	private final Map<String,ProcessDesc> m_runningInstances = Maps.newHashMap();
 	private final Set<JarExecutionListener> m_listeners = Sets.newConcurrentHashSet();
-	
-	public JarInstanceExecutor(MDTInstanceManagerConfiguration mgrConf, JarExecutorConfiguration conf)
-		throws MDTInstanceManagerException {
+
+	public JarInstanceExecutor(JarExecutorConfiguration conf) throws MDTInstanceManagerException {
 		Preconditions.checkArgument(conf != null, "JarExecutorConfiguration is null");
 		Preconditions.checkArgument(conf.getWorkspaceDir() != null, "JarExecutorConfiguration.workspaceDir is null");
 		
-		m_mgrConfig = mgrConf;
 		m_execConfig = conf;
 		m_workspaceDir = conf.getWorkspaceDir();
 		Try.accept(m_workspaceDir, FileUtils::createDirectory);
@@ -194,6 +191,9 @@ public class JarInstanceExecutor {
 				procDesc.m_status = (procDesc.m_status == MDTInstanceStatus.STOPPING)
 									? MDTInstanceStatus.STOPPED
 									: MDTInstanceStatus.FAILED;
+				if ( procDesc.m_status != MDTInstanceStatus.RUNNING ) {
+					procDesc.m_endpoint = null;
+				}
 				m_runningInstances.remove(procDesc.m_id);
 			});
 	    	if ( s_logger.isInfoEnabled() ) {

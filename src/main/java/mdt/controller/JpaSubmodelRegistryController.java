@@ -8,7 +8,6 @@ import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.SerializationException;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,8 +22,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import utils.jpa.JpaProcessor;
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -33,39 +30,37 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import utils.stream.FStream;
 
 import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.JpaInstance;
-import mdt.instance.jpa.JpaInstanceSubmodelDescriptor;
+import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.instance.jpa.JpaMDTSubmodelDescriptor;
+import mdt.instance.jpa.JpaMDTSubmodelDescriptorRepository;
 import mdt.model.AASUtils;
 import mdt.model.MDTModelSerDe;
 import mdt.model.ResourceNotFoundException;
 
-import jakarta.persistence.EntityManagerFactory;
-import jakarta.persistence.NoResultException;
-import jakarta.persistence.TypedQuery;
+import jakarta.transaction.Transactional;
 
 
 /**
 *
 * @author Kang-Woo Lee (ETRI)
 */
+@Tag(name = "Submodel Registry", description = "MDT 플랫폼 기반 AAS Submodel Registry")
 @RestController
-@RequestMapping(value={"/submodel-registry"})
-public class JpaSubmodelRegistryController implements InitializingBean {
+@RequestMapping(value={"/aas_registry"})
+public class JpaSubmodelRegistryController {
 	private final Logger s_logger = LoggerFactory.getLogger(JpaSubmodelRegistryController.class);
 
 	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
-	@Autowired EntityManagerFactory m_emFact;
-	private JpaProcessor m_jpaProcessor;
-
-	@Override
-	public void afterPropertiesSet() throws Exception {
-		m_jpaProcessor = new JpaProcessor(m_emFact);
-		
-		if ( s_logger.isInfoEnabled() ) {
-			s_logger.info("loaded {}", getClass());
-		}
+	private final JpaMDTSubmodelDescriptorRepository m_repo;
+	
+	public JpaSubmodelRegistryController(JpaMDTSubmodelDescriptorRepository repo) {
+		m_repo = repo;
 	}
 
     @Operation(summary = "주어진 idShort에 해당하는 모든 Submodel 등록정보들을 반환한다.")
@@ -86,24 +81,30 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     												@RequestParam(name="idShort", required=false) String idShort,
     												@RequestParam(name="semanticId", required=false) String semanticId)
     	throws SerializationException {
-    	String jpql;
+    	List<JpaMDTSubmodelDescriptor> jpaSmDescList;
 		if ( idShort != null ) {
-			jpql = String.format("select s from JpaInstanceSubmodelDescriptor s where s.idShort = '%s'", idShort);
+			jpaSmDescList = m_repo.findAllByIdShort(idShort);
 		}
 		else if ( semanticId != null ) {
-			jpql = String.format("select s from JpaInstanceSubmodelDescriptor s where s.semanticId = '%s'", semanticId);
+			jpaSmDescList = m_repo.findAllBySemanticId(semanticId);
 		}
 		else {
-			jpql = "select s from JpaInstanceSubmodelDescriptor s";
+			jpaSmDescList = m_repo.findAll();
 		}
-		List<SubmodelDescriptor> smDescList = m_jpaProcessor.get(em -> {
-			TypedQuery<JpaInstanceSubmodelDescriptor> query
-											= em.createQuery(jpql, JpaInstanceSubmodelDescriptor.class);
-			return query.getResultStream()
-						.map(desc -> m_instanceManager.toSubmodelDescriptor(desc))
-						.toList();
-    	});
 		
+		List<SubmodelDescriptor> smDescList
+					= FStream.from(jpaSmDescList)
+							.map(jpaDesc -> {
+								String instId = jpaDesc.getInstance().getId();
+								String svcEp = m_instanceManager.getInstance(instId).getServiceEndpoint();
+								SubmodelDescriptor smDesc = jpaDesc.getAASSubmodelDescriptor();
+								if ( svcEp != null ) {
+									smDesc = AASUtils.attachEndpoint(smDesc, svcEp);
+								}
+								return smDesc;
+							})
+							.toList();
+			
 		String descListJsjon = MDTModelSerDe.getJsonSerializer().writeList(smDescList);
 		return ResponseEntity.ok(descListJsjon);
     }
@@ -121,23 +122,22 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     })
     @GetMapping(value = "/submodel-descriptors/{submodelId}")
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<String> getSubmodelDescriptorById(@PathVariable("submodelId") String submodelId)
+    @Transactional
+    public ResponseEntity<String> getSubmodelDescriptorById(@PathVariable("submodelId") String encodedSmId)
     	throws SerializationException {
-		String decodedId = AASUtils.decodeBase64UrlSafe(submodelId);
+		String smId = AASUtils.decodeBase64UrlSafe(encodedSmId);
 		
-    	String jpql = String.format("select s from JpaInstanceSubmodelDescriptor s "
-    								+ "where s.id = '%s'", decodedId);
-    	SubmodelDescriptor smDesc = m_jpaProcessor.get(em -> {
-			try {
-				TypedQuery<JpaInstanceSubmodelDescriptor> query
-												= em.createQuery(jpql, JpaInstanceSubmodelDescriptor.class);
-				JpaInstanceSubmodelDescriptor ismDesc = query.getSingleResult();
-				return m_instanceManager.toSubmodelDescriptor(ismDesc);
+		JpaMDTSubmodelDescriptor jpaSmDesc = m_repo.findBySubmodelId(smId)
+												.orElseThrow(() -> new ResourceNotFoundException("SubmodelDescriptor", "id=" + smId));
+		SubmodelDescriptor smDesc = jpaSmDesc.getAASSubmodelDescriptor();
+
+		JpaInstanceDescriptor jpaInstDesc = jpaSmDesc.getInstance();
+		if ( jpaInstDesc != null ) {
+			String svcEp = m_instanceManager.getInstance(jpaInstDesc.getId()).getServiceEndpoint();
+			if ( svcEp != null ) {
+				smDesc = AASUtils.attachEndpoint(smDesc, svcEp);
 			}
-			catch ( NoResultException e ) {
-				throw new ResourceNotFoundException("SubmodelDescriptor", "id=" + decodedId);
-			}
-    	});
+		}
     	
     	String descJson = MDTModelSerDe.toJsonString(smDesc);
 		return ResponseEntity.ok(descJson);
@@ -166,7 +166,6 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     @ResponseStatus(HttpStatus.CREATED)
     public ResponseEntity<String> addSubmodelDescriptor(@RequestBody String submodelJson)
     	throws SerializationException, DeserializationException {
-//		SubmodelDescriptor aas = s_deser.read(submodelJson, SubmodelDescriptor.class);
     	throw new UnsupportedOperationException();
     }
 
@@ -216,16 +215,12 @@ public class JpaSubmodelRegistryController implements InitializingBean {
     })
     @PutMapping("/submodel-descriptors")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
     public void updateSubmodelDescriptor(@RequestBody String submodelJson) throws IOException {
     	SubmodelDescriptor smDesc = MDTModelSerDe.readValue(submodelJson, SubmodelDescriptor.class);
-
-    	String jpql = String.format("select s from JpaInstanceSubmodelDescriptor s where s.id = '%s'",
-    								smDesc.getId());
-    	m_jpaProcessor.run(em -> {
-			TypedQuery<JpaInstanceSubmodelDescriptor> query
-											= em.createQuery(jpql, JpaInstanceSubmodelDescriptor.class);
-			JpaInstanceSubmodelDescriptor desc = query.getSingleResult();
-			desc.updateFrom(smDesc);
-    	});
+    	
+    	JpaMDTSubmodelDescriptor desc = m_repo.findBySubmodelId(smDesc.getId())
+    												.orElseThrow(() -> new ResourceNotFoundException("SubmodelDescriptor", "id=" + smDesc.getId()));
+		desc.updateFrom(smDesc);
     }
 }

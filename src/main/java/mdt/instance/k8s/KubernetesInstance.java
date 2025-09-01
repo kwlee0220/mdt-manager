@@ -29,6 +29,10 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.instance.MDTOperationDescriptor;
+import mdt.model.instance.MDTParameterDescriptor;
+import mdt.model.instance.MDTSubmodelDescriptor;
+import mdt.model.instance.MDTTwinCompositionDescriptor;
 
 
 /**
@@ -93,7 +97,7 @@ public class KubernetesInstance extends JpaInstance implements MDTInstance {
 
 	@Override
 	public void startAsync() {
-		JpaInstanceDescriptor desc = getInstanceDescriptor();
+		JpaInstanceDescriptor desc = getJpaInstanceDescriptor();
 
 		KubernetesRemote k8s = m_kube.get();
 		Deployment deployment = null;

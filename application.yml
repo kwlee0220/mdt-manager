@@ -5,55 +5,64 @@ spring:
     multipart:
       maxFileSize: 200MB
       maxRequestSize: 200MB
-  jpa:
-    properties:
-      hibernate.transaction.jta.platform: org.hibernate.service.jta.JtaPlatform
       
 server:
-   host: 129.254.91.134
-   port: 12985
-   error:
-      include-message: always
+  host: ${LOCAL_HOST:localhost}
+  port: 12985
+  error:
+    include-message: always
 
 logging:
-   level:
-      root: INFO
-   pattern:
-      console: "%d{yyyy-MM-dd HH:mm:ss} | %-5level | %-40.40logger{39} | %msg%n"
-
+  config: file:${instance-manager.homeDir}/logback.xml
 
 
 rootDir: ${MDT_HOME}
 
-instanceManager:
-  type: external
+instance-manager:
+  type: jar
+  # type: external
+  endpoint: http://${server.host}:12985
   homeDir: ${rootDir}/mdt-manager
   bundlesDir: ${rootDir}/bundles
-  defaultMDTInstanceJarFile: ${instanceManager.homeDir}/faaast-starter-all.jar
-  repositoryEndpointFormat: https://${server.host}:%d/api/v3.0
-
+  instancesDir: ${rootDir}/instances
+  defaultMDTInstanceJarFile: ${instance-manager.homeDir}/mdt-instance-all.jar
+  # instanceEndpointFormat: https://${server.host}:%d/api/v3.0
+  # globalConfigFile: ${instance-manager.homeDir}/mdt_global_config.json
+  keyStoreFile: ${instance-manager.homeDir}/mdt_cert.p12
+  
 jpa:
   jdbc:
-    url: jdbc:h2:${instanceManager.homeDir}/descriptors
-    user: sa
-    password: ""
+    # jdbcUrl: jdbc:h2:${instance-manager.homeDir}/descriptors
+    # # url: jdbc:h2:tcp://localhost/${instanceManager.homeDir}/descriptors
+    # user: sa
+    # password: ""
+    jdbcUrl: jdbc:postgresql://localhost:5432/mdt
+    user: mdt
+    password: mdt2025
   properties:
     hibernate.show_sql: false
     hibernate.format_sql: false
     hibernate.hbm2ddl.auto: update
-     
-#mqtt:
-#  clientId: MDTInstanceManager
-#  endpoint: tcp://localhost:1883
+    hibernate.transaction.jta.platform: org.hibernate.service.jta.JtaPlatform
    
 executor:
-  workspaceDir: ${instanceManager.instancesDir}
+  workspaceDir: ${rootDir}/instances
   sampleInterval: 2s
   startTimeout: 1m
-  startConcurrency: 3
-  defaultMDTInstanceJarFile: ${executor.workspaceDir}/faaast-starter-all.jar
-  heapSize: 256m
-      
+  startConcurrency: 7
+  heapSize: 512m
+
+external:
+  checkInterval: 10s
+  connectionTimeout: 1m
+
 docker:
   dockerEndpoint: http://${server.host}:2375
-  imageName: faaast-starter
+  imageName: kwlee0220/faaast-starter
+  
+harbor:
+  host: docker.zento.co.kr
+  endpoint: https://${harbor.host}/api/v2.0
+  project: mdt-twins
+  user: etri
+  password: zento

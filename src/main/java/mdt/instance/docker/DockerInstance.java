@@ -36,6 +36,7 @@ import mdt.exector.jar.SentinelFinder;
 import mdt.instance.JpaInstance;
 import mdt.instance.jar.JarInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
+import mdt.model.MDTModelSerDe;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
@@ -54,8 +55,15 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 	
 	DockerInstance(DockerInstanceManager manager, JpaInstanceDescriptor desc) {
 		super(manager, desc);
-		
-		m_execArgs = manager.getExecutionArguments(desc);
+
+		try {
+			m_execArgs = MDTModelSerDe.getJsonMapper().readValue(desc.getArguments(), DockerExecutionArguments.class);
+		}
+		catch ( Exception e ) {
+			String msg = String.format("Failed to read DockerExecutionArguments from JpaInstanceDescriptor: "
+										+ "args=%s, cause=%s", desc.getArguments(), e);
+			throw new MDTInstanceManagerException(msg);
+		}
 		
 		setLogger(s_logger);
 	}
