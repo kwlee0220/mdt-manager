@@ -109,17 +109,17 @@ public class JarInstanceExecutor {
     	String encoding = "-Dfile.encoding=UTF-8";
     	
     	String argHomeDir = String.format("--home=%s/%s", m_workspaceDir.getAbsolutePath(), id);
-//    	String argId = String.format("--id=%s", id);
+    	String argId = String.format("--id=%s", id);
 //    	String instanceEndpoint = String.format(m_mgrConfig.getInstanceEndpointFormat(), args.getPort());
 //    	String argInstanceEndpoint = String.format("--instanceEndpoint=%s", instanceEndpoint);
 //    	String argManagerEndpoint = String.format("--managerEndpoint=%s", m_mgrConfig.getEndpoint());
-//    	String argType = String.format("--type=jar");
+    	String argType = String.format("--type=jar");
 //    	String argKeyStorePath = String.format("--keyStore=%s", m_mgrConfig.getKeyStoreFile().getAbsolutePath());   	
 //    	String argVerbose = "-v";
 //    	String noValid = "--no-validation";
 
     	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
-    												"-jar", args.getJarFile(), argHomeDir);
+    												"-jar", args.getJarFile(), argId, argType, argHomeDir);
 //    	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
 //    												"-jar", args.getJarFile(), argHomeDir, argId,
 //    												argInstanceEndpoint, argManagerEndpoint, argType,
