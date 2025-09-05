@@ -495,7 +495,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> getMDTModelSubmodels(@PathVariable("id") String id) throws SerializationException {
 		JpaInstance instance = m_instanceManager.getInstance(id);
 		List<MDTSubmodelDescriptor> submodels = instance.getMDTSubmodelDescriptorAll();
-		String json = SERIALIZER.write(submodels);	// for test serialization
+		String json = SERIALIZER.write(submodels);		// for test serialization
 		return ResponseEntity.ok(json);
     }
 
@@ -1065,9 +1065,11 @@ public class MDTInstanceManagerController implements InitializingBean {
     private ResponseEntity<?> handleReference(String refString, ReferenceHandler handler) {
 		Object ref = parseExpression(refString);
 		if ( ref instanceof MDTElementReference elmRef ) {
+			elmRef.activate(m_instanceManager);
 			return handler.handle(elmRef);
 		}
 		else if ( ref instanceof DefaultSubmodelReference smRef ) {
+			smRef.activate(m_instanceManager);
 			return handler.handle(smRef);
 		}
 		else {
