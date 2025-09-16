@@ -43,6 +43,7 @@ import mdt.model.MDTModelSerDe;
 import mdt.model.ResourceAlreadyExistsException;
 import mdt.model.ResourceNotFoundException;
 import mdt.model.ServiceFactory;
+import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
@@ -180,8 +181,9 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	public JpaInstanceDescriptor getInstanceDescriptor(String instanceId) throws ResourceNotFoundException {
 		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
 		
-		JpaInstanceDescriptor descriptor = m_repos.instances().findByInstanceId(instanceId)
-												.orElseThrow(() -> newInstanceNotFoundException(instanceId));
+		JpaInstanceDescriptor descriptor = m_repos.instances()
+													.findByInstanceId(instanceId)
+													.orElseThrow(() -> newInstanceNotFoundException(instanceId));
 		adaptInstanceDescriptor(descriptor);
 		return descriptor;
 	}
@@ -352,8 +354,8 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 
 	public List<MDTSubmodelDescriptor> getMDTSubmodelDescriptorAll(String instId) {
-		JpaInstance instance = getInstance(instId);
-		String endpointPrefix = instance.getServiceEndpoint();
+		JpaInstanceDescriptor instDesc = getInstanceDescriptor(instId);
+		String endpointPrefix = instDesc.getBaseEndpoint();
 		
 		List<JpaMDTSubmodelDescriptor> jpaDescList = m_repos.submodels().findAllByInstanceId(instId);
 		return FStream.from(jpaDescList)
@@ -368,12 +370,37 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 						})
 						.toList();
 	}
-
+	
 	public List<MDTParameterDescriptor> getMDTParameterDescriptorAll(String instId) {
+		InstanceDescriptor instDesc = getInstanceDescriptor(instId).toInstanceDescriptor();
+		JpaMDTSubmodelDescriptor dataSmDesc = getMDTSubmodelDescriptor(instId, "Data");
+		// Data 서브모델이 존재하지 않는 경우, 파라미터도 존재하지 않는 것으로 간주한다.
+		if ( dataSmDesc == null ) {
+			return List.of();
+		}
+		
+		String smEndpoint = (instDesc.getBaseEndpoint() != null)
+							? instDesc.getBaseEndpoint() + "/submodels/" + AASUtils.encodeBase64UrlSafe(dataSmDesc.getId())
+							: null;
+		
 		List<JpaMDTParameterDescriptor> jpaDescList = m_repos.parameters().findAllByInstanceId(instId);
 		return FStream.from(jpaDescList)
 						.map(param -> param.toMDTParameterDescriptor())
+						.zipWithIndex()
+						.map(idxed -> {
+							String paramEndpoint = (smEndpoint != null)
+												? instDesc.getParameterEndpoint(idxed.index(), smEndpoint) : null;
+							idxed.value().setEndpoint(paramEndpoint);
+							return idxed.value();
+						})
 						.toList();
+	}
+	private JpaMDTSubmodelDescriptor getMDTSubmodelDescriptor(String instId, String submodelIdShort) {
+		return m_repos.submodels()
+						.findByInstanceIdAndSubmodelIdShort(instId, submodelIdShort)
+						.orElse(null);
+//						.orElseThrow(() -> new ResourceNotFoundException("MDTSubmodelDescriptor",
+//																	"instanceId=" + instId + ", submodelIdShort=" + submodelIdShort));
 	}
 
 	public List<MDTOperationDescriptor> getMDTOperationDescriptorAll(String instId) {

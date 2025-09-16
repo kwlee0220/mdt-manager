@@ -809,7 +809,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     		@Override
         	public ResponseEntity<?> handle(MDTElementReference ref) {
     			try {
-					ref.updateWithValueJsonString(newElementValueJson);
+					ref.updateValue(newElementValueJson);
 					return ResponseEntity.noContent().build();
 				}
 				catch ( IOException e ) {

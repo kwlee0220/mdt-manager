@@ -168,47 +168,6 @@ public class JarInstanceExecutor {
 		// 프로세스를 시작시킨 후, 출력 메시지를 검사하여 서비스 포트가 오픈될 때까지 대기한다.
 		return waitWhileStarting(id, procDesc);
 	}
-	
-	@SuppressWarnings("null")
-	public Tuple<MDTInstanceStatus,String> waitWhileStarting(String id) throws InterruptedException {
-		return m_guard.awaitCondition(() -> {
-							// procDesc의 상태가 STARTING인 동안은 계속 대기한다.
-							ProcessDesc procDesc = m_runningInstances.get(id);
-							return procDesc != null || procDesc.m_status == MDTInstanceStatus.STARTING;
-				        })
-						.andGet(() -> {
-							ProcessDesc procDesc = m_runningInstances.get(id);
-							return (procDesc != null) ? Tuple.of(procDesc.m_status, procDesc.m_endpoint)
-									                    : Tuple.of(MDTInstanceStatus.STOPPED, null);
-						});
-	}
-	
-	private void onProcessTerminated(ProcessDesc procDesc, Throwable error) {
-		if ( error == null ) {
-			// m_runningInstances에 등록되지 않은 process들은
-			// 모두 성공적으로 종료된 것으로 간주한다.
-			m_guard.run(() -> {
-				procDesc.m_status = (procDesc.m_status == MDTInstanceStatus.STOPPING)
-									? MDTInstanceStatus.STOPPED
-									: MDTInstanceStatus.FAILED;
-				if ( procDesc.m_status != MDTInstanceStatus.RUNNING ) {
-					procDesc.m_endpoint = null;
-				}
-				m_runningInstances.remove(procDesc.m_id);
-			});
-	    	if ( s_logger.isInfoEnabled() ) {
-	    		s_logger.info("stopped MDTInstance: {}", procDesc.m_id);
-	    	}
-	    	notifyStatusChanged(procDesc);
-		}
-		else {
-			m_guard.run(() -> procDesc.m_status = MDTInstanceStatus.FAILED);
-	    	if ( s_logger.isInfoEnabled() ) {
-	    		s_logger.info("failed MDTInstance: {}, cause={}", procDesc.m_id, error);
-	    	}
-	    	notifyStatusChanged(procDesc);
-		}
-	}
 
     public Tuple<MDTInstanceStatus,String> stop(final String instanceId) {
     	ProcessDesc procDesc = m_guard.get(() -> {
@@ -329,8 +288,9 @@ public class JarInstanceExecutor {
 		
 		@Override
 		public String toString() {
-			return String.format("JarInstanceProcess(id=%s, proc=%d, status=%s, endpoint=%s)",
-									m_id, m_process.toHandle().pid(), m_status, m_endpoint);
+			String pidStr = (m_process != null) ? (""+m_process.toHandle().pid()) : "N/A";
+			return String.format("JarInstanceProcess(id=%s, proc=%s, status=%s, endpoint=%s)",
+									m_id, pidStr, m_status, m_endpoint);
 		}
 	}
 	
@@ -368,18 +328,29 @@ public class JarInstanceExecutor {
 						s_logger.debug("found sentinel: {}", sentinel.value());
 					}
 					
-					String[] parts = sentinel.value().split(" ");
-					procDesc.m_endpoint = parts[parts.length-1];
-					procDesc.m_status = MDTInstanceStatus.RUNNING;
-
-					if ( s_logger.isInfoEnabled() ) {
-						long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
-			    		String elapsedStr = UnitUtils.toSecondString(elapsedMillis);
-			    		s_logger.info("started MDTInstance: id={}, endpoint={}, elapsed={}",
-			    						instId, procDesc.m_endpoint, elapsedStr);
+					// 만일 프로세스가 sententinel을 출력한 이후에 종료된 경우에는
+					// 실패로 간주해야 하기 때문에 프로세스의 상태를 점검한다.
+					if ( procDesc.m_status != MDTInstanceStatus.STARTING ) {
+						// 프로세스가 STARTING 상태가 아닌 경우에는 실패로 간주한다.
+						s_logger.warn("MDTInstance has been started, but already terminated: id={}, status={}",
+										instId, procDesc.m_status);
+						return procDesc.toResult();
 					}
-					notifyStatusChanged(procDesc);
+					else {
+						String[] parts = sentinel.value().split(" ");
+						procDesc.m_endpoint = parts[parts.length-1];
+						procDesc.m_status = MDTInstanceStatus.RUNNING;
 
+						if ( s_logger.isInfoEnabled() ) {
+							long elapsedMillis = Duration.between(started, Instant.now()).toMillis();
+				    		String elapsedStr = UnitUtils.toSecondString(elapsedMillis);
+				    		s_logger.info("started MDTInstance: id={}, endpoint={}, elapsed={}",
+				    						instId, procDesc.m_endpoint, elapsedStr);
+						}
+				    	
+						notifyStatusChanged(procDesc);
+					}
+					
 					return procDesc.toResult();
 				}
 				else {
@@ -460,10 +431,57 @@ public class JarInstanceExecutor {
 		}
     }
 	
+	private void onProcessTerminated(ProcessDesc procDesc, Throwable error) {
+		if ( error == null ) {
+			// m_runningInstances에 등록되지 않은 process들은
+			// 모두 성공적으로 종료된 것으로 간주한다.
+			m_guard.run(() -> {
+				procDesc.m_status = (procDesc.m_status == MDTInstanceStatus.STOPPING)
+									? MDTInstanceStatus.STOPPED
+									: MDTInstanceStatus.FAILED;
+				procDesc.m_endpoint = null;
+				m_runningInstances.remove(procDesc.m_id);
+			});
+	    	if ( s_logger.isInfoEnabled() ) {
+	    		s_logger.info("stopped MDTInstance: {}", procDesc.m_id);
+	    	}
+	    	notifyStatusChanged(procDesc);
+		}
+		else {
+			m_guard.run(() -> procDesc.m_status = MDTInstanceStatus.FAILED);
+	    	if ( s_logger.isInfoEnabled() ) {
+	    		s_logger.info("failed MDTInstance: {}, cause={}", procDesc.m_id, error);
+	    	}
+	    	notifyStatusChanged(procDesc);
+		}
+	}
+	
 	private void notifyStatusChanged(ProcessDesc pdesc) {
 		Tuple<MDTInstanceStatus, String> result = pdesc.toResult();
     	for ( JarExecutionListener listener: m_listeners ) {
     		Unchecked.runOrIgnore(() -> listener.stausChanged(pdesc.m_id, result._1, result._2));
     	}
 	}
+	
+//	@SuppressWarnings("null")
+//	public Tuple<MDTInstanceStatus,String> waitWhileStarting(String id) throws InterruptedException {
+//		return m_guard.awaitCondition(() -> {
+//							// procDesc의 상태가 STARTING인 동안은 계속 대기한다.
+//							ProcessDesc procDesc = m_runningInstances.get(id);
+//							if ( s_logger.isDebugEnabled() ) {
+//								if ( procDesc == null ) {
+//									s_logger.debug("waitWhileStarting: id={}, not-found", id);
+//								}
+//								else {
+//									s_logger.debug("waitWhileStarting: id={}, status={}", id, procDesc.m_status);
+//								}
+//							}
+//							return procDesc != null || procDesc.m_status == MDTInstanceStatus.STARTING;
+//				        })
+//						.andGet(() -> {
+//							ProcessDesc procDesc = m_runningInstances.get(id);
+//							return (procDesc != null) ? Tuple.of(procDesc.m_status, procDesc.m_endpoint)
+//									                    : Tuple.of(MDTInstanceStatus.STOPPED, null);
+//						});
+//	}
 }
