@@ -14,6 +14,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.eventbus.Subscribe;
 
 import mdt.client.support.AutoReconnectingMqttClient;
+import mdt.model.MDTModelSerDe;
 import mdt.model.instance.InstanceStatusChangeEvent;
 
 /**
@@ -23,7 +24,7 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 public class MDTInstanceStatusMqttPublisher extends AutoReconnectingMqttClient {
 	private static final Logger s_logger = LoggerFactory.getLogger(MDTInstanceStatusMqttPublisher.class);
 	private static final String TOPIC_STATUS_CHANGES_FORMAT = "/mdt/manager/instances/%s";
-	private static final JsonMapper MAPPER = JsonMapper.builder().findAndAddModules().build();
+	private static final JsonMapper MAPPER = MDTModelSerDe.MAPPER;
 	
 	private final int m_qos;
 	

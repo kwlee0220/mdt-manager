@@ -56,7 +56,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			getLogger().info("use default MDTInstance jar file: {}", m_defaultInstanceJarFile.getAbsolutePath());
 		}
 
-		m_executor = new JarInstanceExecutor(jarExecConf);
+		m_executor = new JarInstanceExecutor(mgrConf, jarExecConf);
 		m_executor.addExecutionListener(m_execListener);
 		
 		repos.instances().resetAll();

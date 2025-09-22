@@ -35,6 +35,7 @@ import utils.io.FileUtils;
 import utils.io.LogTailer;
 import utils.stream.FStream;
 
+import mdt.instance.MDTInstanceManagerConfiguration;
 import mdt.instance.jar.JarExecutionArguments;
 import mdt.instance.jar.JarExecutorConfiguration;
 import mdt.model.instance.InstanceStatusChangeEvent;
@@ -51,6 +52,7 @@ public class JarInstanceExecutor {
 	
 	private static final String DEFAULT_HEAP_SIZE = "512m";
 	
+	private final MDTInstanceManagerConfiguration m_mgrConfig;
 	private final JarExecutorConfiguration m_execConfig;
 	private final File m_workspaceDir;
 	private final Semaphore m_startSemaphore;	// 동시에 시작할 수 있는 프로세스 수 제한
@@ -60,10 +62,11 @@ public class JarInstanceExecutor {
 	private final Map<String,ProcessDesc> m_runningInstances = Maps.newHashMap();
 	private final Set<JarExecutionListener> m_listeners = Sets.newConcurrentHashSet();
 
-	public JarInstanceExecutor(JarExecutorConfiguration conf) throws MDTInstanceManagerException {
+	public JarInstanceExecutor(MDTInstanceManagerConfiguration mgrConf, JarExecutorConfiguration conf) throws MDTInstanceManagerException {
 		Preconditions.checkArgument(conf != null, "JarExecutorConfiguration is null");
 		Preconditions.checkArgument(conf.getWorkspaceDir() != null, "JarExecutorConfiguration.workspaceDir is null");
 		
+		m_mgrConfig = mgrConf;
 		m_execConfig = conf;
 		m_workspaceDir = conf.getWorkspaceDir();
 		Try.accept(m_workspaceDir, FileUtils::createDirectory);
@@ -112,14 +115,15 @@ public class JarInstanceExecutor {
     	String argId = String.format("--id=%s", id);
 //    	String instanceEndpoint = String.format(m_mgrConfig.getInstanceEndpointFormat(), args.getPort());
 //    	String argInstanceEndpoint = String.format("--instanceEndpoint=%s", instanceEndpoint);
-//    	String argManagerEndpoint = String.format("--managerEndpoint=%s", m_mgrConfig.getEndpoint());
+    	String argManagerEndpoint = String.format("--managerEndpoint=%s", m_mgrConfig.getEndpoint());
     	String argType = String.format("--type=jar");
 //    	String argKeyStorePath = String.format("--keyStore=%s", m_mgrConfig.getKeyStoreFile().getAbsolutePath());   	
 //    	String argVerbose = "-v";
 //    	String noValid = "--no-validation";
 
     	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
-    												"-jar", args.getJarFile(), argId, argType, argHomeDir);
+    												"-jar", args.getJarFile(), argId, argManagerEndpoint,
+    												argType, argHomeDir);
 //    	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
 //    												"-jar", args.getJarFile(), argHomeDir, argId,
 //    												argInstanceEndpoint, argManagerEndpoint, argType,

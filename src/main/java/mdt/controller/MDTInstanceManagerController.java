@@ -198,16 +198,18 @@ public class MDTInstanceManagerController implements InitializingBean {
     @Tag(name = "MDTInstance 관리")
     @Operation(summary = "MDTInstanceManager에 새로운 MDTInstance를 등록시킨다.")
     @Parameters({
-    	@Parameter(name = "id", description="등록 MDTInstance 식별자"),
-    	@Parameter(name = "instance",
-    			description="MDTInstance 모델 디렉토리 파일 경로."),
+    	@Parameter(name = "id", description="등록 MDTInstance 식별자")
     })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	required=true,
+		description="등록시킬 MDTInstance의 모델 디렉토리를 zip으로 압축한 파일 내용"
+	)
     @ApiResponses(value = {
-        	@ApiResponse(responseCode="200", description="성공",
-    			content = {
-    				@Content(schema = @Schema(implementation=InstanceDescriptor.class),
-    						mediaType="application/json")
-    			}),
+        	@ApiResponse(responseCode="201", description="인스턴스 등록 성공",
+		    			content = {
+		    				@Content(schema = @Schema(implementation=InstanceDescriptor.class),
+		    						mediaType="application/json")
+		    			}),
 	    	@ApiResponse(responseCode="409",
 			    		description="동일 식별자의 MDTInstance가 이미 등록되어 있습니다.",
 						content = {
@@ -338,7 +340,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@Parameter(name = "id", description="중지시킬 MDTInstance 식별자")
     })
     @ApiResponses(value = {
-    	@ApiResponse(responseCode="200", description="성공"),
+    	@ApiResponse(responseCode="204", description="중지 성공"),
     	@ApiResponse(responseCode="404",
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
 					content = {
@@ -351,18 +353,17 @@ public class MDTInstanceManagerController implements InitializingBean {
 						})
     })
     @PutMapping("/instances/{id}/stop")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public ResponseEntity<?> stopInstance(@PathVariable("id") String id) throws IOException {
     	JpaInstance inst = m_instanceManager.getInstance(id);
     	
     	try {
 			inst.stop(null, null);
+			return ResponseEntity.noContent().build();
 		}
 		catch ( Exception e ) {
 			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
 		}
-
-		JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
-		return ResponseEntity.ok(MDTModelSerDes.toJson(desc.toInstanceDescriptor()));
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -443,7 +444,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
     }
 
-    @Tag(name = "MDTInstance 관리")
+    @Tag(name = "MDTInstance 모델 조회")
     @Operation(summary = "MDTInstance 식별자에 해당하는 MDT Model 전체 정보를 반환한다.")
     @Parameters({
     	@Parameter(name = "id", description="검색할 MDTInstance 식별자")
@@ -473,8 +474,8 @@ public class MDTInstanceManagerController implements InitializingBean {
 		String json = MDTModelSerDe.MAPPER.writeValueAsString(model);
 		return ResponseEntity.ok(json);
     }
-
-    @Tag(name = "MDTInstance 관리")
+    
+    @Tag(name = "MDTInstance 모델 조회")
     @Operation(summary = "MDTInstance 식별자에 해당하는 모든 Submodel들의 정보를 반환한다.")
     @Parameters({
     	@Parameter(name = "id", description="검색할 MDTInstance 식별자")
@@ -499,7 +500,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return ResponseEntity.ok(json);
     }
 
-    @Tag(name = "MDTInstance 관리")
+    @Tag(name = "MDTInstance 모델 조회")
     @Operation(summary = "MDTInstance 식별자에 해당하는 모든 Parameter들의 정보를 반환한다.")
     @Parameters({
     	@Parameter(name = "id", description="검색할 MDTInstance 식별자")
@@ -525,7 +526,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return ResponseEntity.ok(SERIALIZER.writeList(parameters));
     }
 
-    @Tag(name = "MDTInstance 관리")
+    @Tag(name = "MDTInstance 모델 조회")
     @Operation(summary = "MDTInstance 식별자에 해당하는 모든 연산 (AI/Simulation)들의 정보를 반환한다.")
     @Parameters({
     	@Parameter(name = "id", description="검색할 MDTInstance 식별자")
@@ -550,7 +551,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return ResponseEntity.ok(SERIALIZER.writeList(operations));
     }
 
-    @Tag(name = "MDTInstance 관리")
+    @Tag(name = "MDTInstance 모델 조회")
     @Operation(summary = "MDTInstance 식별자에 해당하는 TwinComposition들의 정보를 반환한다.")
     @Parameters({
     	@Parameter(name = "id", description="검색할 MDTInstance 식별자")
@@ -575,7 +576,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return ResponseEntity.ok(SERIALIZER.write(twinComp));
     }
 
-    @Tag(name = "MDTInstance 관리")
+    @Tag(name = "MDTInstance 모델 조회")
     @Operation(summary = "MDTInstance에 포함된 AssetAdministrationShell 모델 기술자를 반환한다.")
     @Parameters({
     	@Parameter(name = "id", description="대상 MDTInstance 식별자")
@@ -583,7 +584,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     @ApiResponses(value = {
     	@ApiResponse(responseCode="200", description="성공",
 			content = {
-				@Content(schema = @Schema(implementation=InstanceDescriptor.class), mediaType="application/json")
+				@Content(schema = @Schema(implementation=AssetAdministrationShellDescriptor.class), mediaType="application/json")
 			}),
     	@ApiResponse(responseCode="404",
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
@@ -598,21 +599,22 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return m_instanceManager.getInstance(id).getAASShellDescriptor();
     }
 
-    @Tag(name = "MDTInstance 관리")
+    @Tag(name = "MDTInstance 모델 조회")
     @Operation(summary = "MDTInstance에 포함된 모든 Submodel 기술자들을 반환한다.")
     @Parameters({
     	@Parameter(name = "id", description="대상 MDTInstance 식별자")
     })
     @ApiResponses(value = {
     	@ApiResponse(responseCode="200", description="성공",
-			content = {
-				@Content(schema = @Schema(implementation=InstanceDescriptor.class), mediaType="application/json")
-			}),
+	        		content = {
+            			@Content(mediaType="application/json",
+            					array = @ArraySchema(schema=@Schema(implementation=SubmodelDescriptor.class)))
+            		}),
     	@ApiResponse(responseCode="404",
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
 					content = {
-							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
-						})
+						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+					})
     })
     @GetMapping({"instances/{id}/aas/submodel_descriptors"})
     @ResponseStatus(HttpStatus.OK)
