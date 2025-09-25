@@ -92,9 +92,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		if ( m_mqttConf.getEndpoint() != null ) {
 			m_mqttEventPublisher = MDTInstanceStatusMqttPublisher.builder()
 																.mqttServerUri(m_mqttConf.getEndpoint())
-																.clientId(m_mqttConf.getClientId())
 																.qos(m_mqttConf.getQos())
-																.reconnectInterval(m_mqttConf.getReconnectInterval())
 																.build();
 			m_mqttEventPublisher.startAsync();
 			Globals.EVENT_BUS.register(m_mqttEventPublisher);

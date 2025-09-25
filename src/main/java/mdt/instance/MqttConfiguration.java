@@ -2,8 +2,6 @@ package mdt.instance;
 
 import java.time.Duration;
 
-import javax.annotation.Nullable;
-
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import lombok.Getter;
@@ -24,7 +22,6 @@ import utils.func.FOption;
 @Getter @Setter
 @Accessors(prefix = "m_")
 public class MqttConfiguration {
-	private @Nullable String m_clientId = null;
 	private String m_endpoint;
 	private int m_qos = 0;
 	private Duration m_reconnectInterval = Duration.ofSeconds(5);

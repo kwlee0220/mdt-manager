@@ -1,9 +1,7 @@
 package mdt.instance;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 
-import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.slf4j.Logger;
@@ -13,7 +11,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.eventbus.Subscribe;
 
-import mdt.client.support.AutoReconnectingMqttClient;
+import mdt.client.support.MqttService;
 import mdt.model.MDTModelSerDe;
 import mdt.model.instance.InstanceStatusChangeEvent;
 
@@ -21,7 +19,7 @@ import mdt.model.instance.InstanceStatusChangeEvent;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-public class MDTInstanceStatusMqttPublisher extends AutoReconnectingMqttClient {
+public class MDTInstanceStatusMqttPublisher extends MqttService {
 	private static final Logger s_logger = LoggerFactory.getLogger(MDTInstanceStatusMqttPublisher.class);
 	private static final String TOPIC_STATUS_CHANGES_FORMAT = "/mdt/manager/instances/%s";
 	private static final JsonMapper MAPPER = MDTModelSerDe.MAPPER;
@@ -29,7 +27,7 @@ public class MDTInstanceStatusMqttPublisher extends AutoReconnectingMqttClient {
 	private final int m_qos;
 	
 	public MDTInstanceStatusMqttPublisher(Builder builder) {
-		super(builder.m_mqttServerUri, builder.m_clientId, builder.m_reconnectInterval);
+		super(builder.m_mqttServerUri);
 		Preconditions.checkArgument(builder.m_qos >= 0 && builder.m_qos <= 2);
 		
 		m_qos = builder.m_qos;
@@ -38,7 +36,7 @@ public class MDTInstanceStatusMqttPublisher extends AutoReconnectingMqttClient {
 	
 	@Subscribe
 	public void publishStatusChangeEvent(InstanceStatusChangeEvent ev) {
-		MqttClient client = pollMqttClient();
+		MqttClient client = getMqttClient();
 		if ( client != null ) {
 			try {
 				String topic = String.format(TOPIC_STATUS_CHANGES_FORMAT, ev.getInstanceId());
@@ -53,20 +51,13 @@ public class MDTInstanceStatusMqttPublisher extends AutoReconnectingMqttClient {
 			}
 		}
 	}
-	@Override public void messageArrived(String topic, MqttMessage msg) throws Exception { }
-	@Override public void deliveryComplete(IMqttDeliveryToken token) { }
-	
-	@Override protected void mqttBrokerConnected(MqttClient client) throws Exception { }
-	@Override protected void mqttBrokerDisconnected() { }
 	
 	public static Builder builder() {
 		return new Builder();
 	}
 	public static class Builder {
 		private String m_mqttServerUri;
-		private String m_clientId;
 		private int m_qos = 0;
-		private Duration m_reconnectInterval = Duration.ofSeconds(10);
 		
 		public MDTInstanceStatusMqttPublisher build() {
 			return new MDTInstanceStatusMqttPublisher(this);
@@ -77,18 +68,8 @@ public class MDTInstanceStatusMqttPublisher extends AutoReconnectingMqttClient {
 			return this;
 		}
 		
-		public Builder clientId(String id) {
-			m_clientId = id;
-			return this;
-		}
-		
 		public Builder qos(int qos) {
 			m_qos = qos;
-			return this;
-		}
-		
-		public Builder reconnectInterval(Duration interval) {
-			m_reconnectInterval = interval;
 			return this;
 		}
 	}
