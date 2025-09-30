@@ -32,6 +32,7 @@ import utils.func.FOption;
 import utils.func.Try;
 import utils.func.Unchecked;
 import utils.io.FileUtils;
+import utils.io.IOUtils;
 import utils.io.LogTailer;
 import utils.stream.FStream;
 
@@ -113,6 +114,7 @@ public class JarInstanceExecutor {
     	
     	String argHomeDir = String.format("--home=%s/%s", m_workspaceDir.getAbsolutePath(), id);
     	String argId = String.format("--id=%s", id);
+    	String argPort = (args.getPort() > 0) ? String.format("--port=%d", args.getPort()) : "";
 //    	String instanceEndpoint = String.format(m_mgrConfig.getInstanceEndpointFormat(), args.getPort());
 //    	String argInstanceEndpoint = String.format("--instanceEndpoint=%s", instanceEndpoint);
     	String argManagerEndpoint = String.format("--managerEndpoint=%s", m_mgrConfig.getEndpoint());
@@ -120,10 +122,25 @@ public class JarInstanceExecutor {
 //    	String argKeyStorePath = String.format("--keyStore=%s", m_mgrConfig.getKeyStoreFile().getAbsolutePath());   	
 //    	String argVerbose = "-v";
 //    	String noValid = "--no-validation";
+    	
+    	File configFile = new File(jobDir, "config.json");
+    	if ( !configFile.exists() ) {
+    		try {
+    			s_logger.warn("creating an empty config file: {}", configFile);
+				IOUtils.toFile("{}", configFile);
+			}
+			catch ( IOException e ) {
+				throw new MDTInstanceExecutorException("failed to create a config file: " + configFile
+														+ ", cause=" + e);
+			}
+    	}
 
     	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
     												"-jar", args.getJarFile(), argId, argManagerEndpoint,
     												argType, argHomeDir);
+    	if ( argPort.length() > 0 ) {
+			argList.add(argPort);
+		}
 //    	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
 //    												"-jar", args.getJarFile(), argHomeDir, argId,
 //    												argInstanceEndpoint, argManagerEndpoint, argType,
@@ -132,9 +149,8 @@ public class JarInstanceExecutor {
 		ProcessBuilder builder = new ProcessBuilder(argList);
 		builder.directory(jobDir);
 
-		builder.redirectErrorStream(true);
 		File stdoutLogFile = new File(logDir, "output.log");
-		
+		builder.redirectErrorStream(true);
 		builder.redirectOutput(Redirect.appendTo(stdoutLogFile));
 
 		ProcessDesc procDesc = new ProcessDesc(id, null, MDTInstanceStatus.STARTING, null, stdoutLogFile);

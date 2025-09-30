@@ -185,7 +185,7 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 	}
 
 	@Override
-	public MDTInstance addInstance(String id, File bundleDir)
+	public MDTInstance addInstance(String id, int port, File bundleDir)
 		throws ModelValidationException, IOException {
 		String repoName = deployInstanceDockerImage(id, bundleDir, m_dockerEndpoint, getHarborConfiguration());
 		

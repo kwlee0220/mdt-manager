@@ -24,5 +24,5 @@ public class JarExecutionArguments {
 	private String jarFile;
 //	private String modelFile;
 //	private String configFile;
-//	private int port;
+	private int port = -1;
 }

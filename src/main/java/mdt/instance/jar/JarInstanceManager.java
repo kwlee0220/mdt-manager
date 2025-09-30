@@ -71,7 +71,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	}
 
 	@Override
-	public MDTInstance addInstance(String id, File bundleDir)
+	public MDTInstance addInstance(String id, int port, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
 		try {
 			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
@@ -114,6 +114,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			
 			JarExecutionArguments args = JarExecutionArguments.builder()
 																.jarFile(instanceJarFile.getAbsolutePath())
+																.port(port)
 																.build();
 			
 			File modelFile = FileUtils.path(instDir, MODEL_AASX_NAME);

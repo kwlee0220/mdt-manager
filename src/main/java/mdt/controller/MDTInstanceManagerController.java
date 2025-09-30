@@ -219,6 +219,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     @PostMapping({"/instances"})
     @ResponseStatus(HttpStatus.CREATED)
     public String addInstance(@RequestParam("id") String id,
+    							@RequestParam(name = "port", defaultValue = "-1") int port,
 								@RequestParam(name="bundle", required=true) MultipartFile zipFile)
 		throws IOException, ModelValidationException, MDTInstanceManagerException {
 		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
@@ -228,7 +229,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     	try {
 	    	// Bundle directory의 내용을 이용해서 InstanceDescriptor를 생성하여 등록하고,
     		// 이를 통해 MDTInstance를 생성한다.
-    		MDTInstance inst = m_instanceManager.addInstance(id, bundleDir);
+    		MDTInstance inst = m_instanceManager.addInstance(id, port, bundleDir);
 			String descJson = MDTModelSerDes.toJson(inst.getInstanceDescriptor());
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
 

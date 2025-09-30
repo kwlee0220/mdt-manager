@@ -64,7 +64,7 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	}
 
 	@Override
-	public MDTInstance addInstance(String id, File bundleDir)
+	public MDTInstance addInstance(String id, int port, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
 		ExternalInstanceArguments args = new ExternalInstanceArguments();
 		try {

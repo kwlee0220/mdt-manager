@@ -119,7 +119,7 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	}
 
 	@Override
-	public MDTInstance addInstance(String id, File bundleDir)
+	public MDTInstance addInstance(String id, int port, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
 		String repoName = "kwlee0220/faaast-starter:latest";
 		
