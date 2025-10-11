@@ -1,0 +1,88 @@
+services:
+  mdt-manager:
+    image: kwlee0220/mdt-manager:1.2.0
+    container_name: mdt-manager
+    restart: unless-stopped
+    environment:
+      - MDT_HOME=/mdt
+      - LOCAL_HOST=$LOCAL_HOST
+      - MDT_GLOBAL_CONFIG_FILE=/mdt/share/mdt_global_config.json
+      - MDT_KEY_STORE_FILE=/mdt/share/mdt_cert.p12
+      - MDT_KEY_STORE_PASSWORD=mdt2024^^
+    ports:
+      - "12985:12985"
+    volumes:
+      - $MDT_HOME/share:/mdt/share
+    networks:
+      - mdt-network
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mdt_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - mdt-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - mdt-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto
+    restart: always
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - mdt-network
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  mosquitto_data:
+    driver: local
+  mosquitto_log:
+    driver: local
+
+networks:
+  mdt-network:
+    driver: bridge
+

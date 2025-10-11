@@ -1,9 +1,15 @@
 FROM eclipse-temurin:21.0.7_6-jdk
 
-RUN mkdir -p /mdt/mdt-manager
-
 ENV MDT_HOME=/mdt
-ENV MDT_GLOBAL_CONFIG_FILE=/mdt/mdt-manager/mdt_global_config.json
+
+RUN mkdir -p /mdt/mdt-manager
+RUN mkdir -p /mdt/share
 
 WORKDIR /mdt/mdt-manager
-ENTRYPOINT ["java", "-jar", "../mdt-manager-all.jar"]
+COPY mdt-manager-all.jar /mdt/mdt-manager/mdt-manager-all.jar
+COPY mdt-instance-all.jar /mdt/mdt-manager/mdt-instance-all.jar
+COPY application.yml /mdt/mdt-manager/application.yml
+COPY logback.xml /mdt/mdt-manager/logback.xml
+
+# ENTRYPOINT ["java", "-jar", "../mdt-manager-all.jar"]
+CMD ["java", "-jar", "mdt-manager-all.jar"]
