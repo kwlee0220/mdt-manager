@@ -1,15 +1,27 @@
-FROM eclipse-temurin:21.0.7_6-jdk
+FROM boxcutter/python:3.11-slim-jammy
+
+# Eclipse Temurin JRE 21 설치
+RUN apt-get update && apt-get install -y \
+    wget gnupg ca-certificates curl unzip \
+ && mkdir -p /etc/apt/keyrings \
+ && curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg \
+ && echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb jammy main" > /etc/apt/sources.list.d/adoptium.list \
+ && apt-get update \
+ && apt-get install -y temurin-21-jre \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# Python 패키지 설치
+RUN pip install --no-cache-dir numpy pandas simpy scipy==1.15.3 isodate pyyaml dataclasses_json psycopg2 paho-mqtt python-dateutil opencv-python matplotlib PySide6
 
 ENV MDT_HOME=/mdt
 
-RUN mkdir -p /mdt/mdt-manager
+RUN mkdir -p /mdt/mdt-manager/config
 RUN mkdir -p /mdt/share
 
 WORKDIR /mdt/mdt-manager
 COPY mdt-manager-all.jar /mdt/mdt-manager/mdt-manager-all.jar
 COPY mdt-instance-all.jar /mdt/mdt-manager/mdt-instance-all.jar
-COPY application.yml /mdt/mdt-manager/application.yml
-COPY logback.xml /mdt/mdt-manager/logback.xml
 
 # ENTRYPOINT ["java", "-jar", "../mdt-manager-all.jar"]
 CMD ["java", "-jar", "mdt-manager-all.jar"]
