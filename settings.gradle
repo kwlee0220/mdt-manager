@@ -5,12 +5,3 @@ project(':utils').projectDir = file('../../common/utils')
 
 include ':mdt-client'
 project(':mdt-client').projectDir = file('../mdt-client')
-
-include ':mdt-faaast'
-project(':mdt-faaast').projectDir = file('../mdt-faaast')
-
-include ':faaast-lib'
-project(':faaast-lib').projectDir = file('../faaast/faaast-lib')
-
-include ':argo-java-client'
-project(':argo-java-client').projectDir = file('../../misc/argo-java-client')

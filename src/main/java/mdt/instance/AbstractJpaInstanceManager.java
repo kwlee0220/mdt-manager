@@ -100,12 +100,12 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		else {
 			m_mqttEventPublisher = null;
 		}
-		
-		if ( !getInstancesDir().exists() ) {
-			FileUtils.createDirectory(getInstancesDir());
-		}
+
 		if ( !getBundlesDir().exists() ) {
 			FileUtils.createDirectory(getBundlesDir());
+		}
+		if ( !getInstancesDir().exists() ) {
+			FileUtils.createDirectory(getInstancesDir());
 		}
 		try {
 			m_serviceFact = new HttpServiceFactory();
@@ -156,8 +156,16 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 //		}
 //	}
 	
+	public MDTInstanceManagerConfiguration getConfiguration() {
+		return m_conf;
+	}
+	
 	public File getHomeDir() {
 		return m_conf.getHomeDir();
+	}
+	
+	public File getInstanceHomeDir(String id) {
+		return FileUtils.path(getInstancesDir(), id);
 	}
 	
 	public File getInstancesDir() {
@@ -166,14 +174,6 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	
 	public File getBundlesDir() {
 		return FOption.getOrElse(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
-	}
-	
-	public File getShareDir() {
-		return FOption.getOrElse(m_conf.getShareDir(), () -> FileUtils.path(getHomeDir(), "share"));
-	}
-	
-	public File getInstanceHomeDir(String id) {
-		return FileUtils.path(getInstancesDir(), id);
 	}
 	
 	public JpaInstanceDescriptor getInstanceDescriptor(String instanceId) throws ResourceNotFoundException {

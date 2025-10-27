@@ -62,7 +62,7 @@ public class JarInstance extends JpaInstance implements MDTInstance {
 	
 	@Override
 	public String toString() {
-		return String.format("JarInstance[id=%s, path=%s]", getId(), getHomeDir());
+		return String.format("JarInstance[id=%s, path=%s]", getId(), getHomeDir().getAbsolutePath());
 	}
 
 	@Override

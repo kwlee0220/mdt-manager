@@ -31,6 +31,7 @@ import utils.async.Guard;
 import utils.func.FOption;
 import utils.func.Try;
 import utils.func.Unchecked;
+import utils.io.EnvironmentFileLoader;
 import utils.io.FileUtils;
 import utils.io.IOUtils;
 import utils.io.LogTailer;
@@ -115,11 +116,8 @@ public class JarInstanceExecutor {
     	String argHomeDir = String.format("--home=%s/%s", m_workspaceDir.getAbsolutePath(), id);
     	String argId = String.format("--id=%s", id);
     	String argPort = (args.getPort() > 0) ? String.format("--port=%d", args.getPort()) : "";
-//    	String instanceEndpoint = String.format(m_mgrConfig.getInstanceEndpointFormat(), args.getPort());
-//    	String argInstanceEndpoint = String.format("--instanceEndpoint=%s", instanceEndpoint);
     	String argManagerEndpoint = String.format("--managerEndpoint=%s", m_mgrConfig.getEndpoint());
     	String argType = String.format("--type=jar");
-//    	String argKeyStorePath = String.format("--keyStore=%s", m_mgrConfig.getKeyStoreFile().getAbsolutePath());   	
 //    	String argVerbose = "-v";
 //    	String noValid = "--no-validation";
     	
@@ -141,13 +139,36 @@ public class JarInstanceExecutor {
     	if ( argPort.length() > 0 ) {
 			argList.add(argPort);
 		}
-//    	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
-//    												"-jar", args.getJarFile(), argHomeDir, argId,
-//    												argInstanceEndpoint, argManagerEndpoint, argType,
-//    												argKeyStorePath, argVerbose);
+    	if ( m_mgrConfig.getGlobalConfigFile() != null ) {
+        	String globalConfigFilePath = String.format("--globalConfig=%s",
+        												m_mgrConfig.getGlobalConfigFile().getAbsolutePath());
+        	argList.add(globalConfigFilePath);
+    	}
+    	if ( m_execConfig.getKeyStoreFile() != null ) {
+        	String argKeyStorePath = String.format("--keyStore=%s", m_execConfig.getKeyStoreFile().getAbsolutePath());  
+        	argList.add(argKeyStorePath);
+    	}
+    	if ( m_execConfig.getKeyStorePassword() != null ) {
+			String argKeyStorePwd = String.format("--keyStorePassword=%s", m_execConfig.getKeyStorePassword());
+			argList.add(argKeyStorePwd);
+		}
     	
 		ProcessBuilder builder = new ProcessBuilder(argList);
 		builder.directory(jobDir);
+		
+		Map<String,String> envVars = builder.environment();
+		
+		// 환경 변수 파일에서 환경변수들을 로드하여 설정
+		Map<String,String> udEnvVars = Maps.newHashMap();
+		try {
+			File envFile = new File(jobDir, "env.file");
+			udEnvVars = EnvironmentFileLoader.from(envFile).load();
+			envVars.putAll(udEnvVars);
+		}
+		catch ( IOException ignored ) { }
+		
+		s_logger.info("creating MDTInstance: workDir={}, args={}, envs={}",
+						m_workspaceDir.getAbsolutePath(), argList, udEnvVars);
 
 		File stdoutLogFile = new File(logDir, "output.log");
 		builder.redirectErrorStream(true);
