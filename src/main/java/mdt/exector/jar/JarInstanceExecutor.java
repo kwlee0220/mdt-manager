@@ -167,7 +167,7 @@ public class JarInstanceExecutor {
 		}
 		catch ( IOException ignored ) { }
 		
-		s_logger.info("creating MDTInstance: workDir={}, args={}, envs={}",
+		s_logger.debug("creating MDTInstance: workDir={}, args={}, envs={}",
 						m_workspaceDir.getAbsolutePath(), argList, udEnvVars);
 
 		File stdoutLogFile = new File(logDir, "output.log");
