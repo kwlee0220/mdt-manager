@@ -2,6 +2,10 @@ package mdt.instance.jar;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.apache.commons.io.IOExceptionList;
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
@@ -40,6 +44,8 @@ import mdt.repository.Repositories;
 @ConditionalOnProperty(prefix="instance-manager", name = "type", havingValue = "jar")
 public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceManager.class);
+	private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofMillis(500);
+	private static final Duration DEFAULT_START_TIMEOUT = Duration.ofMinutes(1);
 	
 	private final JarInstanceExecutor m_executor;
 	private final File m_defaultInstanceJarFile;
@@ -51,7 +57,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 		super(mgrConf, repos, mqttConf);
 		setLogger(s_logger);
 
-		m_defaultInstanceJarFile = mgrConf.getDefaultMDTInstanceJarFile();
+		m_defaultInstanceJarFile = jarExecConf.getDefaultMDTInstanceJarFile();
 		if ( getLogger().isInfoEnabled() ) {
 			getLogger().info("use default MDTInstance jar file: {}", m_defaultInstanceJarFile.getAbsolutePath());
 		}
@@ -68,6 +74,23 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	
 	public void shutdown() {
 		m_executor.shutdown();
+	}
+	
+	public void startInstanceAll() {
+		try ( ExecutorService exector = Executors.newFixedThreadPool(3) ) {
+			for ( JpaInstanceDescriptor desc: m_repos.instances().findAll() ) {
+				CompletableFuture.runAsync(() -> {
+					try {
+						JpaInstance inst = getInstance(desc.getId());
+						inst.start(DEFAULT_POLL_INTERVAL, DEFAULT_START_TIMEOUT);
+					}
+					catch ( Throwable e ) {
+						Throwable cause = Throwables.unwrapThrowable(e);
+						getLogger().warn("Failed to start JarInstance: id={}, cause={}", desc.getId(), cause);
+					}
+				}, exector);
+			}
+		}
 	}
 
 	@Override
@@ -112,10 +135,9 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 //				FileUtils.copy(defaultCertFile, certFile);
 //			}
 			
-			JarExecutionArguments args = JarExecutionArguments.builder()
-																.jarFile(instanceJarFile.getAbsolutePath())
-																.port(port)
-																.build();
+			JarExecutionArguments args = new JarExecutionArguments();
+			args.setJarFile(instanceJarFile.getAbsolutePath());
+			args.setPort(port);
 			
 			File modelFile = FileUtils.path(instDir, MODEL_AASX_NAME);
 			if ( !modelFile.canRead() ) {

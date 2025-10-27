@@ -1,8 +1,10 @@
 package mdt;
-
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+
+import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.jar.JarInstanceManager;
 
 
 /**
@@ -13,6 +15,13 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 @ConfigurationPropertiesScan("mdt")
 public class MDTInstanceApplication {
 	public static void main(String[] args) throws Exception {
-        SpringApplication.run(MDTInstanceApplication.class, args);
+        var context = SpringApplication.run(MDTInstanceApplication.class, args);
+        
+        var bean = context.getBean(AbstractJpaInstanceManager.class);
+        if ( bean instanceof JarInstanceManager instMgr ) {
+        	if ( instMgr.getConfiguration().isAutoStart() ) {
+        		instMgr.startInstanceAll();
+        	}
+        }
 	}
 }

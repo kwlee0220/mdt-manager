@@ -230,6 +230,13 @@ public class MDTInstanceManagerController implements InitializingBean {
 	    	// Bundle directory의 내용을 이용해서 InstanceDescriptor를 생성하여 등록하고,
     		// 이를 통해 MDTInstance를 생성한다.
     		MDTInstance inst = m_instanceManager.addInstance(id, port, bundleDir);
+    		
+    		// auto-start 옵션이 설정되어 있으면, 바로 시작시킨다.
+			if ( m_instanceManager.getConfiguration().isAutoStart() ) {
+				s_logger.info("auto-starting the newly added MDTInstance: id={}", id);
+				inst.start(null, null);
+			}
+    		
 			String descJson = MDTModelSerDes.toJson(inst.getInstanceDescriptor());
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
 
