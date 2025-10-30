@@ -25,7 +25,7 @@ public class EnvironmentVariablePostProcessor implements EnvironmentPostProcesso
 	
 	private static final String ENV_FILE_ENV_VAR = "ENV_FILE";
 	private static final String ENV_FILE_PROPERTY = "env.file";
-	private static final String ENV_FILE_NAME = "env.file";
+	private static final String ENV_FILE_NAME = "config/env.file";
 	
 	@Override
 	public void postProcessEnvironment(ConfigurableEnvironment env, SpringApplication application) {
