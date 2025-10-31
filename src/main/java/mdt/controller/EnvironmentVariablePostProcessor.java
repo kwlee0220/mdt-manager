@@ -27,6 +27,12 @@ public class EnvironmentVariablePostProcessor implements EnvironmentPostProcesso
 	private static final String ENV_FILE_PROPERTY = "env.file";
 	private static final String ENV_FILE_NAME = "config/env.file";
 	
+	private static Map<String,Object> s_environmentVariables = Map.of();
+	
+	public static Map<String,Object> getEnvironmentVariables() {
+		return s_environmentVariables;
+	}
+	
 	@Override
 	public void postProcessEnvironment(ConfigurableEnvironment env, SpringApplication application) {
 		String fromProp = System.getProperty(ENV_FILE_PROPERTY);
@@ -40,10 +46,10 @@ public class EnvironmentVariablePostProcessor implements EnvironmentPostProcesso
 			EnvironmentFileLoader envLoader = EnvironmentFileLoader.from(new File(path));
 			LinkedHashMap<String, String> variables = envLoader.load();
 			
-			Map<String,Object> vars = KeyValueFStream.from(variables)
-														.mapValue(v -> (Object)v)
-														.toMap();
-			MapPropertySource source = new MapPropertySource("mdtEnv", vars);
+			s_environmentVariables = KeyValueFStream.from(variables)
+													.mapValue(v -> (Object)v)
+													.toMap();
+			MapPropertySource source = new MapPropertySource("mdtEnv", s_environmentVariables);
 			env.getPropertySources().addFirst(source);
 		}
 		catch ( IOException e ) { }
