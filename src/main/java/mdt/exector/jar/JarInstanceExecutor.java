@@ -418,7 +418,7 @@ public class JarInstanceExecutor {
 			procDesc.m_process.destroyForcibly();
 			
 	    	if ( s_logger.isInfoEnabled() ) {
-	    		s_logger.info("failed to start an MDTInstance: {}, cause={}", instId, e);
+	    		s_logger.info("failed to start an MDTInstance: {}, cause={}", instId, ""+e);
 	    	}
 	    	notifyStatusChanged(procDesc);
 	    	
