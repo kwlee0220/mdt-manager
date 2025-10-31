@@ -129,7 +129,7 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 			// instances 디렉토리로 이동시킨다.
 			File instDir = getInstanceHomeDir(id);
 			FileUtils.deleteDirectory(instDir);
-			FileUtils.move(bundleDir, instDir);
+			FileUtils.moveDirectory(bundleDir, instDir);
 
 			// Global 설정 파일이 없는 경우에는 default 설정 파일을 사용한다.
 			File globalConfFile = new File(instDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
@@ -139,7 +139,7 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 					throw new IllegalStateException("No default global configuration file exists: path="
 														+ defaultGlobalConfFile);
 				}
-				FileUtils.copy(defaultGlobalConfFile, globalConfFile);
+				FileUtils.copyFile(defaultGlobalConfFile, globalConfFile);
 			}
 			
 			// Certificate 파일이 없는 instDir default 파일을 사용한다.
@@ -149,7 +149,7 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 				if ( !defaultCertFile.exists() ) {
 					throw new IllegalStateException("No default certificate file exists: path=" + defaultCertFile);
 				}
-				FileUtils.copy(defaultCertFile, certFile);
+				FileUtils.copyFile(defaultCertFile, certFile);
 			}
 
 			File modelFile = FileUtils.path(instDir, MODEL_AASX_NAME);
