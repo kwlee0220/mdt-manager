@@ -1112,6 +1112,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     		return ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).body(RESTfulErrorEntity.of(cause));
     	}
     	else {
+    		s_logger.error("Internal server error: ", cause);
     		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR) .body(RESTfulErrorEntity.of(cause));
     	}
     }
