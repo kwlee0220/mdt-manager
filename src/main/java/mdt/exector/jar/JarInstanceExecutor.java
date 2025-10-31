@@ -36,7 +36,9 @@ import utils.io.FileUtils;
 import utils.io.IOUtils;
 import utils.io.LogTailer;
 import utils.stream.FStream;
+import utils.stream.KeyValueFStream;
 
+import mdt.controller.EnvironmentVariablePostProcessor;
 import mdt.instance.MDTInstanceManagerConfiguration;
 import mdt.instance.jar.JarExecutionArguments;
 import mdt.instance.jar.JarExecutorConfiguration;
@@ -158,6 +160,13 @@ public class JarInstanceExecutor {
 		
 		Map<String,String> envVars = builder.environment();
 		
+		// MDT Instance Manager에서 설정된 환경변수들을 설정
+		// 환경 변수 파일에서 로드된 환경변수들은 실제로 MDTInstanceManager의 환경변수가
+		// 아니기 때문에 명시적으로 추가해준다.
+		Map<String,Object> mgrEnvVars = EnvironmentVariablePostProcessor.getEnvironmentVariables();
+		KeyValueFStream.from(mgrEnvVars)
+						.forEach(kv -> envVars.put(kv.key(), ""+kv.value()));
+		
 		// 환경 변수 파일에서 환경변수들을 로드하여 설정
 		Map<String,String> udEnvVars = Maps.newHashMap();
 		try {
@@ -224,8 +233,6 @@ public class JarInstanceExecutor {
         				desc.m_endpoint = null;
                 		notifyStatusChanged(desc);
                 		
-//            			Executions.runAsync(() -> waitWhileStopping(instanceId, desc));
-//                		desc.m_process.destroy();
                 		CompletableFuture.runAsync(() -> desc.m_process.destroy());
                 		break;
                 	default:
