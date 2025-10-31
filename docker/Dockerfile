@@ -12,12 +12,13 @@ RUN apt-get update && apt-get install -y \
  && rm -rf /var/lib/apt/lists/*
 
 # Python 패키지 설치
-RUN pip install --no-cache-dir numpy pandas simpy scipy==1.15.3 isodate pyyaml dataclasses_json psycopg2 paho-mqtt python-dateutil opencv-python matplotlib PySide6
+RUN pip install --no-cache-dir numpy pandas simpy scipy isodate pyyaml dataclasses_json psycopg2-binary paho-mqtt python-dateutil opencv-python matplotlib PySide6
 
 ENV MDT_HOME=/mdt
 
 RUN mkdir -p /mdt/mdt-manager/config
-RUN mkdir -p /mdt/share
+RUN mkdir -p /mdt/mdt-manager/instances
+RUN mkdir -p /mdt/mdt-manager/bundles
 
 WORKDIR /mdt/mdt-manager
 COPY mdt-manager-all.jar /mdt/mdt-manager/mdt-manager-all.jar
