@@ -5,10 +5,13 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.context.event.ApplicationPreparedEvent;
 import org.springframework.boot.env.EnvironmentPostProcessor;
+import org.springframework.boot.logging.DeferredLog;
+import org.springframework.context.ApplicationListener;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
@@ -21,7 +24,7 @@ import utils.stream.KeyValueFStream;
  * @author Kang-Woo Lee (ETRI)
  */
 public class EnvironmentVariablePostProcessor implements EnvironmentPostProcessor, Ordered {
-	private static final Logger s_logger = LoggerFactory.getLogger(EnvironmentVariablePostProcessor.class);
+    private static final DeferredLog s_deferredLog = new DeferredLog();
 	
 	private static final String ENV_FILE_ENV_VAR = "ENV_FILE";
 	private static final String ENV_FILE_PROPERTY = "env.file";
@@ -40,19 +43,24 @@ public class EnvironmentVariablePostProcessor implements EnvironmentPostProcesso
 		String path = firstNonBlank(fromProp, fromEnv, ENV_FILE_NAME);
 		
 		try {
-			System.out.println("loading environment variables from file: " + path);
-			s_logger.info("loading environment variables from file: {}", path);
+			s_deferredLog.info("loading environment variables from file: " + path);
 			
 			EnvironmentFileLoader envLoader = EnvironmentFileLoader.from(new File(path));
 			LinkedHashMap<String, String> variables = envLoader.load();
 			
 			s_environmentVariables = KeyValueFStream.from(variables)
+													.peek(v -> s_deferredLog.info(String.format("  - EnvVar: %s=%s", v.key(), v.value())))
 													.mapValue(v -> (Object)v)
 													.toMap();
 			MapPropertySource source = new MapPropertySource("mdtEnv", s_environmentVariables);
 			env.getPropertySources().addFirst(source);
 		}
 		catch ( IOException e ) { }
+        
+        application.addListeners((ApplicationListener<ApplicationPreparedEvent>) event -> {
+        	Log actualLogger = LogFactory.getLog(EnvironmentVariablePostProcessor.class);
+			s_deferredLog.replayTo(actualLogger);
+		});
 	}
 	
 	@Override
