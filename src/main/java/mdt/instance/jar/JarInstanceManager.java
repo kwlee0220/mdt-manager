@@ -29,6 +29,7 @@ import mdt.instance.MqttConfiguration;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.AASUtils;
 import mdt.model.ModelValidationException;
+import mdt.model.ResourceException;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManager;
 import mdt.model.instance.MDTInstanceManagerException;
@@ -134,7 +135,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			Throwable clause = e.getCause(0);
 			throw new IOException("Failed to add MDTInstance: id=" + id + ", cause=" + clause);
 		}
-		catch ( IOException | ModelValidationException | MDTInstanceManagerException e ) {
+		catch ( IOException | ModelValidationException | MDTInstanceManagerException | ResourceException e ) {
 			throw e;
 		}
 		catch ( Throwable e ) {

@@ -70,6 +70,7 @@ import mdt.model.InvalidResourceStatusException;
 import mdt.model.MDTModelSerDe;
 import mdt.model.ModelValidationException;
 import mdt.model.ResourceAlreadyExistsException;
+import mdt.model.ResourceException;
 import mdt.model.ResourceNotFoundException;
 import mdt.model.expr.LiteralExpr;
 import mdt.model.expr.MDTElementReferenceExpr;
@@ -242,7 +243,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 
 			return descJson;
     	}
-		catch ( IOException | ModelValidationException | MDTInstanceManagerException e ) {
+		catch ( IOException | ModelValidationException | MDTInstanceManagerException | ResourceException e ) {
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
 			throw e;
 		}
