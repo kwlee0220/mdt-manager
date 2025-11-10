@@ -1,6 +1,7 @@
 package mdt.exector.jar;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.ProcessBuilder.Redirect;
 import java.nio.charset.StandardCharsets;
@@ -38,7 +39,7 @@ import utils.io.LogTailer;
 import utils.stream.FStream;
 import utils.stream.KeyValueFStream;
 
-import mdt.controller.EnvironmentVariablePostProcessor;
+import mdt.controller.MDTManagerEnvironment;
 import mdt.instance.MDTInstanceManagerConfiguration;
 import mdt.instance.jar.JarExecutionArguments;
 import mdt.instance.jar.JarExecutorConfiguration;
@@ -109,18 +110,15 @@ public class JarInstanceExecutor {
 		
 		// 혹시나 있지 모를 'logs' 디렉토리 삭제.
     	Try.accept(logDir, FileUtils::deleteDirectory);
-    	
+
+    	String argEncoding = "-Dfile.encoding=UTF-8";
     	String heapSize = FOption.getOrElse(m_execConfig.getHeapSize(), DEFAULT_HEAP_SIZE);
-    	String initialHeap = String.format("-Xms%s", heapSize);
-    	String maxHeap = String.format("-Xmx%s", heapSize);
-    	String encoding = "-Dfile.encoding=UTF-8";
+    	String argInitialHeap = String.format("-Xms%s", heapSize);
+    	String argMaxHeap = String.format("-Xmx%s", heapSize);
     	
-    	String argHomeDir = String.format("--home=%s/%s", m_workspaceDir.getAbsolutePath(), id);
     	String argId = String.format("--id=%s", id);
-    	String argPort = (args.getPort() > 0) ? String.format("--port=%d", args.getPort()) : "";
-    	String argManagerEndpoint = String.format("--managerEndpoint=%s", m_mgrConfig.getEndpoint());
     	String argType = String.format("--type=jar");
-//    	String argVerbose = "-v";
+    	String argVerbose = "-v";
 //    	String noValid = "--no-validation";
     	
     	File configFile = new File(jobDir, "config.json");
@@ -135,11 +133,11 @@ public class JarInstanceExecutor {
 			}
     	}
 
-    	List<String> argList = Lists.newArrayList("java", encoding, initialHeap, maxHeap,
-    												"-jar", args.getJarFile(), argId, argManagerEndpoint,
-    												argType, argHomeDir);
-    	if ( argPort.length() > 0 ) {
-			argList.add(argPort);
+    	List<String> argList = Lists.newArrayList("java", argEncoding, argInitialHeap, argMaxHeap,
+    												"-jar", args.getJarFile(), argId, argType, argVerbose);
+
+    	if ( args.getPort() > 0 ) {
+			argList.add(String.format("--port=%d", args.getPort()));
 		}
     	if ( m_mgrConfig.getGlobalConfigFile() != null ) {
         	String globalConfigFilePath = String.format("--globalConfig=%s",
@@ -157,27 +155,38 @@ public class JarInstanceExecutor {
     	
 		ProcessBuilder builder = new ProcessBuilder(argList);
 		builder.directory(jobDir);
-		
-		Map<String,String> envVars = builder.environment();
+
+    	String homeDir = String.format("%s/%s", m_workspaceDir.getAbsolutePath(), id);
+		Map<String,String> initEnvVars = Map.of(
+											"MDT_INSTANCE_ID", id,
+											"MDT_INSTANCE_HOME", homeDir,
+											"MDT_ENDPOINT", m_mgrConfig.getEndpoint());
+		Map<String,String> udEnvVars = Maps.newHashMap(initEnvVars);
 		
 		// MDT Instance Manager에서 설정된 환경변수들을 설정
 		// 환경 변수 파일에서 로드된 환경변수들은 실제로 MDTInstanceManager의 환경변수가
 		// 아니기 때문에 명시적으로 추가해준다.
-		Map<String,Object> mgrEnvVars = EnvironmentVariablePostProcessor.getEnvironmentVariables();
-		KeyValueFStream.from(mgrEnvVars)
-						.forEach(kv -> envVars.put(kv.key(), ""+kv.value()));
+		KeyValueFStream.from(MDTManagerEnvironment.getVariables())
+						.forEach(kv -> udEnvVars.put(kv.key(), "" + kv.value()));
 		
 		// 환경 변수 파일에서 환경변수들을 로드하여 설정
-		Map<String,String> udEnvVars = Maps.newHashMap();
 		try {
 			File envFile = new File(jobDir, "env.file");
-			udEnvVars = EnvironmentFileLoader.from(envFile).load();
-			envVars.putAll(udEnvVars);
+			KeyValueFStream.from(EnvironmentFileLoader.from(envFile).load())
+							.forEach(kv -> udEnvVars.put(kv.key(), kv.value()));
 		}
-		catch ( IOException ignored ) { }
+		catch ( FileNotFoundException ignored ) {
+			// 무시함: 환경 변수 파일이 없는 경우에는 기본 환경 변수들만 사용한다.
+		}
+		catch ( Throwable ignored ) {
+			String msg = String.format("failed to load environment variables from env.file: %s", ""+ignored);
+			s_logger.warn(msg);
+			throw new MDTInstanceExecutorException(msg);
+		}
 		
-		s_logger.debug("creating MDTInstance: workDir={}, args={}, envs={}",
+		s_logger.info("creating MDTInstance: workDir={}, args={}, envs={}",
 						m_workspaceDir.getAbsolutePath(), argList, udEnvVars);
+		builder.environment().putAll(udEnvVars);
 
 		File stdoutLogFile = new File(logDir, "output.log");
 		builder.redirectErrorStream(true);
@@ -433,7 +442,8 @@ public class JarInstanceExecutor {
 		}
 	}
     
-    private InstanceStatusChangeEvent waitWhileStopping(final String instId, ProcessDesc procDesc) {
+    @SuppressWarnings("unused")
+	private InstanceStatusChangeEvent waitWhileStopping(final String instId, ProcessDesc procDesc) {
 		try {
 			LogTailer tailer = LogTailer.builder()
 										.file(procDesc.m_stdoutLogFile)
