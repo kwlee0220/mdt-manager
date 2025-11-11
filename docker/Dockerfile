@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
  && rm -rf /var/lib/apt/lists/*
 
 # Python 패키지 설치
-RUN pip install --no-cache-dir numpy pandas simpy scipy isodate pyyaml dataclasses_json psycopg2-binary paho-mqtt python-dateutil opencv-python matplotlib PySide6
+RUN pip install --no-cache-dir numpy pandas simpy scipy isodate pyyaml dataclasses_json psycopg2-binary paho-mqtt python-dateutil opencv-python matplotlib PySide6 mdtpy
 
 ENV MDT_HOME=/mdt
 
