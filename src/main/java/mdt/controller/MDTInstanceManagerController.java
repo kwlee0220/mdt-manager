@@ -813,7 +813,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 						}),
     	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
     })
-    @PutMapping("/submodel-element/$value")
+    @PatchMapping("/submodel-element/$value")
     public ResponseEntity<?> updateElementValueOfReference(@RequestParam("ref") String refString,
 															@RequestBody String newElementValueJson) throws IOException {
     	return handleReference(refString, new ReferenceHandler() {
