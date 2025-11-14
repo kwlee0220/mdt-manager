@@ -179,7 +179,7 @@ public class JarInstanceExecutor {
 			// 무시함: 환경 변수 파일이 없는 경우에는 기본 환경 변수들만 사용한다.
 		}
 		catch ( Throwable ignored ) {
-			String msg = String.format("failed to load environment variables from env.file: %s", ""+ignored);
+			String msg = String.format("failed to load  variables from env.file: %s", ""+ignored);
 			s_logger.warn(msg);
 			throw new MDTInstanceExecutorException(msg);
 		}
