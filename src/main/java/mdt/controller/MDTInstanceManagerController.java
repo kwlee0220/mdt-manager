@@ -2,6 +2,7 @@ package mdt.controller;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -859,7 +860,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping("/references/$url")
     public ResponseEntity<?> getReferenceUrl(@RequestParam(name="ref", required=true) String refString) {
-    	return handleReference(refString, new ReferenceHandler() {
+    	return handleElementReference(refString, new ReferenceHandler() {
     		@Override
         	public ResponseEntity<?> handle(MDTElementReference ref) {
     			try {
@@ -1073,6 +1074,11 @@ public class MDTInstanceManagerController implements InitializingBean {
 			return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
     	}
     };
+    private ResponseEntity<?> handleElementReference(String refString, ReferenceHandler handler) {
+    	MDTElementReference ref = ElementReferences.parseExpr(refString);
+    	ref.activate(m_instanceManager);
+		return handler.handle(ref);
+    }
     private ResponseEntity<?> handleReference(String refString, ReferenceHandler handler) {
 		Object ref = parseExpression(refString);
 		if ( ref instanceof MDTElementReference elmRef ) {
@@ -1228,7 +1234,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     
     private File downloadFile(File topDir, String fileName, MultipartFile mpf) throws IOException {
 		File file = new File(topDir, fileName);
-		IOUtils.toFile(mpf.getInputStream(), file);
+		try ( InputStream is = mpf.getInputStream() ) {
+			IOUtils.toFile(is, file);
+		}
 		return file;
     }
 }

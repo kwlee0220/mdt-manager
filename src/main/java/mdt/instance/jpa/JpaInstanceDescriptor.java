@@ -26,6 +26,19 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
+
 import utils.Indexed;
 import utils.InternalException;
 import utils.KeyValue;
@@ -44,19 +57,6 @@ import mdt.model.sm.SubmodelUtils;
 import mdt.model.sm.info.DefaultCompositionDependency;
 import mdt.model.sm.info.DefaultCompositionItem;
 import mdt.model.sm.info.MDTAssetType;
-
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Index;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.Table;
 
 
 /**
@@ -329,7 +329,7 @@ public class JpaInstanceDescriptor {
 									String name = SubmodelUtils.findPropertyById(smc, "ParameterName")
 																.map(Indexed::value)
 																.map(prop -> prop.getValue())
-																.getOrNull();
+																.orElse(null);
 									return KeyValue.of(id, name);
 								})
 								.toMap();
@@ -413,7 +413,7 @@ public class JpaInstanceDescriptor {
 		String compId = SubmodelUtils.findFieldById(twinComp, "CompositionID", Property.class)
 									.map(Indexed::value)
 									.map(prop -> prop.getValue())
-									.getOrNull();
+									.orElse(null);
 		if ( compId == null ) {
 			String compType = getAssetType().toString();
 			return new MDTTwinCompositionDescriptor(getId(), compType, items, deps);
@@ -430,14 +430,14 @@ public class JpaInstanceDescriptor {
 											.castSafely(SubmodelElementCollection.class)
 											.map(this::toCompositionItem)
 											.toList())
-								.getOrElse(Lists.newArrayList());
+								.orElse(Lists.newArrayList());
 		deps = SubmodelUtils.findFieldById(twinComp, "CompositionDependencies", SubmodelElementList.class)
 							.map(Indexed::value)
 							.map(list -> FStream.from(list.getValue())
 												.castSafely(SubmodelElementCollection.class)
 												.map(this::toCompositionDependency)
 												.toList())
-							.getOrElse(Lists.newArrayList());
+							.orElse(Lists.newArrayList());
 		
 		return new MDTTwinCompositionDescriptor(compId, compType, items, deps);
 		
