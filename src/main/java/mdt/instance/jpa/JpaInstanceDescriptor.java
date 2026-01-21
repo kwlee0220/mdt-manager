@@ -9,7 +9,6 @@ import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.SerializationException;
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShell;
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
-import org.eclipse.digitaltwin.aas4j.v3.model.AssetKind;
 import org.eclipse.digitaltwin.aas4j.v3.model.Property;
 import org.eclipse.digitaltwin.aas4j.v3.model.Submodel;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
@@ -88,7 +87,6 @@ public class JpaInstanceDescriptor {
 	@Column(name="aas_id_short", length=64) private String aasIdShort;
 	@Column(name="asset_id", length=255) private String globalAssetId;
 	@Column(name="asset_type", length=64) @Enumerated(EnumType.STRING) private MDTAssetType assetType;
-	@Column(name="asset_kind", length=32) @Enumerated(EnumType.STRING) private AssetKind assetKind;
 	
 	@Column(columnDefinition = "bytea", nullable = false)
 	private byte[] aasDescJsonBytes;
@@ -116,7 +114,6 @@ public class JpaInstanceDescriptor {
 			Property assetTypeProp = SubmodelUtils.traverse(inforSubmodel, "MDTInfo.AssetType", Property.class);
 			this.assetType = MDTAssetType.valueOf(assetTypeProp.getValue());
 			
-			this.assetKind = aasDesc.getAssetKind();
 			setAasDescriptor(aasDesc);
 			
 			this.submodels.clear();
@@ -163,8 +160,8 @@ public class JpaInstanceDescriptor {
 		aasDesc.setSubmodelDescriptors(smDescList);
 		
 		Submodel inforSubmodel = FStream.from(submodels)
-				.findFirst(sm -> SubmodelUtils.isInformationModel(sm))
-				.getOrThrow(() -> new IllegalArgumentException("No InformationModel Submodel found in the instance: id=" + instId));
+										.findFirst(sm -> SubmodelUtils.isInformationModel(sm))
+										.getOrThrow(() -> new IllegalArgumentException("No InformationModel Submodel found in the instance: id=" + instId));
 		
 		JpaInstanceDescriptor instDesc = from(instId, aasDesc, inforSubmodel);
 		for ( Submodel submodel: submodels ) {
@@ -202,7 +199,6 @@ public class JpaInstanceDescriptor {
 		this.aasId = aasDesc.getIdShort();
 		this.globalAssetId = aasDesc.getGlobalAssetId();
 		this.assetType = MDTAssetType.valueOf(aasDesc.getAssetType());
-		this.assetKind = aasDesc.getAssetKind();
 		
 		try {
 			setAasDescriptor(aasDesc);
@@ -325,9 +321,8 @@ public class JpaInstanceDescriptor {
 						= FStream.from(paramInfos)
 								.mapToKeyValue(info -> {
 									SubmodelElementCollection smc = (SubmodelElementCollection)info;
-									String id = SubmodelUtils.getPropertyById(smc, "ParameterID").value().getValue();
+									String id = SubmodelUtils.getStringFieldById(smc, "ParameterID");
 									String name = SubmodelUtils.findPropertyById(smc, "ParameterName")
-																.map(Indexed::value)
 																.map(prop -> prop.getValue())
 																.orElse(null);
 									return KeyValue.of(id, name);
@@ -354,7 +349,7 @@ public class JpaInstanceDescriptor {
 		desc.setInstance(this);
 		desc.setId(paramId);
 		desc.setName(paramName);
-		desc.setValueType(SubmodelUtils.getTypeString(valueSme));
+		desc.setValueType(SubmodelUtils.getValueTypeString(valueSme));
 		desc.setReference(reference);
 		
 		return desc;
@@ -368,33 +363,39 @@ public class JpaInstanceDescriptor {
 		List<SubmodelElement> outputs = SubmodelUtils.traverse(submodel, opType + "Info.Outputs",
 																SubmodelElementList.class).getValue();
 		
-		String inPrefix = String.format("oparg:%s:%s:in", getId(), submodel.getIdShort());
-		String outPrefix = String.format("oparg:%s:%s:out", getId(), submodel.getIdShort());
+		String inRefPrefix = String.format("oparg:%s:%s:in", getId(), submodel.getIdShort());
+		String outRefPrefix = String.format("oparg:%s:%s:out", getId(), submodel.getIdShort());
+		String endpointPrefix = String.format("%sInfo", opType);
 		
 		opDesc.setInstance(this);
 		opDesc.setId(submodel.getIdShort());
 		opDesc.setOperationType(opType);
-		opDesc.setInputArguments(toArgumentDescriptorList(opDesc, inPrefix, inputs, "Input"));
-		opDesc.setOutputArguments(toArgumentDescriptorList(opDesc, outPrefix, outputs, "Output"));
+		opDesc.setInputArguments(toArgumentDescriptorList(opDesc, inputs, inRefPrefix, endpointPrefix, "Input"));
+		opDesc.setOutputArguments(toArgumentDescriptorList(opDesc, outputs, outRefPrefix, endpointPrefix, "Output"));
 		
 		this.operations.add(opDesc);
 	}
-	private List<ArgumentDescriptor> toArgumentDescriptorList(JpaMDTOperationDescriptor opDesc, String refPrefix,
-																List<SubmodelElement> args, String inout) {
+	private List<ArgumentDescriptor> toArgumentDescriptorList(JpaMDTOperationDescriptor opDesc,
+																List<SubmodelElement> args,
+																String refPrefix, String endpointPrefix,
+																String argKind) {
 		return FStream.from(args)
 						.castSafely(SubmodelElementCollection.class)
-						.map(arg -> toArgumentDescriptor(opDesc, refPrefix, arg, inout))
+						.zipWithIndex()
+						.map(idxed -> toArgumentDescriptor(opDesc, idxed.value(), idxed.index(),
+															refPrefix, endpointPrefix, argKind))
 						.toList();
 	}
 	private ArgumentDescriptor toArgumentDescriptor(JpaMDTOperationDescriptor opDesc,
-													String refPrefix,
-													SubmodelElementCollection arg, String inout) {
-		String argId = SubmodelUtils.traverse(arg, inout + "ID", Property.class).getValue();
-		SubmodelElement argValue = SubmodelUtils.traverse(arg, inout + "Value");
-		String valueType = SubmodelUtils.getTypeString(argValue);
+													SubmodelElementCollection arg, int argIndex,
+													String refPrefix, String endpointPrefix, String argKind) {
+		String argId = SubmodelUtils.traverse(arg, argKind + "ID", Property.class).getValue();
+		SubmodelElement argValue = SubmodelUtils.traverse(arg, argKind + "Value");
+		String valueType = SubmodelUtils.getValueTypeString(argValue);
 		String reference = String.format("%s:%s", refPrefix, argId);
+		String endpoint = String.format("%s.%ss[%d].%sValue", endpointPrefix, argKind, argIndex, argKind);
 		
-		return new ArgumentDescriptor(argId, valueType, reference);
+		return new ArgumentDescriptor(argId, endpoint, valueType, reference);
 	}
 
 	private MDTTwinCompositionDescriptor loadTwinComposition(Submodel inforSubmodel) {
@@ -419,8 +420,7 @@ public class JpaInstanceDescriptor {
 			return new MDTTwinCompositionDescriptor(getId(), compType, items, deps);
 		}
 		
-		String compType = SubmodelUtils.getFieldById(twinComp, "CompositionType", Property.class)
-										.value().getValue();
+		String compType = SubmodelUtils.getFieldById(twinComp, "CompositionType", Property.class).getValue();
 		if ( compType == null ) {
 			compType = getAssetType().toString();
 		}
@@ -464,7 +464,6 @@ public class JpaInstanceDescriptor {
 		desc.setAasIdShort(getAasIdShort());
 		desc.setGlobalAssetId(getGlobalAssetId());
 		desc.setAssetType(getAssetType());
-		desc.setAssetKind(getAssetKind());
 		
 		return desc;
 	}

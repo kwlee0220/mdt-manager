@@ -9,14 +9,6 @@ import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException
 import lombok.Getter;
 import lombok.Setter;
 
-import utils.InternalException;
-import utils.func.FOption;
-import utils.stream.FStream;
-
-import mdt.model.MDTModelSerDe;
-import mdt.model.instance.MDTOperationDescriptor;
-import mdt.model.instance.MDTOperationDescriptor.ArgumentDescriptor;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -26,6 +18,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+
+import utils.InternalException;
+import utils.func.Optionals;
+import utils.stream.FStream;
+
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.MDTOperationDescriptor;
+import mdt.model.instance.MDTOperationDescriptor.ArgumentDescriptor;
 
 
 /**
@@ -110,7 +110,7 @@ public class JpaMDTOperationDescriptor {
 	
 	@Override
 	public String toString() {
-		String id = FOption.getOrElse(this.id, "?");
+		String id = Optionals.getOrElse(this.id, "?");
 		String inArgs = FStream.from(this.getInputArguments()).map(ArgumentDescriptor::getId).join(", ");
 		String outArgs = FStream.from(this.getOutputArguments()).map(ArgumentDescriptor::getId).join(", ");
 		return String.format("%s[%s]: (%s) -> (%s)", this.operationType, id, inArgs, outArgs);

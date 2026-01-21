@@ -21,6 +21,7 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -51,6 +52,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import utils.KeyValue;
 import utils.Throwables;
+import utils.Utilities;
 import utils.func.FOption;
 import utils.func.Try;
 import utils.http.RESTfulErrorEntity;
@@ -146,7 +148,16 @@ public class MDTInstanceManagerController implements InitializingBean {
     	JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
     	InstanceDescriptor instDesc = desc.toInstanceDescriptor();
     	String json = MDTModelSerDes.toJson(instDesc);	// for test serialization;
-		return ResponseEntity.ok(json);
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(json);
+    }
+
+    @GetMapping("/list/arguments")
+    @ResponseStatus(HttpStatus.OK)
+    public ResponseEntity<?> listCandidateArguments(@RequestParam(name="instance") String instId,
+    												@RequestParam(name="operation") String opId) {
+		String output = FStream.from(m_instanceManager.listParameterIds(instId))
+								.join(Utilities.getLineSeparator());
+    	return ResponseEntity.ok(output);
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -173,7 +184,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		List<InstanceDescriptor> descList = FStream.from(matches)
 													.map(MDTInstance::getInstanceDescriptor)
 													.toList();
-		return ResponseEntity.ok(descList);
+		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(descList);
     }
 
     @GetMapping("/instances/model")

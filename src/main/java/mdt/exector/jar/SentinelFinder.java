@@ -5,9 +5,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 
-import javax.annotation.Nullable;
-
 import com.google.common.base.Preconditions;
+
+import javax.annotation.Nullable;
 
 import utils.KeyValue;
 import utils.io.LogTailerListener;

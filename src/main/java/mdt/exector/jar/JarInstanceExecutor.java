@@ -29,7 +29,7 @@ import utils.Throwables;
 import utils.Tuple;
 import utils.UnitUtils;
 import utils.async.Guard;
-import utils.func.FOption;
+import utils.func.Optionals;
 import utils.func.Try;
 import utils.func.Unchecked;
 import utils.io.EnvironmentFileLoader;
@@ -112,7 +112,7 @@ public class JarInstanceExecutor {
     	Try.accept(logDir, FileUtils::deleteDirectory);
 
     	String argEncoding = "-Dfile.encoding=UTF-8";
-    	String heapSize = FOption.getOrElse(m_execConfig.getHeapSize(), DEFAULT_HEAP_SIZE);
+    	String heapSize = Optionals.getOrElse(m_execConfig.getHeapSize(), DEFAULT_HEAP_SIZE);
     	String argInitialHeap = String.format("-Xms%s", heapSize);
     	String argMaxHeap = String.format("-Xmx%s", heapSize);
     	
@@ -155,12 +155,14 @@ public class JarInstanceExecutor {
     	
 		ProcessBuilder builder = new ProcessBuilder(argList);
 		builder.directory(jobDir);
-
+		
+		File mdtPythonFile = FileUtils.path(m_mgrConfig.getHomeDir(), "venv", "bin", "python");
     	String homeDir = String.format("%s/%s", m_workspaceDir.getAbsolutePath(), id);
 		Map<String,String> initEnvVars = Map.of(
 											"MDT_INSTANCE_ID", id,
 											"MDT_INSTANCE_HOME", homeDir,
-											"MDT_ENDPOINT", m_mgrConfig.getEndpoint());
+											"MDT_ENDPOINT", m_mgrConfig.getEndpoint(),
+											"MDT_PYTHON", mdtPythonFile.getAbsolutePath());
 		Map<String,String> udEnvVars = Maps.newHashMap(initEnvVars);
 		
 		// MDT Instance Manager에서 설정된 환경변수들을 설정

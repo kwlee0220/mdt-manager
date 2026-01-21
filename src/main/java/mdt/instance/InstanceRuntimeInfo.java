@@ -1,11 +1,11 @@
 package mdt.instance;
 
-import javax.annotation.Nullable;
-
 import com.fasterxml.jackson.annotation.JsonIncludeProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import utils.func.FOption;
+import javax.annotation.Nullable;
+
+import utils.func.Optionals;
 
 import mdt.model.instance.MDTInstanceStatus;
 
@@ -36,7 +36,7 @@ public final class InstanceRuntimeInfo {
 	
 	@Override
 	public String toString() {
-		String bepStr = FOption.getOrElse(m_baseEndpoint, "");
+		String bepStr = Optionals.getOrElse(m_baseEndpoint, "");
 		return String.format("InstanceRuntimeInfo[status=%s, baseEndpoint=%s]", m_status, bepStr);
 	}
 }

@@ -11,17 +11,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
-import org.eclipse.digitaltwin.aas4j.v3.model.AssetKind;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
 
+import javax.annotation.Nullable;
+
 import utils.LoggerSettable;
 import utils.StateChangePoller;
-import utils.func.FOption;
 import utils.func.Funcs;
+import utils.func.Optionals;
 import utils.func.Try;
 import utils.stream.FStream;
 
@@ -42,8 +43,6 @@ import mdt.model.sm.data.Data;
 import mdt.model.sm.data.DefaultDataInfo;
 import mdt.model.sm.data.ParameterCollection;
 import mdt.model.sm.info.MDTAssetType;
-
-import jakarta.annotation.Nullable;
 
 
 /**
@@ -163,11 +162,6 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	public MDTAssetType getAssetType() {
 		return m_desc.get().getAssetType();
 	}
-
-	@Override
-	public AssetKind getAssetKind() {
-		return m_desc.get().getAssetKind();
-	}
 	
 	@Override
 	public MDTInstanceStatus getStatus() {
@@ -278,7 +272,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		String submodelId = Funcs.findFirst(getAASSubmodelDescriptorAll(),
 											desc -> submodelIdShort.equals(desc.getIdShort()))
 								.map(SubmodelDescriptor::getId)
-								.getOrThrow(() -> new ResourceNotFoundException("Submodel",
+								.orElseThrow(() -> new ResourceNotFoundException("Submodel",
 																				"idShort=" + submodelIdShort));
 		return toSubmodelService(submodelId);
 	}
@@ -358,7 +352,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 
 	@Override
 	public Logger getLogger() {
-		return FOption.getOrElse(m_logger, s_logger);
+		return Optionals.getOrElse(m_logger, s_logger);
 	}
 
 	@Override

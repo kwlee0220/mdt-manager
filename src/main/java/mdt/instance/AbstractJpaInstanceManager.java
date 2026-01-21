@@ -19,8 +19,12 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.eventbus.Subscribe;
 
+import jakarta.persistence.EntityExistsException;
+import jakarta.persistence.TypedQuery;
+import jakarta.transaction.Transactional;
+
 import utils.LoggerSettable;
-import utils.func.FOption;
+import utils.func.Optionals;
 import utils.func.Try;
 import utils.func.Unchecked;
 import utils.io.FileUtils;
@@ -52,11 +56,8 @@ import mdt.model.instance.MDTOperationDescriptor;
 import mdt.model.instance.MDTParameterDescriptor;
 import mdt.model.instance.MDTSubmodelDescriptor;
 import mdt.model.instance.MDTTwinCompositionDescriptor;
+import mdt.model.timeseries.TimeSeries;
 import mdt.repository.Repositories;
-
-import jakarta.persistence.EntityExistsException;
-import jakarta.persistence.TypedQuery;
-import jakarta.transaction.Transactional;
 
 
 /**
@@ -169,11 +170,11 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 	
 	public File getInstancesDir() {
-		return FOption.getOrElse(m_conf.getInstancesDir(), () -> FileUtils.path(getHomeDir(), "instances"));
+		return Optionals.getOrElse(m_conf.getInstancesDir(), () -> FileUtils.path(getHomeDir(), "instances"));
 	}
 	
 	public File getBundlesDir() {
-		return FOption.getOrElse(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
+		return Optionals.getOrElse(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
 	}
 	
 	public JpaInstanceDescriptor getInstanceDescriptor(String instanceId) throws ResourceNotFoundException {
@@ -195,6 +196,74 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	public List<T> getInstanceAll() throws MDTInstanceManagerException {
 		return FStream.from(m_repos.instances().findAll())
 						.map(desc -> toInstance(desc))
+						.toList();
+	}
+	
+	public List<String> listInstanceIds(String type) {
+		if ( type.equalsIgnoreCase("all") ) {
+			return FStream.from(m_repos.instances().findAll())
+					.map(desc -> desc.getId())
+					.toList();
+		}
+		else if ( type.equalsIgnoreCase("running") ) {
+			return FStream.from(m_repos.instances().findAll())
+					        .filter(desc -> desc.getStatus() == MDTInstanceStatus.RUNNING)
+							.map(desc -> desc.getId())
+							.toList();
+		}
+		else if ( type.equalsIgnoreCase("non-running") ) {
+			return FStream.from(m_repos.instances().findAll())
+					        .filter(desc -> desc.getStatus() != MDTInstanceStatus.RUNNING)
+							.map(desc -> desc.getId())
+							.toList();
+		}
+		else {
+			throw new IllegalArgumentException("unknown instance type: " + type);
+		}
+	}
+	
+	public List<String> listParameterIds(String instanceId) {
+		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
+		
+		return FStream.from(m_repos.parameters().findAllByInstanceId(instanceId))
+						.map(param -> param.getId())
+						.toList();
+	}
+	
+	public List<String> listOperationIds(String instanceId) {
+		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
+		
+		return FStream.from(m_repos.operations().findAllByInstanceId(instanceId))
+						.map(op -> op.getId())
+						.toList();
+	}
+	
+	public List<String> listArgumentIds(String instanceId, String operationId) {
+		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
+		Preconditions.checkArgument(operationId != null, "Operation id is null");
+		
+		return FStream.from(m_repos.operations().findAllByInstanceId(instanceId))
+						.filter(opDesc -> opDesc.getId().equals(operationId))
+						.flatMap(opDesc -> FStream.from(opDesc.getInputArguments())
+													.concatWith(opDesc.getOutputArguments()))
+						.map(argDesc -> argDesc.getId())
+						.toList();
+	}
+	
+	public List<String> listSubmodelIds(String instanceId) {
+		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
+		
+		return FStream.from(m_repos.submodels().findAllByInstanceId(instanceId))
+						.map(sm -> sm.getIdShort())
+						.toList();
+	}
+	
+	public List<String> listTimeSeriesIds(String instanceId) {
+		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
+		
+		return FStream.from(m_repos.submodels().findAllByInstanceId(instanceId))
+						.filter(sm -> sm.getSemanticId().equals(TimeSeries.SEMANTIC_ID))
+						.map(JpaMDTSubmodelDescriptor::getIdShort)
 						.toList();
 	}
 
@@ -417,7 +486,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	
 	@Override
 	public Logger getLogger() {
-		return FOption.getOrElse(m_logger, s_logger);
+		return Optionals.getOrElse(m_logger, s_logger);
 	}
 
 	@Override
