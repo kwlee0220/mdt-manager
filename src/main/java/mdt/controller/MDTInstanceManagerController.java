@@ -871,7 +871,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping("/references/$url")
     public ResponseEntity<?> getReferenceUrl(@RequestParam(name="ref", required=true) String refString) {
-    	return handleElementReference(refString, new ReferenceHandler() {
+//    	return handleElementReference(refString, new ReferenceHandler() {
+    	return handleReference(refString, new ReferenceHandler() {
     		@Override
         	public ResponseEntity<?> handle(MDTElementReference ref) {
     			try {
