@@ -26,7 +26,7 @@ public class DockerCommandUtils {
 										    								"-t", outputRepoName,
 										    								"--build-arg", twinIdArg,
 										    								bundleDir.getAbsolutePath())
-										    					.setWorkingDirectory(bundleDir);
+										    					.workingDirectory(bundleDir);
 	    	if ( outputHandler != null ) {
 	    		builder = outputHandler.setup(builder);
 	    	}
