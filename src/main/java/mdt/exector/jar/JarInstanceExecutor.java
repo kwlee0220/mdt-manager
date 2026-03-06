@@ -105,8 +105,8 @@ public class JarInstanceExecutor {
 	
 	private Tuple<MDTInstanceStatus,String> startWithSemaphore(String id, String aasId, JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
-    	File jobDir = new File(m_workspaceDir, id);
-		File logDir = new File(jobDir, "logs");
+    	File instHomeDir = new File(m_workspaceDir, id);
+		File logDir = new File(instHomeDir, "logs");
 		
 		// 혹시나 있지 모를 'logs' 디렉토리 삭제.
     	Try.accept(logDir, FileUtils::deleteDirectory);
@@ -121,7 +121,7 @@ public class JarInstanceExecutor {
     	String argVerbose = "-v";
 //    	String noValid = "--no-validation";
     	
-    	File configFile = new File(jobDir, "config.json");
+    	File configFile = new File(instHomeDir, "config.json");
     	if ( !configFile.exists() ) {
     		try {
     			s_logger.warn("creating an empty config file: {}", configFile);
@@ -154,15 +154,19 @@ public class JarInstanceExecutor {
 		}
     	
 		ProcessBuilder builder = new ProcessBuilder(argList);
-		builder.directory(jobDir);
+		builder.directory(instHomeDir);
 		
-		File mdtPythonFile = FileUtils.path(m_mgrConfig.getHomeDir(), "venv", "bin", "python");
-    	String homeDir = String.format("%s/%s", m_workspaceDir.getAbsolutePath(), id);
+		String pythonFilePath = "python3";
+		File pythonFile = FileUtils.path(instHomeDir, "venv", "bin", "python");
+		if ( pythonFile.canExecute() ) {
+			pythonFilePath = pythonFile.getAbsolutePath();
+		}
+		
 		Map<String,String> initEnvVars = Map.of(
 											"MDT_INSTANCE_ID", id,
-											"MDT_INSTANCE_HOME", homeDir,
+											"MDT_INSTANCE_HOME", instHomeDir.getAbsolutePath(),
 											"MDT_ENDPOINT", m_mgrConfig.getEndpoint(),
-											"MDT_PYTHON", mdtPythonFile.getAbsolutePath());
+											"MDT_PYTHON", pythonFilePath);
 		Map<String,String> udEnvVars = Maps.newHashMap(initEnvVars);
 		
 		// MDT Instance Manager에서 설정된 환경변수들을 설정
@@ -173,7 +177,7 @@ public class JarInstanceExecutor {
 		
 		// 환경 변수 파일에서 환경변수들을 로드하여 설정
 		try {
-			File envFile = new File(jobDir, "env.file");
+			File envFile = new File(instHomeDir, "env.file");
 			KeyValueFStream.from(EnvironmentFileLoader.from(envFile).load())
 							.forEach(kv -> udEnvVars.put(kv.key(), kv.value()));
 		}

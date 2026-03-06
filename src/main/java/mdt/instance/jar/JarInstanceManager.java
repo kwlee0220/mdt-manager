@@ -115,6 +115,14 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 				FileUtils.copyFile(defaultJarFile, instanceJarFile);
 			}
 			
+			// 'requirements.txt' 파일이 존재하는 경우에는 python 가상환경 venv를 생성한다.
+			File reqFile = new File(instDir, JarInstanceManager.REQUIREMENTS_FILE_NAME);
+			if ( reqFile.canRead() ) {
+				// instDir 디렉토리에서 "python3 -m venv venv"를 실행하여 가상환경을 생성한다.
+				PythonVenvCreator.createVenv(instDir);
+				PythonVenvCreator.installRequirements(instDir, reqFile);
+			}
+			
 			JarExecutionArguments args = new JarExecutionArguments();
 			args.setJarFile(instanceJarFile.getAbsolutePath());
 			args.setPort(port);

@@ -66,6 +66,7 @@ import mdt.repository.Repositories;
  */
 public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 										implements MDTInstanceManagerProvider, LoggerSettable {
+	public static final String REQUIREMENTS_FILE_NAME = "requirements.txt";
 	private static final Logger s_logger = LoggerFactory.getLogger(AbstractJpaInstanceManager.class);
 
 	protected final MDTInstanceManagerConfiguration m_conf;
