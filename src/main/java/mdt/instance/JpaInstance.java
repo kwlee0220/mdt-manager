@@ -13,6 +13,8 @@ import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.AASUtils;
 import mdt.model.instance.MDTOperationDescriptor;
 import mdt.model.instance.MDTParameterDescriptor;
+import mdt.model.instance.MDTParameterService;
+import mdt.model.instance.MDTParameterServiceCollection;
 import mdt.model.instance.MDTSubmodelDescriptor;
 import mdt.model.instance.MDTTwinCompositionDescriptor;
 
@@ -59,10 +61,14 @@ public abstract class JpaInstance extends AbstractInstance {
 	public List<MDTSubmodelDescriptor> getMDTSubmodelDescriptorAll() {
 		return m_manager.getMDTSubmodelDescriptorAll(getId());
 	}
-
-	@Override
+	
 	public List<MDTParameterDescriptor> getMDTParameterDescriptorAll() {
 		return m_manager.getMDTParameterDescriptorAll(getId());
+	}
+	
+	@Override
+	public List<MDTParameterService> getParameterServiceAll() {
+		return new MDTParameterServiceCollection(this, getMDTParameterDescriptorAll());
 	}
 
 	@Override

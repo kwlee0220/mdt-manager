@@ -29,10 +29,6 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
-import mdt.model.instance.MDTOperationDescriptor;
-import mdt.model.instance.MDTParameterDescriptor;
-import mdt.model.instance.MDTSubmodelDescriptor;
-import mdt.model.instance.MDTTwinCompositionDescriptor;
 
 
 /**
@@ -105,7 +101,7 @@ public class KubernetesInstance extends JpaInstance implements MDTInstance {
 			KubernetesInstanceManager mgr = getInstanceManager();
 			KubernetesExecutionArguments args = mgr.parseExecutionArguments(desc.getArguments());
 			
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STARTING(desc.getId()));
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STARTING(desc.getInstanceId()));
 			
 			deployment = buildDeploymentResource(args.getImageRepoName());
 			deployment = k8s.createDeployment(NAMESPACE, deployment);
@@ -115,10 +111,10 @@ public class KubernetesInstance extends JpaInstance implements MDTInstance {
 			m_workerHostname = selectWorkerHostname();
 			int svcPort = k8s.createService(NAMESPACE, svc);
 			String endpoint = toServiceEndpoint(svcPort);
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.RUNNING(desc.getId(), endpoint));
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.RUNNING(desc.getInstanceId(), endpoint));
 		}
 		catch ( Exception e ) {
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(desc.getId()));
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(desc.getInstanceId()));
 			
 			Unchecked.acceptOrIgnore(deployment, k8s::deleteDeployment);
 			Throwables.throwIfInstanceOf(e, MDTInstanceManagerException.class);

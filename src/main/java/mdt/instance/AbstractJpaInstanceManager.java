@@ -66,7 +66,7 @@ import mdt.repository.Repositories;
  */
 public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 										implements MDTInstanceManagerProvider, LoggerSettable {
-	public static final String REQUIREMENTS_FILE_NAME = "requirements.txt";
+	
 	private static final Logger s_logger = LoggerFactory.getLogger(AbstractJpaInstanceManager.class);
 
 	protected final MDTInstanceManagerConfiguration m_conf;
@@ -203,19 +203,19 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	public List<String> listInstanceIds(String type) {
 		if ( type.equalsIgnoreCase("all") ) {
 			return FStream.from(m_repos.instances().findAll())
-					.map(desc -> desc.getId())
+					.map(desc -> desc.getInstanceId())
 					.toList();
 		}
 		else if ( type.equalsIgnoreCase("running") ) {
 			return FStream.from(m_repos.instances().findAll())
 					        .filter(desc -> desc.getStatus() == MDTInstanceStatus.RUNNING)
-							.map(desc -> desc.getId())
+							.map(desc -> desc.getInstanceId())
 							.toList();
 		}
 		else if ( type.equalsIgnoreCase("non-running") ) {
 			return FStream.from(m_repos.instances().findAll())
 					        .filter(desc -> desc.getStatus() != MDTInstanceStatus.RUNNING)
-							.map(desc -> desc.getId())
+							.map(desc -> desc.getInstanceId())
 							.toList();
 		}
 		else {
@@ -226,7 +226,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	public List<String> listParameterIds(String instanceId) {
 		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
 		
-		return FStream.from(m_repos.parameters().findAllByInstanceId(instanceId))
+		return FStream.from(m_repos.parameters().findAllByInstance_InstanceId(instanceId))
 						.map(param -> param.getId())
 						.toList();
 	}
@@ -234,7 +234,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	public List<String> listOperationIds(String instanceId) {
 		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
 		
-		return FStream.from(m_repos.operations().findAllByInstanceId(instanceId))
+		return FStream.from(m_repos.operations().findAllByInstance_InstanceId(instanceId))
 						.map(op -> op.getId())
 						.toList();
 	}
@@ -243,7 +243,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
 		Preconditions.checkArgument(operationId != null, "Operation id is null");
 		
-		return FStream.from(m_repos.operations().findAllByInstanceId(instanceId))
+		return FStream.from(m_repos.operations().findAllByInstance_InstanceId(instanceId))
 						.filter(opDesc -> opDesc.getId().equals(operationId))
 						.flatMap(opDesc -> FStream.from(opDesc.getInputArguments())
 													.concatWith(opDesc.getOutputArguments()))
@@ -254,7 +254,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	public List<String> listSubmodelIds(String instanceId) {
 		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
 		
-		return FStream.from(m_repos.submodels().findAllByInstanceId(instanceId))
+		return FStream.from(m_repos.submodels().findAllByInstance_InstanceId(instanceId))
 						.map(sm -> sm.getIdShort())
 						.toList();
 	}
@@ -262,7 +262,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	public List<String> listTimeSeriesIds(String instanceId) {
 		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
 		
-		return FStream.from(m_repos.submodels().findAllByInstanceId(instanceId))
+		return FStream.from(m_repos.submodels().findAllByInstance_InstanceId(instanceId))
 						.filter(sm -> sm.getSemanticId().equals(TimeSeries.SEMANTIC_ID))
 						.map(JpaMDTSubmodelDescriptor::getIdShort)
 						.toList();
@@ -349,7 +349,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 			m_repos.instances().save(desc);
 		}
 		catch ( EntityExistsException | ConstraintViolationException e ) {
-			throw new ResourceAlreadyExistsException("MDTInstance", "id=" + desc.getId());
+			throw new ResourceAlreadyExistsException("MDTInstance", "id=" + desc.getInstanceId());
 		}
 		catch ( DataIntegrityViolationException e ) {
 			Throwable cause = e.getMostSpecificCause();
@@ -357,7 +357,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 				String sqlState = sqlError.getSQLState();
 				// "23505"는 PostgreSQL에서 고유 제약 조건 위반을 나타내는 SQL 상태 코드이다.
 				if ( "23505".equals(sqlState) ) {
-					throw new ResourceAlreadyExistsException("MDTInstance", "id=" + desc.getId());
+					throw new ResourceAlreadyExistsException("MDTInstance", "id=" + desc.getInstanceId());
 				}
 			}
 			throw e;
@@ -416,7 +416,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 
 	List<SubmodelDescriptor> getAASSubmodelDescriptorAll(String instId) {
-		return FStream.from(m_repos.submodels().findAllByInstanceId(instId))
+		return FStream.from(m_repos.submodels().findAllByInstance_InstanceId(instId))
 						.map(JpaMDTSubmodelDescriptor::getAASSubmodelDescriptor)
 						.toList();
 	}
@@ -425,7 +425,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		JpaInstanceDescriptor instDesc = getInstanceDescriptor(instId);
 		String endpointPrefix = instDesc.getBaseEndpoint();
 		
-		List<JpaMDTSubmodelDescriptor> jpaDescList = m_repos.submodels().findAllByInstanceId(instId);
+		List<JpaMDTSubmodelDescriptor> jpaDescList = m_repos.submodels().findAllByInstance_InstanceId(instId);
 		return FStream.from(jpaDescList)
 						.map(smDesc -> {
 							MDTSubmodelDescriptor desc = smDesc.toMDTSubmodelDescriptor();
@@ -451,7 +451,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 							? instDesc.getBaseEndpoint() + "/submodels/" + AASUtils.encodeBase64UrlSafe(dataSmDesc.getId())
 							: null;
 		
-		List<JpaMDTParameterDescriptor> jpaDescList = m_repos.parameters().findAllByInstanceId(instId);
+		List<JpaMDTParameterDescriptor> jpaDescList = m_repos.parameters().findAllByInstance_InstanceId(instId);
 		return FStream.from(jpaDescList)
 						.map(param -> param.toMDTParameterDescriptor())
 						.zipWithIndex()
@@ -465,14 +465,14 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 	private JpaMDTSubmodelDescriptor getMDTSubmodelDescriptor(String instId, String submodelIdShort) {
 		return m_repos.submodels()
-						.findByInstanceIdAndSubmodelIdShort(instId, submodelIdShort)
+						.findByInstance_InstanceIdAndIdShort(instId, submodelIdShort)
 						.orElse(null);
 //						.orElseThrow(() -> new ResourceNotFoundException("MDTSubmodelDescriptor",
 //																	"instanceId=" + instId + ", submodelIdShort=" + submodelIdShort));
 	}
 
 	public List<MDTOperationDescriptor> getMDTOperationDescriptorAll(String instId) {
-		List<JpaMDTOperationDescriptor> jpaDescList = m_repos.operations().findAllByInstanceId(instId);
+		List<JpaMDTOperationDescriptor> jpaDescList = m_repos.operations().findAllByInstance_InstanceId(instId);
 		return FStream.from(jpaDescList)
 						.map(op -> op.toMDTOperationDescriptor())
 						.toList();

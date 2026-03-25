@@ -97,6 +97,13 @@ public class JarInstanceExecutor {
 		try {
 			return startWithSemaphore(id, aasId, args);
 		}
+		catch ( Exception e ) {
+			Throwable cause = Throwables.unwrapThrowable(e);
+			s_logger.error("failed to start MDTInstance: id=" + id, cause);
+			
+			Throwables.throwIfInstanceOf(cause, MDTInstanceExecutorException.class);
+			throw new MDTInstanceExecutorException("" + cause);
+		}
 		finally {
 			m_startSemaphore.release();
 			s_logger.debug("released a start-semaphore: thead={}", Thread.currentThread().getName());
@@ -156,17 +163,12 @@ public class JarInstanceExecutor {
 		ProcessBuilder builder = new ProcessBuilder(argList);
 		builder.directory(instHomeDir);
 		
-		String pythonFilePath = "python3";
-		File pythonFile = FileUtils.path(instHomeDir, "venv", "bin", "python");
-		if ( pythonFile.canExecute() ) {
-			pythonFilePath = pythonFile.getAbsolutePath();
-		}
-		
+		Preconditions.checkState(m_mgrConfig.getMdtUrl() != null,
+								"MDT URL is not configured in MDTInstanceManagerConfiguration");
 		Map<String,String> initEnvVars = Map.of(
 											"MDT_INSTANCE_ID", id,
 											"MDT_INSTANCE_HOME", instHomeDir.getAbsolutePath(),
-											"MDT_ENDPOINT", m_mgrConfig.getEndpoint(),
-											"MDT_PYTHON", pythonFilePath);
+											"MDT_URL", m_mgrConfig.getMdtUrl());
 		Map<String,String> udEnvVars = Maps.newHashMap(initEnvVars);
 		
 		// MDT Instance Manager에서 설정된 환경변수들을 설정
@@ -178,7 +180,9 @@ public class JarInstanceExecutor {
 		// 환경 변수 파일에서 환경변수들을 로드하여 설정
 		try {
 			File envFile = new File(instHomeDir, "env.file");
-			KeyValueFStream.from(EnvironmentFileLoader.from(envFile).load())
+			KeyValueFStream.from(EnvironmentFileLoader.from(envFile)
+														.withFacts(udEnvVars)
+														.load())
 							.forEach(kv -> udEnvVars.put(kv.key(), kv.value()));
 		}
 		catch ( FileNotFoundException ignored ) {
@@ -190,7 +194,7 @@ public class JarInstanceExecutor {
 			throw new MDTInstanceExecutorException(msg);
 		}
 		
-		s_logger.info("creating MDTInstance: workDir={}, args={}, envs={}",
+		s_logger.info("creating MDTInstance: home={}, args={}, envs={}",
 						m_workspaceDir.getAbsolutePath(), argList, udEnvVars);
 		builder.environment().putAll(udEnvVars);
 

@@ -195,7 +195,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 					    					: m_instanceManager.getInstanceAll();
     	
     	List<MDTModel> models = Lists.newArrayList();
-    	for ( MDTInstance instance: matches ) {
+    	for ( JpaInstance instance: matches ) {
     		MDTModel model = new MDTModel(instance.getInstanceDescriptor());
     		model.setSubmodels(instance.getMDTSubmodelDescriptorAll());
     		model.setParameters(instance.getMDTParameterDescriptorAll());

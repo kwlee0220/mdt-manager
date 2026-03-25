@@ -38,7 +38,6 @@ import jakarta.persistence.Index;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 
-import utils.Indexed;
 import utils.InternalException;
 import utils.KeyValue;
 import utils.stream.FStream;
@@ -52,6 +51,7 @@ import mdt.model.instance.MDTOperationDescriptor.ArgumentDescriptor;
 import mdt.model.instance.MDTTwinCompositionDescriptor;
 import mdt.model.instance.MDTTwinCompositionDescriptor.MDTCompositionDependency;
 import mdt.model.instance.MDTTwinCompositionDescriptor.MDTCompositionItem;
+import mdt.model.sm.SubmodelElementTypeDescriptor;
 import mdt.model.sm.SubmodelUtils;
 import mdt.model.sm.info.DefaultCompositionDependency;
 import mdt.model.sm.info.DefaultCompositionItem;
@@ -78,7 +78,7 @@ public class JpaInstanceDescriptor {
 	@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
 	@Column(name="row_id") private Long rowId;
 
-	@Column(name="instance_id", length=64, unique=true) private String id;
+	@Column(name="instance_id", length=64, unique=true) private String instanceId;
 	@Column(name="status") @Enumerated(EnumType.STRING) private MDTInstanceStatus status;
 	@Column(name="base_endpoint", length=255) private String baseEndpoint;
 	@Column(name="arguments", length=255) private String arguments;
@@ -106,7 +106,7 @@ public class JpaInstanceDescriptor {
 	private JpaInstanceDescriptor(String instId, AssetAdministrationShellDescriptor aasDesc,
 									Submodel inforSubmodel) {
 		try {
-			this.id = instId;
+			this.instanceId = instId;
 			this.aasId = aasDesc.getId();
 			this.aasIdShort = aasDesc.getIdShort();
 			this.globalAssetId = aasDesc.getGlobalAssetId();
@@ -194,9 +194,10 @@ public class JpaInstanceDescriptor {
 	}
 	
 	public void updateFrom(AssetAdministrationShellDescriptor aasDesc) {
-		Preconditions.checkArgument(getId().equals(aasDesc.getId()));
+		Preconditions.checkArgument(getInstanceId().equals(aasDesc.getId()));
 		
-		this.aasId = aasDesc.getIdShort();
+		this.aasId = aasDesc.getId();
+		this.aasIdShort = aasDesc.getIdShort();
 		this.globalAssetId = aasDesc.getGlobalAssetId();
 		this.assetType = MDTAssetType.valueOf(aasDesc.getAssetType());
 		
@@ -228,7 +229,7 @@ public class JpaInstanceDescriptor {
 	public MDTTwinCompositionDescriptor getTwinComposition() {
 		if ( this.twinCompositionJsonBytes == null || this.twinCompositionJsonBytes.length == 0 ) {
 			String compType = this.assetType.toString();
-			return new MDTTwinCompositionDescriptor(getId(), compType,
+			return new MDTTwinCompositionDescriptor(getInstanceId(), compType,
 															Collections.emptyList(), Collections.emptyList());
 		}
 		
@@ -266,45 +267,45 @@ public class JpaInstanceDescriptor {
 	
 	@Override
 	public String toString() {
-		return String.format("InstantDescriptor[%s, %s]", this.id, this.status);
+		return String.format("InstantDescriptor[%s, %s]", this.instanceId, this.status);
 	}
 
 	private void loadJpaParameterList(Submodel submodel) {
 		Preconditions.checkArgument(getAssetType() != null,
-									"instance assetType is null: instance=%s", getId());
+									"instance assetType is null: instance=%s", getInstanceId());
 		
 		switch ( getAssetType() ) {
 			case Machine:
 				if ( s_logger.isDebugEnabled() ) {
-					s_logger.debug("loading EQUIPMENT parameters: instance=" + getId());
+					s_logger.debug("loading EQUIPMENT parameters: instance=" + getInstanceId());
 				}
-				loadParameters(getId(), submodel, "Equipment");
+				loadParameters(getInstanceId(), submodel, "Equipment");
 				break;
 			case Process:
 				if ( s_logger.isDebugEnabled() ) {
-					s_logger.debug("loading OPERATION parameters: instance=" + getId());
+					s_logger.debug("loading OPERATION parameters: instance=" + getInstanceId());
 				}
-				loadParameters(getId(), submodel, "Operation");
+				loadParameters(getInstanceId(), submodel, "Operation");
 				break;
 			case Line:
 				if ( s_logger.isDebugEnabled() ) {
-					s_logger.debug("loading Line parameters: instance=" + getId());
+					s_logger.debug("loading Line parameters: instance=" + getInstanceId());
 				}
 				break;
 			case Factory:
 				if ( s_logger.isDebugEnabled() ) {
-					s_logger.debug("loading Factory parameters: instance=" + getId());
+					s_logger.debug("loading Factory parameters: instance=" + getInstanceId());
 				}
 				break;
 			default:
 				if ( s_logger.isDebugEnabled() ) {
-					s_logger.debug("loading Unknown Asset parameters: instance=" + getId());
+					s_logger.debug("loading Unknown Asset parameters: instance=" + getInstanceId());
 				}
 				try {
-					loadParameters(getId(), submodel, "Equipment");
+					loadParameters(getInstanceId(), submodel, "Equipment");
 				}
 				catch ( Exception e ) {
-					loadParameters(getId(), submodel, "Operation");
+					loadParameters(getInstanceId(), submodel, "Operation");
 				}
 				break;
 		}
@@ -321,8 +322,8 @@ public class JpaInstanceDescriptor {
 						= FStream.from(paramInfos)
 								.mapToKeyValue(info -> {
 									SubmodelElementCollection smc = (SubmodelElementCollection)info;
-									String id = SubmodelUtils.getStringFieldById(smc, "ParameterID");
-									String name = SubmodelUtils.findPropertyById(smc, "ParameterName")
+									String id = SubmodelUtils.getFieldById(smc, "ParameterID", Property.class).getValue();
+									String name = SubmodelUtils.findFieldById(smc, "ParameterName", Property.class)
 																.map(prop -> prop.getValue())
 																.orElse(null);
 									return KeyValue.of(id, name);
@@ -340,16 +341,20 @@ public class JpaInstanceDescriptor {
 	}
 	private JpaMDTParameterDescriptor toJpaParameterDescriptor(SubmodelElement paramValue, Map<String,String> nameMap) {
 		String paramId = SubmodelUtils.traverse(paramValue, "ParameterID", Property.class).getValue();
-		String paramName = nameMap.get(id);
+		if ( !nameMap.containsKey(paramId) ) {
+			throw new IllegalArgumentException("ParameterID in ParameterValues[] is not found in Parameter[]: "
+												+ "ParameterID=" + paramId);
+		}
+		String paramName = nameMap.get(paramId);
 		SubmodelElement valueSme = SubmodelUtils.traverse(paramValue, "ParameterValue");
 		
-		String reference = String.format("param:%s:%s", this.id, paramId);
+		String reference = String.format("param:%s:%s", this.instanceId, paramId);
 		
 		JpaMDTParameterDescriptor desc = new JpaMDTParameterDescriptor();
 		desc.setInstance(this);
 		desc.setId(paramId);
 		desc.setName(paramName);
-		desc.setValueType(SubmodelUtils.getValueTypeString(valueSme));
+		desc.setValueType(SubmodelElementTypeDescriptor.getValueTypeString(valueSme));
 		desc.setReference(reference);
 		
 		return desc;
@@ -363,8 +368,8 @@ public class JpaInstanceDescriptor {
 		List<SubmodelElement> outputs = SubmodelUtils.traverse(submodel, opType + "Info.Outputs",
 																SubmodelElementList.class).getValue();
 		
-		String inRefPrefix = String.format("oparg:%s:%s:in", getId(), submodel.getIdShort());
-		String outRefPrefix = String.format("oparg:%s:%s:out", getId(), submodel.getIdShort());
+		String inRefPrefix = String.format("oparg:%s:%s:in", getInstanceId(), submodel.getIdShort());
+		String outRefPrefix = String.format("oparg:%s:%s:out", getInstanceId(), submodel.getIdShort());
 		String endpointPrefix = String.format("%sInfo", opType);
 		
 		opDesc.setInstance(this);
@@ -391,7 +396,7 @@ public class JpaInstanceDescriptor {
 													String refPrefix, String endpointPrefix, String argKind) {
 		String argId = SubmodelUtils.traverse(arg, argKind + "ID", Property.class).getValue();
 		SubmodelElement argValue = SubmodelUtils.traverse(arg, argKind + "Value");
-		String valueType = SubmodelUtils.getValueTypeString(argValue);
+		String valueType = SubmodelElementTypeDescriptor.getValueTypeString(argValue); 
 		String reference = String.format("%s:%s", refPrefix, argId);
 		String endpoint = String.format("%s.%ss[%d].%sValue", endpointPrefix, argKind, argIndex, argKind);
 		
@@ -408,16 +413,15 @@ public class JpaInstanceDescriptor {
 		}
 		catch ( ResourceNotFoundException e ) {
 			String compType = getAssetType().toString();
-			return new MDTTwinCompositionDescriptor(getId(), compType, items, deps);
+			return new MDTTwinCompositionDescriptor(getInstanceId(), compType, items, deps);
 		}
 		
 		String compId = SubmodelUtils.findFieldById(twinComp, "CompositionID", Property.class)
-									.map(Indexed::value)
 									.map(prop -> prop.getValue())
 									.orElse(null);
 		if ( compId == null ) {
 			String compType = getAssetType().toString();
-			return new MDTTwinCompositionDescriptor(getId(), compType, items, deps);
+			return new MDTTwinCompositionDescriptor(getInstanceId(), compType, items, deps);
 		}
 		
 		String compType = SubmodelUtils.getFieldById(twinComp, "CompositionType", Property.class).getValue();
@@ -425,14 +429,12 @@ public class JpaInstanceDescriptor {
 			compType = getAssetType().toString();
 		}
 		items = SubmodelUtils.findFieldById(twinComp, "CompositionItems", SubmodelElementList.class)
-								.map(Indexed::value)
 								.map(list -> FStream.from(list.getValue())
 											.castSafely(SubmodelElementCollection.class)
 											.map(this::toCompositionItem)
 											.toList())
 								.orElse(Lists.newArrayList());
 		deps = SubmodelUtils.findFieldById(twinComp, "CompositionDependencies", SubmodelElementList.class)
-							.map(Indexed::value)
 							.map(list -> FStream.from(list.getValue())
 												.castSafely(SubmodelElementCollection.class)
 												.map(this::toCompositionDependency)
@@ -457,7 +459,7 @@ public class JpaInstanceDescriptor {
 	
 	public InstanceDescriptor toInstanceDescriptor() {
 		InstanceDescriptor desc = new InstanceDescriptor();
-		desc.setId(getId());
+		desc.setId(getInstanceId());
 		desc.setStatus(getStatus());
 		desc.setBaseEndpoint(getBaseEndpoint());
 		desc.setAasId(getAasId());

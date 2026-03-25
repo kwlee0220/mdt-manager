@@ -162,7 +162,7 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 			JpaInstanceDescriptor desc = addInstanceDescriptor(id, env, arguments);
 			if ( getLogger().isInfoEnabled() ) {
 				getLogger().info("added DockerInstance: id={}, instanceDir={}",
-									desc.getId(), instDir);
+									desc.getInstanceId(), instDir);
 			}
 			
 			return toInstance(desc);
@@ -217,7 +217,7 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 
 	@Override
 	protected void adaptInstanceDescriptor(JpaInstanceDescriptor desc) {
-		String id = desc.getId();
+		String id = desc.getInstanceId();
 		try ( DockerClient docker = newDockerClient() ) {
 			ContainerInfo info = docker.inspectContainer(id);
 			if ( info.state().running() ) {

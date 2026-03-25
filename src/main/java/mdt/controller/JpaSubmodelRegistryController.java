@@ -32,6 +32,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import jakarta.transaction.Transactional;
+
 import utils.stream.FStream;
 
 import mdt.instance.AbstractJpaInstanceManager;
@@ -42,8 +44,6 @@ import mdt.instance.jpa.JpaMDTSubmodelDescriptorRepository;
 import mdt.model.AASUtils;
 import mdt.model.MDTModelSerDe;
 import mdt.model.ResourceNotFoundException;
-
-import jakarta.transaction.Transactional;
 
 
 /**
@@ -95,7 +95,7 @@ public class JpaSubmodelRegistryController {
 		List<SubmodelDescriptor> smDescList
 					= FStream.from(jpaSmDescList)
 							.map(jpaDesc -> {
-								String instId = jpaDesc.getInstance().getId();
+								String instId = jpaDesc.getInstance().getInstanceId();
 								String svcEp = m_instanceManager.getInstance(instId).getServiceEndpoint();
 								SubmodelDescriptor smDesc = jpaDesc.getAASSubmodelDescriptor();
 								if ( svcEp != null ) {
@@ -133,7 +133,7 @@ public class JpaSubmodelRegistryController {
 
 		JpaInstanceDescriptor jpaInstDesc = jpaSmDesc.getInstance();
 		if ( jpaInstDesc != null ) {
-			String svcEp = m_instanceManager.getInstance(jpaInstDesc.getId()).getServiceEndpoint();
+			String svcEp = m_instanceManager.getInstance(jpaInstDesc.getInstanceId()).getServiceEndpoint();
 			if ( svcEp != null ) {
 				smDesc = AASUtils.attachEndpoint(smDesc, svcEp);
 			}

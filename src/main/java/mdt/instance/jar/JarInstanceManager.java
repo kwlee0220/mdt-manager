@@ -45,6 +45,7 @@ import mdt.repository.Repositories;
 @ConditionalOnProperty(prefix="instance-manager", name = "type", havingValue = "jar")
 public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceManager.class);
+	private static final String UV_PROJECTS_FILE_NAME = "uv_projects.txt";
 	private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofMillis(500);
 	private static final Duration DEFAULT_START_TIMEOUT = Duration.ofMinutes(1);
 	
@@ -82,12 +83,12 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			for ( JpaInstanceDescriptor desc: m_repos.instances().findAll() ) {
 				CompletableFuture.runAsync(() -> {
 					try {
-						JpaInstance inst = getInstance(desc.getId());
+						JpaInstance inst = getInstance(desc.getInstanceId());
 						inst.start(DEFAULT_POLL_INTERVAL, DEFAULT_START_TIMEOUT);
 					}
 					catch ( Throwable e ) {
 						Throwable cause = Throwables.unwrapThrowable(e);
-						getLogger().warn("Failed to start JarInstance: id={}, cause={}", desc.getId(), cause);
+						getLogger().warn("Failed to start JarInstance: id={}, cause={}", desc.getInstanceId(), cause);
 					}
 				}, exector);
 			}
@@ -115,12 +116,11 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 				FileUtils.copyFile(defaultJarFile, instanceJarFile);
 			}
 			
-			// 'requirements.txt' 파일이 존재하는 경우에는 python 가상환경 venv를 생성한다.
-			File reqFile = new File(instDir, JarInstanceManager.REQUIREMENTS_FILE_NAME);
-			if ( reqFile.canRead() ) {
-				// instDir 디렉토리에서 "python3 -m venv venv"를 실행하여 가상환경을 생성한다.
-				PythonVenvCreator.createVenv(instDir);
-				PythonVenvCreator.installRequirements(instDir, reqFile);
+			// MDTInstance 디렉토리에 'uv_projects.txt' 파일이 존재하는 경우에는 uv 도구를 사용해
+			// Python 가상환경을 생성한다.
+			File uvProjectsFile = new File(instDir, JarInstanceManager.UV_PROJECTS_FILE_NAME);
+			if ( uvProjectsFile.isFile() ) {
+				PythonUvProjects.syncProjectsAll(uvProjectsFile);
 			}
 			
 			JarExecutionArguments args = new JarExecutionArguments();
@@ -135,7 +135,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			String arguments = m_mapper.writeValueAsString(args);
 			
 			JpaInstanceDescriptor desc = addInstanceDescriptor(id, env, arguments);
-			getLogger().info("added JarInstance: id={}, instanceDir={}", desc.getId(), instDir);
+			getLogger().info("added JarInstance: id={}, instanceDir={}", desc.getInstanceId(), instDir);
 			
 			return toInstance(desc);
 		}

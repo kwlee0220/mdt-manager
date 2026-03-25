@@ -17,6 +17,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.Service;
 
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+
 import utils.Throwables;
 import utils.io.FileUtils;
 import utils.jpa.JpaProcessor;
@@ -32,9 +35,6 @@ import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 import mdt.repository.Repositories;
-
-import jakarta.persistence.EntityManager;
-import jakarta.transaction.Transactional;
 
 
 /**
@@ -74,7 +74,7 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 			
 			JpaInstanceDescriptor desc = addInstanceDescriptor(id, env, arguments);
 			if ( getLogger().isInfoEnabled() ) {
-				getLogger().info("added ExternalInstance: id={}", desc.getId());
+				getLogger().info("added ExternalInstance: id={}", desc.getInstanceId());
 			}
 			
 			return toInstance(desc);
@@ -175,12 +175,12 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 						desc.setStatus(MDTInstanceStatus.STOPPED);
 						desc.setBaseEndpoint(null);
 						if ( getLogger().isInfoEnabled() ) {
-							getLogger().info("MDTInstance is stopped due to inactivity: id={}", desc.getId());
+							getLogger().info("MDTInstance is stopped due to inactivity: id={}", desc.getInstanceId());
 						}
 					}
 				}
 				catch ( Exception e ) {
-					getLogger().error("Failed to check health of MDTInstance: id=" + desc.getId(), e);
+					getLogger().error("Failed to check health of MDTInstance: id=" + desc.getInstanceId(), e);
 				}
 			}
 		}

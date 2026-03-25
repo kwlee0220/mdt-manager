@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import mdt.exector.jar.JarInstanceExecutor;
+import mdt.exector.jar.MDTInstanceExecutorException;
 import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.instance.MDTInstance;
@@ -43,7 +44,14 @@ public class JarInstance extends JpaInstance implements MDTInstance {
 		if ( getLogger().isInfoEnabled() ) {
 			getLogger().info("starting: {}...", this);
 		}
-		CompletableFuture.runAsync(() -> exector.start(getId(), getAasId(), jargs));
+		CompletableFuture.runAsync(() -> {
+			try {
+				exector.start(getId(), getAasId(), jargs);
+			}
+			catch ( MDTInstanceExecutorException e ) {
+				getLogger().error("failed to start: {}, cause={}", this, e);
+			}
+		});
 	}
 
 	@Override

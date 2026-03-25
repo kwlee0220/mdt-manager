@@ -19,11 +19,6 @@ public interface JpaMDTSubmodelDescriptorRepository extends CrudRepository<JpaMD
 	public List<JpaMDTSubmodelDescriptor> findAllByIdShort(@Param("idShort") String idShort);
 	public List<JpaMDTSubmodelDescriptor> findAllBySemanticId(@Param("semanticId") String semanticId);
 	
-	@Query("select sm from JpaMDTSubmodelDescriptor sm join fetch sm.instance instance where instance.id = :instanceId")
-	public List<JpaMDTSubmodelDescriptor> findAllByInstanceId(@Param("instanceId") String instanceId);
-	
-	@Query("select sm from JpaMDTSubmodelDescriptor sm join fetch sm.instance instance "
-			+ "where instance.id = :instanceId and sm.idShort = :idShort")
-	public Optional<JpaMDTSubmodelDescriptor> findByInstanceIdAndSubmodelIdShort(@Param("instanceId") String instanceId,
-																				@Param("idShort") String smIdShort);
+	public List<JpaMDTSubmodelDescriptor> findAllByInstance_InstanceId(String instanceId);
+	public Optional<JpaMDTSubmodelDescriptor> findByInstance_InstanceIdAndIdShort(String instanceId, String idShort);
 }

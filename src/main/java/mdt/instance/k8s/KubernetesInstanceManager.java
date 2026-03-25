@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 
+import javax.annotation.Nullable;
+
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.mandas.docker.client.DockerClient;
 import org.mandas.docker.client.builder.jersey.JerseyDockerClientBuilder;
@@ -19,8 +21,6 @@ import com.google.common.base.Preconditions;
 
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.Service;
-
-import javax.annotation.Nullable;
 
 import utils.InternalException;
 import utils.io.FileUtils;
@@ -145,7 +145,7 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 
 	@Override
 	protected void adaptInstanceDescriptor(JpaInstanceDescriptor desc) {
-		String id = desc.getId();
+		String id = desc.getInstanceId();
 		KubernetesRemote kube = newKubernetesRemote();
 		Pod pod = kube.getPod(NAMESPACE, id);
 		if ( pod == null ) {

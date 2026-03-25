@@ -13,11 +13,13 @@ import org.springframework.transaction.annotation.Transactional;
  * @author Kang-Woo Lee (ETRI)
  */
 public interface JpaInstanceDescriptorRepository extends CrudRepository<JpaInstanceDescriptor, Long> {
-	@Query("SELECT d FROM JpaInstanceDescriptor d WHERE d.id = :instId")
-	public Optional<JpaInstanceDescriptor> findByInstanceId(@Param("instId") String instId);
+//	@Query("SELECT d FROM JpaInstanceDescriptor d WHERE d.id = :instId")
+	public Optional<JpaInstanceDescriptor> findByInstanceId(String instId);
 	
-	@Query("SELECT d FROM JpaInstanceDescriptor d ORDER BY d.rowId")
-	public Iterable<JpaInstanceDescriptor> findAll();
+//	@Query("SELECT d FROM JpaInstanceDescriptor d ORDER BY d.rowId")
+//	public Iterable<JpaInstanceDescriptor> findAll();
+//	@Query("SELECT d FROM JpaInstanceDescriptor d ORDER BY d.rowId")
+//	public Iterable<JpaInstanceDescriptor> findAllOrderByRowId();
 
 	public Optional<JpaInstanceDescriptor> findByAasId(String aasId);
 	public Iterable<JpaInstanceDescriptor> findAllByAasIdShort(String aasIdShort);
@@ -25,7 +27,7 @@ public interface JpaInstanceDescriptorRepository extends CrudRepository<JpaInsta
 	
 	@Modifying
 	@Transactional
-	@Query("DELETE FROM JpaInstanceDescriptor d WHERE d.id = :instId")
+	@Query("DELETE FROM JpaInstanceDescriptor d WHERE d.instanceId = :instId")
 	public void deleteByInstanceId(@Param("instId") String instId);
 	
 	@Modifying
