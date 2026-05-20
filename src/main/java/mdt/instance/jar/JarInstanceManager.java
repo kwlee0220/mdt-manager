@@ -177,7 +177,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	// 프로세스의 상태 변화에 따라 InstanceDescriptor의 상태를 업데이트하는 모듈
 	private final JarExecutionListener m_execListener = new JarExecutionListener() {
 		@Override
-		public void stausChanged(String id, MDTInstanceStatus status, String endpoint) {
+		public void statusChanged(String id, MDTInstanceStatus status, String endpoint) {
 			JarInstanceManager.this.updateInstanceDescriptor(id, status, endpoint);
 		}
 		

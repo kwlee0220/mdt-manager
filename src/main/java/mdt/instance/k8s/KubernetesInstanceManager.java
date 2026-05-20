@@ -4,7 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.mandas.docker.client.DockerClient;

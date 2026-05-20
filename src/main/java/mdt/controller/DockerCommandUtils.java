@@ -2,8 +2,6 @@ package mdt.controller;
 
 import java.io.File;
 
-import lombok.experimental.UtilityClass;
-
 import utils.Throwables;
 import utils.async.command.CommandExecution;
 import utils.func.FOption;
@@ -15,8 +13,11 @@ import mdt.model.instance.MDTInstanceManagerException;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@UtilityClass
-public class DockerCommandUtils {
+public final class DockerCommandUtils {
+	private DockerCommandUtils() {
+		throw new AssertionError("Should not be called: class=" + getClass().getName());
+	}
+	
 	public static String buildDockerImage(String id, File bundleDir, StandardOutputHandler outputHandler) {
     	String outputRepoName = String.format("mdt-twin-%s", id).toLowerCase();
     	try {

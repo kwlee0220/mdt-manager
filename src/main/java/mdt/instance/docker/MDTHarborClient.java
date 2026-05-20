@@ -14,17 +14,17 @@ import com.google.common.base.Preconditions;
 
 import lombok.Data;
 
+import okhttp3.Credentials;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+
 import utils.InternalException;
-import utils.Utilities;
+import utils.Split;
 import utils.func.Funcs;
 import utils.http.OkHttpClientUtils;
 import utils.stream.FStream;
 
 import mdt.client.HttpRESTfulClientOld;
-
-import okhttp3.Credentials;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
 
 /**
  *
@@ -141,7 +141,7 @@ public class MDTHarborClient implements Closeable {
 		@JsonProperty("artifact_count") private int artifactCount;
 		
 		public String getName() {
-			return Utilities.split(this.name, '/')._2;
+			return Split.split(this.name, "/").tail().get();
 		}
 	}
 	

@@ -28,7 +28,6 @@ import utils.StopWatch;
 import utils.Throwables;
 import utils.Tuple;
 import utils.UnitUtils;
-import utils.async.Guard;
 import utils.func.Optionals;
 import utils.func.Try;
 import utils.func.Unchecked;
@@ -38,6 +37,7 @@ import utils.io.IOUtils;
 import utils.io.LogTailer;
 import utils.stream.FStream;
 import utils.stream.KeyValueFStream;
+import utils.thread.Guard;
 
 import mdt.controller.MDTManagerEnvironment;
 import mdt.instance.MDTInstanceManagerConfiguration;
@@ -49,49 +49,91 @@ import mdt.model.instance.MDTInstanceStatus;
 
 
 /**
-*
-* @author Kang-Woo Lee (ETRI)
-*/
+ * 각 MDTInstance를 별도의 JVM 프로세스(JAR 실행)로 기동/중지하고 상태를 관리하는 실행기이다.
+ * <p>
+ * 본 클래스는 작업 디렉터리 아래 인스턴스별 하위 디렉터리를 두고, {@code java -jar} 명령으로
+ * JAR을 기동한 뒤 표준 출력 로그에서 sentinel 문자열을 감시하여 시작 완료/실패를 판단한다.
+ * 동시에 시작할 수 있는 프로세스 수는 {@link Semaphore}로 제한하며, 등록된
+ * {@link JarExecutionListener}들에게 상태 변화를 알린다.
+ * <p>
+ * 실행 중인 각 프로세스의 상태는 내부 {@link ProcessDesc}에 보관되며, 모든 접근은
+ * {@link Guard}로 동기화된다.
+ *
+ * @author Kang-Woo Lee (ETRI)
+ */
 public class JarInstanceExecutor {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceExecutor.class);
-	
+
 	private static final String DEFAULT_HEAP_SIZE = "512m";
-	
+
 	private final MDTInstanceManagerConfiguration m_mgrConfig;
 	private final JarExecutorConfiguration m_execConfig;
 	private final File m_workspaceDir;
 	private final Semaphore m_startSemaphore;	// 동시에 시작할 수 있는 프로세스 수 제한
-	
+
 	private final Guard m_guard = Guard.create();
 	// 이 JarInstanceExecutor를 통해 실행 중인 모든 프로세스들의 등록정보
 	private final Map<String,ProcessDesc> m_runningInstances = Maps.newHashMap();
 	private final Set<JarExecutionListener> m_listeners = Sets.newConcurrentHashSet();
 
-	public JarInstanceExecutor(MDTInstanceManagerConfiguration mgrConf, JarExecutorConfiguration conf) throws MDTInstanceManagerException {
+	/**
+	 * 주어진 매니저/실행기 설정으로 {@link JarInstanceExecutor}를 생성한다.
+	 * <p>
+	 * 설정의 작업 디렉터리가 존재하지 않으면 새로 생성한다. 동시 시작 가능 프로세스 수는
+	 * {@link JarExecutorConfiguration#getStartConcurrency()} 값으로 제한된다.
+	 *
+	 * @param mgrConf	{@link MDTInstanceManagerConfiguration}. MDT URL / 전역 설정 파일 등을 제공.
+	 * @param conf		{@link JarExecutorConfiguration}. 작업 디렉터리/힙 크기/Key Store 등을 제공.
+	 * @throws MDTInstanceManagerException	초기화 과정에서 오류가 발생한 경우.
+	 * @throws IllegalArgumentException		{@code conf} 또는 {@code conf.workspaceDir}이 {@code null}인 경우.
+	 */
+	public JarInstanceExecutor(MDTInstanceManagerConfiguration mgrConf, JarExecutorConfiguration conf)
+		throws MDTInstanceManagerException {
 		Preconditions.checkArgument(conf != null, "JarExecutorConfiguration is null");
 		Preconditions.checkArgument(conf.getWorkspaceDir() != null, "JarExecutorConfiguration.workspaceDir is null");
-		
+
 		m_mgrConfig = mgrConf;
 		m_execConfig = conf;
 		m_workspaceDir = conf.getWorkspaceDir();
 		Try.accept(m_workspaceDir, FileUtils::createDirectory);
-		
+
 		m_startSemaphore = new Semaphore(conf.getStartConcurrency());
 	}
-	
+
+	/**
+	 * 작업 디렉터리를 반환한다. 인스턴스별 하위 디렉터리가 이 경로 아래에 생성된다.
+	 *
+	 * @return 작업 디렉터리 {@link File}.
+	 */
 	public File getWorkspaceDir() {
 		return m_workspaceDir;
 	}
 	
+	/**
+	 * 주어진 식별자의 MDTInstance를 JAR 프로세스로 시작한다.
+	 * <p>
+	 * 동시 시작 제한 semaphore를 획득한 뒤 {@link #startWithSemaphore(String, String, JarExecutionArguments)}로
+	 * 프로세스를 기동하고, 표준 출력에서 sentinel 문자열을 감시하여 시작 완료까지 대기한다.
+	 * sentinel 감시 결과에 따라 인스턴스 상태를 RUNNING 또는 FAILED로 갱신하며, 상태 변화는
+	 * 등록된 {@link JarExecutionListener}들에게 통보된다.
+	 *
+	 * @param id	MDTInstance 식별자.
+	 * @param aasId	AssetAdministrationShell 식별자.
+	 * @param args	JAR 실행 인자.
+	 * @return 시작 후 상태와 endpoint를 담은 {@link Tuple}. 성공 시 RUNNING+endpoint, 실패 시 FAILED+{@code null}.
+	 * @throws MDTInstanceExecutorException	semaphore 획득이 인터럽트되었거나 시작 과정에서 오류가 발생한 경우.
+	 */
 	public Tuple<MDTInstanceStatus,String> start(String id, String aasId, JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
+		// 동시에 실행할 수 있는 프로세스 수 제한을 위해 semaphore를 획득한다.
 		try {
-			// 동시에 실행할 수 있는 프로세스 수 제한을 위해 semaphore를 획득한다.
+			s_logger.debug("acquiring start-semaphore: thread={}", Thread.currentThread().getName());
 			m_startSemaphore.acquire();
-			s_logger.debug("acquired start-semaphore: thead={}", Thread.currentThread().getName());
 		}
 		catch ( InterruptedException e ) {
-			throw new MDTInstanceExecutorException("" + e);
+			s_logger.warn("interrupted while acquiring start semaphore: thread={}", Thread.currentThread().getName());
+			Thread.currentThread().interrupt();
+			throw new MDTInstanceExecutorException("interrupted while acquiring start semaphore", e);
 		}
 		
 		try {
@@ -99,23 +141,22 @@ public class JarInstanceExecutor {
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			s_logger.error("failed to start MDTInstance: id=" + id, cause);
-			
 			Throwables.throwIfInstanceOf(cause, MDTInstanceExecutorException.class);
-			throw new MDTInstanceExecutorException("" + cause);
+			throw new MDTInstanceExecutorException("failed to start MDTInstance: id=" + id, cause);
 		}
 		finally {
 			m_startSemaphore.release();
-			s_logger.debug("released a start-semaphore: thead={}", Thread.currentThread().getName());
+			s_logger.debug("released a start-semaphore: thread={}", Thread.currentThread().getName());
 		}
 	}
 	
-	private Tuple<MDTInstanceStatus,String> startWithSemaphore(String id, String aasId, JarExecutionArguments args)
+	private Tuple<MDTInstanceStatus,String> startWithSemaphore(String id, String aasId,
+																JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
     	File instHomeDir = new File(m_workspaceDir, id);
 		File logDir = new File(instHomeDir, "logs");
 		
-		// 혹시나 있지 모를 'logs' 디렉토리 삭제.
+		// 혹시나 있을지 모를 'logs' 디렉토리 삭제.
     	Try.accept(logDir, FileUtils::deleteDirectory);
 
     	String argEncoding = "-Dfile.encoding=UTF-8";
@@ -124,19 +165,18 @@ public class JarInstanceExecutor {
     	String argMaxHeap = String.format("-Xmx%s", heapSize);
     	
     	String argId = String.format("--id=%s", id);
-    	String argType = String.format("--type=jar");
+    	String argType = "--type=jar";
     	String argVerbose = "-v";
 //    	String noValid = "--no-validation";
     	
     	File configFile = new File(instHomeDir, "config.json");
     	if ( !configFile.exists() ) {
     		try {
-    			s_logger.warn("creating an empty config file: {}", configFile);
+    			s_logger.info("creating an empty config file: {}", configFile);
 				IOUtils.toFile("{}", configFile);
 			}
 			catch ( IOException e ) {
-				throw new MDTInstanceExecutorException("failed to create a config file: " + configFile
-														+ ", cause=" + e);
+				throw new MDTInstanceExecutorException("failed to create a config file: " + configFile, e);
 			}
     	}
 
@@ -152,7 +192,7 @@ public class JarInstanceExecutor {
         	argList.add(globalConfigFilePath);
     	}
     	if ( m_execConfig.getKeyStoreFile() != null ) {
-        	String argKeyStorePath = String.format("--keyStore=%s", m_execConfig.getKeyStoreFile().getAbsolutePath());  
+        	String argKeyStorePath = String.format("--keyStore=%s", m_execConfig.getKeyStoreFile().getAbsolutePath());
         	argList.add(argKeyStorePath);
     	}
     	if ( m_execConfig.getKeyStorePassword() != null ) {
@@ -175,7 +215,7 @@ public class JarInstanceExecutor {
 		// 환경 변수 파일에서 로드된 환경변수들은 실제로 MDTInstanceManager의 환경변수가
 		// 아니기 때문에 명시적으로 추가해준다.
 		KeyValueFStream.from(MDTManagerEnvironment.getVariables())
-						.forEach(kv -> udEnvVars.put(kv.key(), "" + kv.value()));
+						.forEach(kv -> udEnvVars.put(kv.key(), String.valueOf(kv.value())));
 		
 		// 환경 변수 파일에서 환경변수들을 로드하여 설정
 		try {
@@ -188,10 +228,9 @@ public class JarInstanceExecutor {
 		catch ( FileNotFoundException ignored ) {
 			// 무시함: 환경 변수 파일이 없는 경우에는 기본 환경 변수들만 사용한다.
 		}
-		catch ( Throwable ignored ) {
-			String msg = String.format("failed to load  variables from env.file: %s", ""+ignored);
-			s_logger.warn(msg);
-			throw new MDTInstanceExecutorException(msg);
+		catch ( Throwable e ) {
+			s_logger.warn("failed to load variables from env.file", e);
+			throw new MDTInstanceExecutorException("failed to load variables from env.file", e);
 		}
 		
 		s_logger.info("creating MDTInstance: home={}, args={}, envs={}",
@@ -202,7 +241,7 @@ public class JarInstanceExecutor {
 		builder.redirectErrorStream(true);
 		builder.redirectOutput(Redirect.appendTo(stdoutLogFile));
 
-		ProcessDesc procDesc = new ProcessDesc(id, null, MDTInstanceStatus.STARTING, null, stdoutLogFile);
+		ProcessDesc procDesc = new ProcessDesc(id, null, MDTInstanceStatus.STARTING, stdoutLogFile);
 		m_guard.run(() -> {
 			m_runningInstances.put(id, procDesc);
 			notifyStatusChanged(procDesc);
@@ -218,18 +257,15 @@ public class JarInstanceExecutor {
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			s_logger.warn("failed to start jar application: id={}, argList={}, cause={}",
-							id, argList, ""+cause);
+			s_logger.warn("failed to start jar application: id={}, argList={}", id, argList, cause);
 			m_guard.run(() -> {
 				procDesc.m_status = MDTInstanceStatus.FAILED;
 				procDesc.m_endpoint = null;
 				notifyStatusChanged(procDesc);
 			});
 			
-			if ( s_logger.isDebugEnabled() ) {
-				s_logger.debug("releasing a start semaphore due to failure: thead={}",
-								Thread.currentThread().getName());
-			}
+			s_logger.debug("releasing a start semaphore due to failure: thread={}",
+							Thread.currentThread().getName());
 			
 			return Tuple.of(procDesc.m_status, procDesc.m_endpoint);
 		}
@@ -238,6 +274,16 @@ public class JarInstanceExecutor {
 		return waitWhileStarting(id, procDesc);
 	}
 
+    /**
+     * 실행 중인 MDTInstance에 종료를 요청한다.
+     * <p>
+     * 대상 인스턴스의 상태가 {@link MDTInstanceStatus#RUNNING} 또는 {@link MDTInstanceStatus#STARTING}일 때만
+     * 종료가 수행되며, 그 외 상태에서는 {@code null}을 반환한다. 종료 요청은 별도 스레드에서
+     * 비동기적으로 처리되며 본 메서드는 STOPPING 상태로 전환한 뒤 즉시 반환한다.
+     *
+     * @param instanceId 종료할 MDTInstance 식별자.
+     * @return 호출 직후 상태와 endpoint를 담은 {@link Tuple}, 또는 대상 인스턴스가 없거나 종료 불가능 상태이면 {@code null}.
+     */
     public Tuple<MDTInstanceStatus,String> stop(final String instanceId) {
     	ProcessDesc procDesc = m_guard.get(() -> {
         	ProcessDesc desc = m_runningInstances.get(instanceId);
@@ -264,6 +310,14 @@ public class JarInstanceExecutor {
     	return (procDesc != null) ? procDesc.toResult() : null;
     }
 
+    /**
+     * 주어진 식별자의 MDTInstance 현재 상태와 endpoint를 반환한다.
+     * <p>
+     * 본 실행기가 관리하지 않는 인스턴스는 {@code (STOPPED, null)}로 간주된다.
+     *
+     * @param instanceId 조회 대상 MDTInstance 식별자.
+     * @return 상태와 endpoint를 담은 {@link Tuple}. 등록되지 않은 인스턴스는 {@code (STOPPED, null)}.
+     */
     public Tuple<MDTInstanceStatus,String> getStatus(String instanceId) {
     	return m_guard.get(() -> {
     		ProcessDesc desc = m_runningInstances.get(instanceId);
@@ -275,14 +329,34 @@ public class JarInstanceExecutor {
         	}
     	});
     }
-	
+
+	/**
+	 * 상태 변화 이벤트를 받을 {@link JarExecutionListener}를 등록한다.
+	 *
+	 * @param listener 등록할 리스너.
+	 * @return 새로 등록되었으면 {@code true}, 이미 등록되어 있었으면 {@code false}.
+	 */
 	public boolean addExecutionListener(JarExecutionListener listener) {
 		return m_guard.get(() -> m_listeners.add(listener));
 	}
+
+	/**
+	 * 등록된 {@link JarExecutionListener}를 해제한다.
+	 *
+	 * @param listener 해제할 리스너.
+	 * @return 해제되었으면 {@code true}, 등록되어 있지 않았으면 {@code false}.
+	 */
 	public boolean removeExecutionListener(JarExecutionListener listener) {
 		return m_guard.get(() -> m_listeners.remove(listener));
 	}
-	
+
+	/**
+	 * 주어진 식별자의 MDTInstance의 표준 출력 로그를 통째로 읽어 반환한다.
+	 *
+	 * @param id MDTInstance 식별자.
+	 * @return 표준 출력 로그 전체 문자열.
+	 * @throws IOException 로그 파일을 읽을 수 없는 경우.
+	 */
 	public String getOutputLog(String id) throws IOException {
 		File logDir = new File(new File(m_workspaceDir, id), "logs");
 		File stdoutLogFile = new File(logDir, "output.log");
@@ -294,14 +368,20 @@ public class JarInstanceExecutor {
 		return Files.readString(stdoutLogFile.toPath(), StandardCharsets.UTF_8);
 	}
 	
+	/**
+	 * 본 실행기를 종료한다.
+	 * <p>
+	 * 등록된 모든 인스턴스에 종료를 요청하고, 최대 5초간 종료 완료를 대기한다.
+	 * 5초 안에 모두 종료되지 않으면 경고 로그를 남기고 반환한다 (잔여 프로세스는
+	 * JVM 종료 시 OS에 정리됨).
+	 */
 	public void shutdown() {
 		if ( s_logger.isInfoEnabled() ) {
 			s_logger.info("Shutting down JarInstanceExecutor...");
 		}
 
-		int remains = 0;
 		StopWatch watch = StopWatch.start();
-		remains = m_guard.get(() -> {
+		int remains = m_guard.get(() -> {
 			FStream.from(m_runningInstances.keySet())
 					.forEach(id -> {
 						if ( s_logger.isInfoEnabled() ) {
@@ -322,15 +402,19 @@ public class JarInstanceExecutor {
 					return;
 				}
 				if ( watch.getElapsedInMillis() > 5000 ) {
-					if ( s_logger.isInfoEnabled() ) {
-						s_logger.warn("MDTInstances are still remains stopping : {}s", remains);
+					if ( s_logger.isWarnEnabled() ) {
+						s_logger.warn("MDTInstances are still stopping: remains={}", remains);
 					}
 					break;
 				}
 				Thread.sleep(100);
 				remains = m_guard.get(() -> m_runningInstances.size());
 			}
-			catch ( InterruptedException expected ) { }
+			catch ( InterruptedException e ) {
+				s_logger.warn("interrupted while waiting for MDTInstances to stop: remains={}", remains);
+				Thread.currentThread().interrupt();
+				break;
+			}
 		}
 	}
 
@@ -341,8 +425,7 @@ public class JarInstanceExecutor {
 		private String m_endpoint = null;
 		private final File m_stdoutLogFile;
 		
-		public ProcessDesc(String id, Process process, MDTInstanceStatus status,
-							String serviceEndpoint, File stdoutLogFile) {
+		public ProcessDesc(String id, Process process, MDTInstanceStatus status, File stdoutLogFile) {
 			this.m_id = id;
 			this.m_process = process;
 			this.m_status = status;
@@ -386,7 +469,8 @@ public class JarInstanceExecutor {
 			// 또는 대기 시간이 경과한 경우에 대한 처리.
 			
 			final KeyValue<Integer,String> sentinel = finder.getSentinel();
-			return m_guard.get(() -> {
+			boolean[] shouldDestroy = { false };
+			Tuple<MDTInstanceStatus,String> result = m_guard.get(() -> {
 				if ( sentinel != null && sentinel.key() == 0 ) {
 					// 'HTTP endpoint available on port' sentinel을 찾은 경우.
 					// 프로세스가 성공적으로 시작되었다고 간주한다.
@@ -394,8 +478,8 @@ public class JarInstanceExecutor {
 					if ( s_logger.isDebugEnabled() ) {
 						s_logger.debug("found sentinel: {}", sentinel.value());
 					}
-					
-					// 만일 프로세스가 sententinel을 출력한 이후에 종료된 경우에는
+
+					// 만일 프로세스가 sentinel을 출력한 이후에 종료된 경우에는
 					// 실패로 간주해야 하기 때문에 프로세스의 상태를 점검한다.
 					if ( procDesc.m_status != MDTInstanceStatus.STARTING ) {
 						// 프로세스가 STARTING 상태가 아닌 경우에는 실패로 간주한다.
@@ -414,10 +498,10 @@ public class JarInstanceExecutor {
 				    		s_logger.info("started MDTInstance: id={}, endpoint={}, elapsed={}",
 				    						instId, procDesc.m_endpoint, elapsedStr);
 						}
-				    	
+
 						notifyStatusChanged(procDesc);
 					}
-					
+
 					return procDesc.toResult();
 				}
 				else {
@@ -426,28 +510,33 @@ public class JarInstanceExecutor {
 					//
 			    	if ( s_logger.isInfoEnabled() ) {
 			    		s_logger.info("failed to start an MDTInstance: {}", instId);
-			    		s_logger.info("kill fa3st-repository process: {}", procDesc.m_process.toHandle().pid());
 			    	}
 					procDesc.m_status = MDTInstanceStatus.FAILED;
 					procDesc.m_endpoint = null;
-					
-			    	// 프로세스가 수행 중인 상태이기 때문에 강제로 프로세스를 강제로 종료시킨다.
-			    	procDesc.m_process.destroyForcibly();
+					// destroyForcibly()는 guard 락 밖에서 호출 (락 보유 시간 단축).
+					shouldDestroy[0] = true;
 			    	notifyStatusChanged(procDesc);
-			    	
+
 					return procDesc.toResult();
 				}
 			});
+			if ( shouldDestroy[0] ) {
+				if ( s_logger.isInfoEnabled() ) {
+					s_logger.info("kill fa3st-repository process: {}", procDesc.m_process.toHandle().pid());
+				}
+				procDesc.m_process.destroyForcibly();
+			}
+			return result;
 		}
 		catch ( Exception e ) {
 			m_guard.run(() -> procDesc.m_status = MDTInstanceStatus.FAILED);
 			procDesc.m_process.destroyForcibly();
 			
 	    	if ( s_logger.isInfoEnabled() ) {
-	    		s_logger.info("failed to start an MDTInstance: {}, cause={}", instId, ""+e);
+	    		s_logger.info("failed to start an MDTInstance: {}", instId, e);
 	    	}
 	    	notifyStatusChanged(procDesc);
-	    	
+
 			return Tuple.of(MDTInstanceStatus.FAILED, null);
 		}
 	}
@@ -483,7 +572,7 @@ public class JarInstanceExecutor {
 				m_guard.run(() -> procDesc.m_status = MDTInstanceStatus.FAILED);
 				procDesc.m_process.destroyForcibly();
 		    	if ( s_logger.isInfoEnabled() ) {
-		    		s_logger.info("failed to stop MDTInstance gracefully: id={}, cause={}", instId, e);
+		    		s_logger.info("failed to stop MDTInstance gracefully: id={}", instId, e);
 		    	}
 				return InstanceStatusChangeEvent.FAILED(instId);
 			}
@@ -518,7 +607,7 @@ public class JarInstanceExecutor {
 		else {
 			m_guard.run(() -> procDesc.m_status = MDTInstanceStatus.FAILED);
 	    	if ( s_logger.isInfoEnabled() ) {
-	    		s_logger.info("failed MDTInstance: {}, cause={}", procDesc.m_id, error);
+	    		s_logger.info("failed MDTInstance: {}", procDesc.m_id, error);
 	    	}
 	    	notifyStatusChanged(procDesc);
 		}
@@ -527,7 +616,7 @@ public class JarInstanceExecutor {
 	private void notifyStatusChanged(ProcessDesc pdesc) {
 		Tuple<MDTInstanceStatus, String> result = pdesc.toResult();
     	for ( JarExecutionListener listener: m_listeners ) {
-    		Unchecked.runOrIgnore(() -> listener.stausChanged(pdesc.m_id, result._1, result._2));
+    		Unchecked.runOrIgnore(() -> listener.statusChanged(pdesc.m_id, result._1, result._2));
     	}
 	}
 	

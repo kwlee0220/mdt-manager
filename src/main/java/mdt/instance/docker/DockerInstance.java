@@ -24,7 +24,7 @@ import com.google.common.collect.Maps;
 
 import utils.InternalException;
 import utils.KeyValue;
-import utils.StateChangePoller;
+import utils.async.PeriodicPoller;
 import utils.async.Executions;
 import utils.func.FOption;
 import utils.func.Unchecked;
@@ -281,10 +281,10 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 		tailer.addLogTailerListener(finder);
 		
 		// 로그 파일이 생성될 때까지 대기한다.
-		StateChangePoller poller = StateChangePoller.pollUntil(() -> logFile.exists())
-									                .pollInterval(Duration.ofMillis(300))
-							                        .timeout(Duration.ofSeconds(3))
-							                        .build();
+		PeriodicPoller<Boolean> poller = PeriodicPoller.pollUntil(() -> logFile.exists())
+												                .interval(Duration.ofMillis(300))
+										                        .timeout(Duration.ofSeconds(3))
+										                        .build();
 		
 		try {
 			poller.run();

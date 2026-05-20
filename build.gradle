@@ -2,6 +2,7 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '3.5.4'
 	id 'io.spring.dependency-management' version '1.1.7'
+	id 'eclipse'
 }
 
 group = 'etri'
@@ -15,9 +16,6 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 configurations {
-	compileOnly {
-		extendsFrom annotationProcessor
-	}
 	all {
 		exclude group: 'commons-logging', module: 'commons-logging'
 	}
@@ -27,40 +25,33 @@ repositories {
 	mavenCentral()
 	maven {
 		url = uri("https://maven.aksw.org/repository/internal/")
-		allowInsecureProtocol = true
 	}
 }
 dependencies {
 	implementation project(":utils")
 	implementation project(":mdt-client")
 
-	// Guava (from the project :utils)
-	implementation "com.google.guava:guava:${guava_version}"
-	
-	// @Nullable, @GuardeBy
+	// @Nullable, @GuardedBy
 	compileOnly "com.google.code.findbugs:jsr305:${findbugs_version}"
-	
+
 	// AAS model
 	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-json:${aas4j_version}"
 	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-aasx:${aas4j_version}"
-	
-	implementation 'org.apache.poi:poi-ooxml:5.2.2'
-		
+
 	// HTTP Client
-	implementation group: 'com.squareup.okhttp3', name: 'okhttp', version: "${okhttp_version}"
-	
+	implementation "com.squareup.okhttp3:okhttp:${okhttp_version}"
+
     // SpringBoot dependencies
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	runtimeOnly 'org.postgresql:postgresql'
-	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-	implementation "org.springframework.boot:spring-boot-configuration-processor:${spring_boot_version}"
 	implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdoc_version}"
 	implementation "com.vladmihalcea:hibernate-types-60:${hibernate_types_60_version}"
 	
@@ -70,9 +61,7 @@ dependencies {
 	// Docker Java Binding
 	implementation "org.mandas:docker-client:${docker_client_version}"
 	implementation "org.glassfish.jersey.core:jersey-client:${jersey_version}"
-	implementation ( "org.glassfish.jersey.connectors:jersey-apache-connector:${jersey_version}" ) {
-		exclude group: 'commons-logging', module: 'commons-logging'
-	}
+	implementation "org.glassfish.jersey.connectors:jersey-apache-connector:${jersey_version}"
 	implementation "org.glassfish.jersey.media:jersey-media-json-jackson:${jersey_version}"
 	implementation "org.glassfish.jersey.inject:jersey-hk2:${jersey_version}"
 	
@@ -83,4 +72,28 @@ dependencies {
 bootJar {
 	archiveClassifier = 'all'
 	mainClass = 'mdt.MDTInstanceApplication'
+}
+
+eclipse {
+	classpath {
+		defaultOutputDir = file('build/classes/java/main')
+		file {
+			whenMerged { cp ->
+				cp.entries.each { entry ->
+					if (entry.kind == 'src' && entry.path == 'src/main/java') {
+						entry.output = 'build/classes/java/main'
+					}
+					if (entry.kind == 'src' && entry.path == 'src/main/resources') {
+						entry.output = 'build/classes/java/main'
+					}
+					if (entry.kind == 'src' && entry.path == 'src/test/java') {
+						entry.output = 'build/classes/java/test'
+					}
+					if (entry.kind == 'src' && entry.path == 'src/test/resources') {
+						entry.output = 'build/classes/java/test'
+					}
+				}
+			}
+		}
+	}
 }

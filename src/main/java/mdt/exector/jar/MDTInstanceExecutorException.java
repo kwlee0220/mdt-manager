@@ -9,8 +9,11 @@ import mdt.model.instance.MDTInstanceManagerException;
 public class MDTInstanceExecutorException extends MDTInstanceManagerException {
     private static final long serialVersionUID = 1L;
 
-
     public MDTInstanceExecutorException(final String message) {
         super(message);
+    }
+
+    public MDTInstanceExecutorException(final String message, final Throwable cause) {
+        super(message, cause);
     }
 }

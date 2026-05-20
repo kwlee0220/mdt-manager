@@ -361,7 +361,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@Parameter(name = "id", description="중지시킬 MDTInstance 식별자")
     })
     @ApiResponses(value = {
-    	@ApiResponse(responseCode="204", description="중지 성공"),
+    	@ApiResponse(responseCode="200", description="성공"),
     	@ApiResponse(responseCode="404",
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
 					content = {
@@ -374,13 +374,15 @@ public class MDTInstanceManagerController implements InitializingBean {
 						})
     })
     @PutMapping("/instances/{id}/stop")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> stopInstance(@PathVariable("id") String id) throws IOException {
     	JpaInstance inst = m_instanceManager.getInstance(id);
     	
     	try {
 			inst.stop(null, null);
-			return ResponseEntity.noContent().build();
+
+			JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
+			return ResponseEntity.ok(MDTModelSerDes.toJson(desc.toInstanceDescriptor()));
 		}
 		catch ( Exception e ) {
 			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));

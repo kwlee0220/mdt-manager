@@ -40,5 +40,5 @@ public class ExternalInstance extends JpaInstance implements MDTInstance {
 	}
 
 	@Override
-	protected void uninitialize() throws Throwable { }
+	protected void uninitialize() throws Exception { }
 }

@@ -7,7 +7,7 @@ import java.util.concurrent.TimeoutException;
 
 import com.google.common.base.Preconditions;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 
 import utils.KeyValue;
 import utils.io.LogTailerListener;

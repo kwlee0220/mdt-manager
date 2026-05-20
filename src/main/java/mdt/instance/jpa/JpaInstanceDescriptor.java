@@ -323,9 +323,8 @@ public class JpaInstanceDescriptor {
 								.mapToKeyValue(info -> {
 									SubmodelElementCollection smc = (SubmodelElementCollection)info;
 									String id = SubmodelUtils.getFieldById(smc, "ParameterID", Property.class).getValue();
-									String name = SubmodelUtils.findFieldById(smc, "ParameterName", Property.class)
-																.map(prop -> prop.getValue())
-																.orElse(null);
+									Property prop = SubmodelUtils.findFieldById(smc, "ParameterName", Property.class);
+									String name = (prop != null) ? prop.getValue() : null;
 									return KeyValue.of(id, name);
 								})
 								.toMap();
@@ -416,9 +415,8 @@ public class JpaInstanceDescriptor {
 			return new MDTTwinCompositionDescriptor(getInstanceId(), compType, items, deps);
 		}
 		
-		String compId = SubmodelUtils.findFieldById(twinComp, "CompositionID", Property.class)
-									.map(prop -> prop.getValue())
-									.orElse(null);
+		Property prop = SubmodelUtils.findFieldById(twinComp, "CompositionID", Property.class);
+		String compId = (prop != null) ? prop.getValue() : null;
 		if ( compId == null ) {
 			String compType = getAssetType().toString();
 			return new MDTTwinCompositionDescriptor(getInstanceId(), compType, items, deps);
@@ -428,18 +426,23 @@ public class JpaInstanceDescriptor {
 		if ( compType == null ) {
 			compType = getAssetType().toString();
 		}
-		items = SubmodelUtils.findFieldById(twinComp, "CompositionItems", SubmodelElementList.class)
-								.map(list -> FStream.from(list.getValue())
-											.castSafely(SubmodelElementCollection.class)
-											.map(this::toCompositionItem)
-											.toList())
-								.orElse(Lists.newArrayList());
-		deps = SubmodelUtils.findFieldById(twinComp, "CompositionDependencies", SubmodelElementList.class)
-							.map(list -> FStream.from(list.getValue())
-												.castSafely(SubmodelElementCollection.class)
-												.map(this::toCompositionDependency)
-												.toList())
-							.orElse(Lists.newArrayList());
+		SubmodelElementList list = SubmodelUtils.findFieldById(twinComp, "CompositionItems", SubmodelElementList.class);
+		items = Lists.newArrayList();
+		if ( list != null ) {
+			items = FStream.from(list.getValue())
+							.castSafely(SubmodelElementCollection.class)
+							.map(this::toCompositionItem)
+							.toList();
+		}
+		
+		deps = Lists.newArrayList();
+		list = SubmodelUtils.findFieldById(twinComp, "CompositionDependencies", SubmodelElementList.class);
+		if ( list != null ) {
+			deps = FStream.from(list.getValue())
+                            .castSafely(SubmodelElementCollection.class)
+                            .map(this::toCompositionDependency)
+                            .toList();
+		}
 		
 		return new MDTTwinCompositionDescriptor(compId, compType, items, deps);
 		

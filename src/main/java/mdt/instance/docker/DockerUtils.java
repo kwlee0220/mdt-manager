@@ -17,8 +17,9 @@ import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 
 import utils.KeyValue;
+import utils.Split;
+import utils.StrSubstitutor;
 import utils.Tuple;
-import utils.Utilities;
 import utils.func.FOption;
 import utils.func.Unchecked;
 import utils.io.FileUtils;
@@ -84,7 +85,7 @@ public class DockerUtils {
 	public static String tagImageForHarbor(DockerClient docker, Image image,
 											HarborConfiguration harborConf, String tag)
 		throws DockerException, InterruptedException {
-		String srcRepoName = parseRepoTag(image).get()._1;
+		String srcRepoName = parseRepoTag(image).get().head();
     	String taggedRepo = String.format("%s/%s/%s:%s",
     										harborConf.getHost(), harborConf.getProject(), srcRepoName, tag);
     	docker.tag(image.id(), taggedRepo);
@@ -98,7 +99,9 @@ public class DockerUtils {
 		// Dockerfile 내용 중에 variable이 존재하는 경우 substitute 시킨다.
 		// 'mdt-twin-id' label의 값으로 instance id를 설정한다.
 		File dockerFile = FileUtils.path(bundleDir, "Dockerfile");
-		Utilities.substributeFile(dockerFile, dictionary);
+		StrSubstitutor.with(dictionary)
+						.failOnUndefinedVariable(false)
+						.replace(dockerFile, dockerFile);
 
     	String outputImageRepo = String.format("mdt-twin-%s", instId).toLowerCase();
     	// 왜 그런지 잘 모르겠으나 BuildParam을 사용하면 제대로 동작하는 것 같지 않음
@@ -191,9 +194,9 @@ public class DockerUtils {
 	 * @return 'repo:tag' 형식의 'repo'와 'tag'를 갖는 {@link Tuple}. 'repo'가 없는 경우는
 	 *         {@link FOption#empty()}.
 	 */
-	public static FOption<Tuple<String,String>> parseRepoTag(Image image) {
+	public static FOption<Split> parseRepoTag(Image image) {
 		return FStream.from(image.repoTags())
-						.map(t -> Utilities.splitLast(t, ':', Tuple.of(t, null)))
+						.map(t -> Split.splitLast(t, ":"))
 						.findFirst();
 	}
 	

@@ -99,8 +99,7 @@ public class MDTListCandidatesController {
 			return ResponseEntity.ok("");
 		}
 		
-		SubmodelService svc = Try.get(() -> inst.getSubmodelServiceByIdShort(smIdShort))
-									.getOrNull();
+		SubmodelService svc = inst.getSubmodelServiceByIdShort(smIdShort).getOrNull();
 		if ( svc == null ) {
 			return ResponseEntity.ok("");
 		}
