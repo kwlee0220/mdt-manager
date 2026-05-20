@@ -35,8 +35,8 @@ dependencies {
 	compileOnly "com.google.code.findbugs:jsr305:${findbugs_version}"
 
 	// AAS model
-	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-json:${aas4j_version}"
-	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-aasx:${aas4j_version}"
+//	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-json:${aas4j_version}"
+//	implementation "org.eclipse.digitaltwin.aas4j:aas4j-dataformat-aasx:${aas4j_version}"
 
 	// HTTP Client
 	implementation "com.squareup.okhttp3:okhttp:${okhttp_version}"
