@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import utils.async.command.CommandExecution;
+import utils.io.FileUtils;
 
 /**
  * Python {@code uv} 패키지 매니저로 관리되는 프로젝트의 의존성을 동기화하는 유틸리티.
@@ -91,6 +92,15 @@ public class PythonUvProjects {
 			throw new IllegalArgumentException("pyproject.toml file not found in "
 												+ projectDir.getAbsolutePath());
 		}
+		
+		// 이미 가상 환경이 존재하는 경우에는 제거한다.
+		try {
+			removeVirtualEnv(projectDir);
+		}
+		catch ( IOException e ) {
+			throw new ExecutionException("Failed to remove existing virtual environment in "
+										+ projectDir.getAbsolutePath(), e);
+		}
 
 		CommandExecution exec = CommandExecution.builder()
 												.addCommand("uv", "sync", "--no-dev")
@@ -101,5 +111,13 @@ public class PythonUvProjects {
 												.build();
 		s_logger.info("Syncing uv project in {}", projectDir.getAbsolutePath());
 		exec.run();
+	}
+	
+	public static void removeVirtualEnv(File projectDir) throws IOException {
+		File uvEnvDir = new File(projectDir, ".venv");
+		if ( uvEnvDir.isDirectory() ) {
+			s_logger.info("Removing virtual environment at {}", uvEnvDir.getAbsolutePath());
+			FileUtils.deleteDirectory(uvEnvDir);
+		}
 	}
 }
