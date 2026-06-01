@@ -109,8 +109,6 @@ import mdt.model.sm.variable.Variables;
 @RequestMapping(value={"/instance-manager"})
 public class MDTInstanceManagerController implements InitializingBean {
 	private final Logger s_logger = LoggerFactory.getLogger(MDTInstanceManagerController.class);
-    @SuppressWarnings("unused")
-	private static final String DOCKER_FILE = "Dockerfile";
 	private final JsonSerializer SERIALIZER = MDTModelSerDe.JSON_SERIALIZER;
 	
 	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
@@ -147,7 +145,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> getInstance(@PathVariable("id") String id) throws IOException {
     	JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
     	InstanceDescriptor instDesc = desc.toInstanceDescriptor();
-    	String json = MDTModelSerDes.toJson(instDesc);	// for test serialization;
+    	String json = MDTModelSerDes.toJson(instDesc);
 		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(json);
     }
 
@@ -286,16 +284,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     @DeleteMapping("/instances/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public ResponseEntity<?> removeInstance(@PathVariable("id") String id) {
-    	try {
-    		m_instanceManager.removeInstance(id);
-    		return ResponseEntity.noContent().build();
-    	}
-		catch ( ResourceNotFoundException e ) {
-			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(e));
-		}
-    	catch ( InvalidResourceStatusException e ) {
-    		return ResponseEntity.badRequest().body(RESTfulErrorEntity.of(e));
-    	}
+    	m_instanceManager.removeInstance(id);
+    	return ResponseEntity.noContent().build();
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -365,28 +355,25 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@ApiResponse(responseCode="404",
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
 					content = {
-							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class),
+									mediaType="application/json")
 						}),
     	@ApiResponse(responseCode="409",
     				description="식별자에 해당하는 MDTInstance가 실행 중이지 않은 경우.",
 					content = {
-							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class),
+									mediaType="application/json")
 						})
     })
     @PutMapping("/instances/{id}/stop")
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<?> stopInstance(@PathVariable("id") String id) throws IOException {
+    public ResponseEntity<?> stopInstance(@PathVariable("id") String id)
+    	throws IOException, InterruptedException, TimeoutException, InvalidResourceStatusException {
     	JpaInstance inst = m_instanceManager.getInstance(id);
-    	
-    	try {
-			inst.stop(null, null);
+    	inst.stop(null, null);
 
-			JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
-			return ResponseEntity.ok(MDTModelSerDes.toJson(desc.toInstanceDescriptor()));
-		}
-		catch ( Exception e ) {
-			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(e));
-		}
+    	JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
+    	return ResponseEntity.ok(MDTModelSerDes.toJson(desc.toInstanceDescriptor()));
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -519,7 +506,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> getMDTModelSubmodels(@PathVariable("id") String id) throws SerializationException {
 		JpaInstance instance = m_instanceManager.getInstance(id);
 		List<MDTSubmodelDescriptor> submodels = instance.getMDTSubmodelDescriptorAll();
-		String json = SERIALIZER.write(submodels);		// for test serialization
+		String json = SERIALIZER.write(submodels);
 		return ResponseEntity.ok(json);
     }
 
@@ -873,7 +860,6 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping("/references/$url")
     public ResponseEntity<?> getReferenceUrl(@RequestParam(name="ref", required=true) String refString) {
-//    	return handleElementReference(refString, new ReferenceHandler() {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
         	public ResponseEntity<?> handle(MDTElementReference ref) {
@@ -1073,14 +1059,6 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return ResponseEntity.ok(opJson);
     }
     
-    public interface ValueHandler {
-    	default public ResponseEntity<?> handle(ElementValue literal, String refString)
-			throws IOException, IllegalArgumentException {
-			String msg = String.format("Literal is not supported for value: expr=%s", refString);
-			return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
-    	}
-    }
-    
     public interface ReferenceHandler {
     	public ResponseEntity<?> handle(MDTElementReference ref);
     	default public ResponseEntity<?> handle(DefaultSubmodelReference ref) {
@@ -1088,11 +1066,6 @@ public class MDTInstanceManagerController implements InitializingBean {
 			return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
     	}
     };
-    private ResponseEntity<?> handleElementReference(String refString, ReferenceHandler handler) {
-    	MDTElementReference ref = ElementReferences.parseExpr(refString);
-    	ref.activate(m_instanceManager);
-		return handler.handle(ref);
-    }
     private ResponseEntity<?> handleReference(String refString, ReferenceHandler handler) {
 		Object ref = parseExpression(refString);
 		if ( ref instanceof MDTElementReference elmRef ) {
@@ -1171,13 +1144,18 @@ public class MDTInstanceManagerController implements InitializingBean {
     }
     
     private File buildBundle(String id, MultipartFile zippedBundle) throws IOException {
-    	File bundleDir = new File(m_instanceManager.getBundlesDir(), id);
-    	
+    	File bundlesDir = m_instanceManager.getBundlesDir();
+    	File bundleDir = new File(bundlesDir, id).getCanonicalFile();
+    	// 'id'에 '..'나 경로 구분자가 포함되어 bundles 디렉토리를 벗어나는 것을 막는다. (path-traversal 방지)
+    	if ( !bundleDir.toPath().startsWith(bundlesDir.getCanonicalFile().toPath()) ) {
+    		throw new IllegalArgumentException("invalid MDTInstance id: " + id);
+    	}
+
 		// 동일 이름의 directory가 존재할 수도 있기 때문에 해당 디렉토리가 있으면 삭제한다.
 		FileUtils.deleteDirectory(bundleDir);
-		
+
     	// 입력 bundle zip파일의 압축을 푼다.
-		File zippedBundleFile = downloadFile(m_instanceManager.getBundlesDir(),
+		File zippedBundleFile = downloadFile(bundlesDir,
 											zippedBundle.getOriginalFilename(), zippedBundle);
 		new ZipFile(zippedBundleFile.toPath()).unzip(bundleDir.toPath());
 		zippedBundleFile.delete();
@@ -1185,69 +1163,12 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return bundleDir;
     }
 
-//	private File buildBundle(String id, MultipartFile mpfJar, MultipartFile mpfModel, MultipartFile mpfConf)
-//		throws IOException {
-//    	File bundleDir = new File(m_instanceManager.getBundlesDir(), id);
-//    	FileUtils.createDirectory(bundleDir);
-//    	
-//    	File mgrHomeDir = m_instanceManager.getHomeDir();
-//    	
-//		// 동일 이름의 directory가 존재할 수도 있기 때문에 해당 디렉토리가 있으면
-//		// 먼저 삭제하고, 다시 directory를 생성한다.
-//		FileUtils.deleteDirectory(bundleDir);
-//
-//		try {
-//			FileUtils.createDirectory(bundleDir);
-//			
-//			// AAS 초기 모델 파일과 설정 파일을 생성한 bundle 디렉토리로 download 받는다.
-//			downloadFile(bundleDir, mpfModel.getOriginalFilename(), mpfModel);
-//			downloadFile(bundleDir, mpfConf.getOriginalFilename(), mpfConf);
-//			
-//			// mpfJar은 null이 될 수 있기 때문에 null이 아닌 경우만 jar 파일을 복사한다.
-//			// null인 경우에는 default jar를 복사한다.
-////			if ( mpfJar != null ) {
-////				downloadFile(bundleDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME, mpfJar);
-////			}
-////			else {
-////				File defaultJarFile = m_instanceManager.getDefaultMDTInstanceJarFile();
-////				if ( defaultJarFile == null || !defaultJarFile.exists() ) {
-////					throw new IllegalStateException("No default MDTInstance jar file exists: path=" + defaultJarFile);
-////				}
-////				
-////				FileUtils.copy(defaultJarFile, new File(bundleDir, MDTInstanceManager.FA3ST_JAR_FILE_NAME));
-////			}
-//
-//			File srcGlobalConfFile = new File(mgrHomeDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
-//			if ( srcGlobalConfFile.exists() ) {
-//				File globalConfFile = new File(bundleDir, MDTInstanceManager.GLOBAL_CONF_FILE_NAME);
-//				Files.copy(srcGlobalConfFile.toPath(), globalConfFile.toPath());
-//			}
-//
-//			File defaultCertFile = new File(mgrHomeDir, MDTInstanceManager.CERT_FILE_NAME);
-//			if ( defaultCertFile.exists() ) {
-//				File certFile = new File(bundleDir, MDTInstanceManager.CERT_FILE_NAME);
-//				FileUtils.copy(defaultCertFile, certFile);
-//			}
-//
-//			// Dockerfile 파일을 복사한다.
-//			File srcDockerfile = new File(mgrHomeDir, DOCKER_FILE);
-//			File tarDockerfile = new File(bundleDir, DOCKER_FILE);
-//			FileUtils.copy(srcDockerfile, tarDockerfile);
-//			
-//			return bundleDir;
-//		}
-//		catch ( IOException e ) {
-//			Try.run(() -> FileUtils.deleteDirectory(bundleDir));
-//			throw e;
-//		}
-//		catch ( Throwable e ) {
-//			Try.run(() -> FileUtils.deleteDirectory(bundleDir));
-//			throw e;
-//		}
-//	}
-    
     private File downloadFile(File topDir, String fileName, MultipartFile mpf) throws IOException {
-		File file = new File(topDir, fileName);
+		// 업로드된 파일 이름은 신뢰할 수 없으므로 topDir를 벗어나는 경로를 거부한다. (path-traversal 방지)
+		File file = new File(topDir, fileName).getCanonicalFile();
+		if ( !file.toPath().startsWith(topDir.getCanonicalFile().toPath()) ) {
+			throw new IllegalArgumentException("invalid upload file name: " + fileName);
+		}
 		try ( InputStream is = mpf.getInputStream() ) {
 			IOUtils.toFile(is, file);
 		}

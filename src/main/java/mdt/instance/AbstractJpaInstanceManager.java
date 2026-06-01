@@ -274,15 +274,24 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		
 		JpaProcessor processor = new JpaProcessor(m_repos.entityManagerFactory());
 		return processor.get(em -> {
-			boolean containsSubmodelExpr = filterExpr.toLowerCase().contains("submodel.");
-			String sql = (containsSubmodelExpr)
-						? "select distinct instance from JpaInstanceDescriptor instance "
-							+ "join fetch instance.submodels as submodel where " + filterExpr
-						: "select instance from JpaInstanceDescriptor instance where " + filterExpr;
+			String sql = "select instance from JpaInstanceDescriptor instance where " + filterExpr;
+			
+			boolean containsParameterExpr = filterExpr.toLowerCase().contains("parameter.");
+			if ( containsParameterExpr ) {
+				sql = "select distinct instance from JpaInstanceDescriptor instance "
+					+ "join fetch instance.parameters as parameter where " + filterExpr;
+			}
+			else {
+				boolean containsSubmodelExpr = filterExpr.toLowerCase().contains("submodel.");
+				if ( containsSubmodelExpr ) {
+					sql = "select distinct instance from JpaInstanceDescriptor instance "
+						+ "join fetch instance.submodels as submodel where " + filterExpr;
+				}
+			}
 			TypedQuery<JpaInstanceDescriptor> query = em.createQuery(sql, JpaInstanceDescriptor.class);
 			return FStream.from(query.getResultList())
-					.map(desc -> toInstance(desc))
-					.toList();
+							.map(desc -> toInstance(desc))
+							.toList();
 		});
 	}
 
