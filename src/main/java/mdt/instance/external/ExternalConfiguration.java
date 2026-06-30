@@ -6,10 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
-import lombok.experimental.Accessors;
 
 
 /**
@@ -17,9 +14,7 @@ import lombok.experimental.Accessors;
  * @author Kang-Woo Lee (ETRI)
  */
 @ConfigurationProperties(prefix = "external")
-@Getter @Setter
 @NoArgsConstructor
-@Accessors(prefix = "m_")
 public class ExternalConfiguration {
 	/**
 	 * Health check interval for the external instance.

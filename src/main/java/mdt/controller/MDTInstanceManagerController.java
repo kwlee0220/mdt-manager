@@ -869,7 +869,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 					smbeRef.activate(m_instanceManager);
 					String instId = ref.getInstanceId();
 					String smId = smbeRef.getSubmodelReference().getSubmodelId();
-					String idShortPath = smbeRef.getIdShortPath().toString();
+					String idShortPath = smbeRef.getIdShortPathString();
 					String baseEp = m_instanceManager.getInstanceDescriptor(instId).getBaseEndpoint();
 					String reqUrl = String.format("%s/submodels/%s/submodel-elements/%s",
 													baseEp, AASUtils.encodeBase64UrlSafe(smId),

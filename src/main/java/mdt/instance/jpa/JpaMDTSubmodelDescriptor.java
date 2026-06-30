@@ -38,7 +38,6 @@ import jakarta.persistence.Table;
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@Getter @Setter
 @Entity
 @Table(
 	name="submodel_descriptors",
@@ -83,6 +82,67 @@ public class JpaMDTSubmodelDescriptor {
 		return desc;
 	}
 	
+	public Long getRowId() {
+		return rowId;
+	}
+	
+	public void setRowId(Long rowId) {
+		this.rowId = rowId;
+	}
+	
+	public JpaInstanceDescriptor getInstance() {
+		return instance;
+	}
+	
+	public void setInstance(JpaInstanceDescriptor instance) {
+		this.instance = instance;
+	}
+	
+	public String getId() {
+		return id;
+	}
+	
+	public void setId(String id) {
+		this.id = id;
+	}
+	
+	public String getIdShort() {
+		return idShort;
+	}
+	
+	public void setIdShort(String idShort) {
+		this.idShort = idShort;
+	}
+	
+	public String getSemanticId() {
+		return semanticId;
+	}
+	
+	public void setSemanticId(String semanticId) {
+		this.semanticId = semanticId;
+	}
+	
+	public void setSemanticIdReference(Reference semanticId) {
+		if ( semanticId != null  /*&& semanticId.getType() == ReferenceTypes.EXTERNAL_REFERENCE*/ ) {
+			List<Key> keys = semanticId.getKeys();
+			if ( keys.size() == 1 ) {
+				setSemanticId(keys.get(0).getValue());
+			}
+			else if ( keys.size() == 0 ) { }
+			else {
+				throw new IllegalArgumentException("Unexpected semanticId Reference: " + semanticId);
+			}
+		}
+	}
+	
+	public byte[] getAasSubmodelDescriptorJsonBytes() {
+		return aasSubmodelDescriptorJsonBytes;
+	}
+	
+	public void setAasSubmodelDescriptorJsonBytes(byte[] aasSubmodelDescriptorJsonBytes) {
+		this.aasSubmodelDescriptorJsonBytes = aasSubmodelDescriptorJsonBytes;
+	}
+	
 	public SubmodelDescriptor getAASSubmodelDescriptor() {
 		try {
 			String json = new String(this.aasSubmodelDescriptorJsonBytes, StandardCharsets.UTF_8);
@@ -102,19 +162,6 @@ public class JpaMDTSubmodelDescriptor {
 		}
 		catch ( SerializationException e ) {
 			throw new InternalException("Failed to serialize AAS Descriptor: " + e);
-		}
-	}
-	
-	public void setSemanticIdReference(Reference semanticId) {
-		if ( semanticId != null  /*&& semanticId.getType() == ReferenceTypes.EXTERNAL_REFERENCE*/ ) {
-			List<Key> keys = semanticId.getKeys();
-			if ( keys.size() == 1 ) {
-				setSemanticId(keys.get(0).getValue());
-			}
-			else if ( keys.size() == 0 ) { }
-			else {
-				throw new IllegalArgumentException("Unexpected semanticId Reference: " + semanticId);
-			}
 		}
 	}
 	

@@ -4,10 +4,7 @@ import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
-import lombok.experimental.Accessors;
 
 import utils.UnitUtils;
 import utils.func.FOption;
@@ -19,12 +16,34 @@ import utils.func.FOption;
  */
 @ConfigurationProperties(prefix = "mqtt")
 @NoArgsConstructor
-@Getter @Setter
-@Accessors(prefix = "m_")
 public class MqttConfiguration {
 	private String m_endpoint;
 	private int m_qos = 0;
 	private Duration m_reconnectInterval = Duration.ofSeconds(5);
+	
+	public String getEndpoint() {
+		return m_endpoint;
+	}
+	
+	public void setEndpoint(String endpoint) {
+		m_endpoint = endpoint;
+	}
+	
+	public int getQos() {
+		return m_qos;
+	}
+	
+	public void setQos(int qos) {
+		m_qos = qos;
+	}
+	
+	public Duration getReconnectRetryInterval() {
+		return m_reconnectInterval;
+	}
+	
+	public void setReconnectRetryInterval(Duration dur) {
+		m_reconnectInterval = dur;
+	}
 	
 	public void setReconnectRetryIntervalForJackson(String durStr) {
 		m_reconnectInterval = FOption.map(durStr, UnitUtils::parseDuration);

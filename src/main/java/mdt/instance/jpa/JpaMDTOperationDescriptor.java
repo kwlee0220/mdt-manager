@@ -6,9 +6,6 @@ import java.util.List;
 
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
 
-import lombok.Getter;
-import lombok.Setter;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -34,7 +31,6 @@ import mdt.model.instance.MDTOperationDescriptor.ArgumentDescriptor;
  */
 @Entity
 @Table(name="operation_descriptors")
-@Getter @Setter
 public class JpaMDTOperationDescriptor {
 	@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
 	@Column(name="row_id")
@@ -55,6 +51,46 @@ public class JpaMDTOperationDescriptor {
 	
 	@Column(columnDefinition = "bytea", nullable = false)
 	private byte[] outputArgumentsJsonBytes;
+	
+	public Long getRowId() {
+		return rowId;
+	}
+	
+	public void setRowId(Long rowId) {
+		this.rowId = rowId;
+	}
+	
+	public JpaInstanceDescriptor getInstance() {
+		return instance;
+	}
+	
+	public void setInstance(JpaInstanceDescriptor instance) {
+		this.instance = instance;
+	}
+	
+	public String getId() {
+		return id;
+	}
+	
+	public void setId(String id) {
+		this.id = id;
+	}
+	
+	public String getOperationType() {
+		return operationType;
+	}
+	
+	public void setOperationType(String operationType) {
+		this.operationType = operationType;
+	}
+	
+	public byte[] getInputArgumentsJsonBytes() {
+		return inputArgumentsJsonBytes;
+	}
+	
+	public void setInputArgumentsJsonBytes(byte[] inputArgumentsJsonBytes) {
+		this.inputArgumentsJsonBytes = inputArgumentsJsonBytes;
+	}
 	
 	public List<ArgumentDescriptor> getInputArguments() {
 		if ( this.inputArgumentsJsonBytes == null ) {
@@ -78,6 +114,14 @@ public class JpaMDTOperationDescriptor {
 		catch ( Exception e ) {
 			throw new InternalException("Failed to serialize inputArguments: " + e);
 		}
+	}
+	
+	public byte[] getOutputArgumentsJsonBytes() {
+		return outputArgumentsJsonBytes;
+	}
+	
+	public void setOutputArgumentsJsonBytes(byte[] outputArgumentsJsonBytes) {
+		this.outputArgumentsJsonBytes = outputArgumentsJsonBytes;
 	}
 	
 	public List<ArgumentDescriptor> getOutputArguments() {

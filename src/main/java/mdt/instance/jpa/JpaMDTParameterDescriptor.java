@@ -1,10 +1,5 @@
 package mdt.instance.jpa;
 
-import lombok.Getter;
-import lombok.Setter;
-
-import mdt.model.instance.MDTParameterDescriptor;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -15,12 +10,13 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
+import mdt.model.instance.MDTParameterDescriptor;
+
 
 /**
  *
  * @author Kang-Woo Lee (ETRI)
  */
-@Getter @Setter
 @Entity
 @Table(name="parameter_descriptors")
 public class JpaMDTParameterDescriptor {
@@ -43,6 +39,54 @@ public class JpaMDTParameterDescriptor {
 	
 	@Column(name="reference", length=255)
 	private String reference;
+	
+	public Long getRowId() {
+		return rowId;
+	}
+	
+	public void setRowId(Long rowId) {
+		this.rowId = rowId;
+	}
+	
+	public JpaInstanceDescriptor getInstance() {
+		return instance;
+	}
+	
+	public void setInstance(JpaInstanceDescriptor instance) {
+		this.instance = instance;
+	}
+	
+	public String getId() {
+		return id;
+	}
+	
+	public void setId(String id) {
+		this.id = id;
+	}
+	
+	public String getName() {
+		return name;
+	}
+	
+	public void setName(String name) {
+		this.name = name;
+	}
+	
+	public String getValueType() {
+		return valueType;
+	}
+	
+	public void setValueType(String valueType) {
+		this.valueType = valueType;
+	}
+	
+	public String getReference() {
+		return reference;
+	}
+	
+	public void setReference(String reference) {
+		this.reference = reference;
+	}
 	
 	@Override
 	public String toString() {
