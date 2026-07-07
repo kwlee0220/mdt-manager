@@ -686,7 +686,9 @@ public class MDTInstanceManagerController implements InitializingBean {
         	public ResponseEntity<?> handle(MDTElementReference ref) {
         		try {
 					SubmodelElement sme = ref.read();
-					return ResponseEntity.ok(MDTModelSerDe.toJsonString(sme));
+					return ResponseEntity.ok()
+										.contentType(MediaType.APPLICATION_JSON)
+										.body(MDTModelSerDe.toJsonString(sme));
 				}
 				catch ( Throwable e ) {
 					return toHandleReferenceException(e, refString);
@@ -697,7 +699,9 @@ public class MDTInstanceManagerController implements InitializingBean {
         	public ResponseEntity<?> handle(DefaultSubmodelReference ref) {
     			try {
 					Submodel sm = ref.get().getSubmodel();
-					return ResponseEntity.ok(MDTModelSerDe.toJsonString(sm));
+					return ResponseEntity.ok()
+										.contentType(MediaType.APPLICATION_JSON)
+										.body(MDTModelSerDe.toJsonString(sm));
 				}
 				catch ( Throwable e ) {
 					return toHandleReferenceException(e, refString);
@@ -751,6 +755,23 @@ public class MDTInstanceManagerController implements InitializingBean {
     		}
     	});
     }
+    
+    @GetMapping("/submodel-element/$value")
+    public ResponseEntity<?> readElementValueOfReference(@RequestParam("ref") String refString) {
+    	return handleReference(refString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref) {
+        		try {
+					ElementValue smev = ref.readValue();
+					String jsonStr = smev.toJsonString();
+					return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(jsonStr);
+				}
+				catch ( IOException e ) {
+					return toHandleReferenceException(e, refString);
+				}
+    		}
+    	});
+    }
 
     @Tag(name = "SubmodelElement 참조 표현식 처리")
     @Operation(summary = "참조 표현식에 해당하는 SubmodelElement의 ValueOnly Serialization을 반환한다.")
@@ -773,15 +794,15 @@ public class MDTInstanceManagerController implements InitializingBean {
 						}),
     	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
     })
-    @GetMapping("/submodel-element/$value")
-    public ResponseEntity<?> readElementValueofReference(@RequestParam("ref") String refString) {
+    @GetMapping("/submodel-element/$raw")
+    public ResponseEntity<?> readRawObjectOfReference(@RequestParam("ref") String refString) {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
         	public ResponseEntity<?> handle(MDTElementReference ref) {
         		try {
 					ElementValue smev = ref.readValue();
 					String result = FOption.mapOrElse(smev, ElementValue::toValueJsonString, "");
-					return ResponseEntity.ok(result);
+					return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result);
 				}
 				catch ( IOException e ) {
 					return toHandleReferenceException(e, refString);
@@ -814,6 +835,23 @@ public class MDTInstanceManagerController implements InitializingBean {
 						}),
     	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
     })
+    @PatchMapping("/submodel-element/$raw")
+    public ResponseEntity<?> updateRawObjectOfReference(@RequestParam("ref") String refString,
+															@RequestBody String newElementValueJson) throws IOException {
+    	return handleReference(refString, new ReferenceHandler() {
+    		@Override
+        	public ResponseEntity<?> handle(MDTElementReference ref) {
+    			try {
+					ref.updateValue(newElementValueJson);
+					return ResponseEntity.noContent().build();
+				}
+				catch ( IOException e ) {
+					return toHandleReferenceException(e, refString);
+				}
+    		}
+    	});
+    }
+
     @PatchMapping("/submodel-element/$value")
     public ResponseEntity<?> updateElementValueOfReference(@RequestParam("ref") String refString,
 															@RequestBody String newElementValueJson) throws IOException {
@@ -821,7 +859,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     		@Override
         	public ResponseEntity<?> handle(MDTElementReference ref) {
     			try {
-					ref.updateValue(newElementValueJson);
+    				ElementValue newValue = ElementValues.parseJsonString(newElementValueJson);
+					ref.updateValue(newValue);
 					return ResponseEntity.noContent().build();
 				}
 				catch ( IOException e ) {
@@ -926,7 +965,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     		@Override
         	public ResponseEntity<?> handle(MDTElementReference ref) {
 				try {
-					return ResponseEntity.ok(MDTModelSerDe.toJsonString(ref));
+					return ResponseEntity.ok()
+										.contentType(MediaType.APPLICATION_JSON)
+										.body(MDTModelSerDe.toJsonString(ref));
 				}
 				catch ( Exception e ) {
 					return toHandleReferenceException(e, refString);
@@ -936,7 +977,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     		@Override
         	public ResponseEntity<?> handle(DefaultSubmodelReference ref) {
 				try {
-					return ResponseEntity.ok(MDTModelSerDe.toJsonString(ref));
+					return ResponseEntity.ok()
+										.contentType(MediaType.APPLICATION_JSON)
+										.body(MDTModelSerDe.toJsonString(ref));
 				}
 				catch ( Exception e ) {
 					return toHandleReferenceException(e, refString);
@@ -985,7 +1028,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     				try {
 						Variable var = Variables.newInstance(varName, varDesc, ref);
 						String json = MDTModelSerDe.toJsonString(var);
-						return ResponseEntity.ok(json);
+						return ResponseEntity.ok()
+											.contentType(MediaType.APPLICATION_JSON)
+											.body(json);
 					}
 					catch ( Exception e ) {
 						return toHandleReferenceException(e, refString);
@@ -995,10 +1040,30 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
 		else if ( valueString != null ) {
 			Variable var = Variables.newInstance(varName, varDesc, valueString);
-			return ResponseEntity.ok(Variables.toJsonString(var));
+			return ResponseEntity.ok()
+								.contentType(MediaType.APPLICATION_JSON)
+								.body(Variables.toJsonString(var));
 		}
 		else {
 			throw new AssertionError("unreachable code");
+		}
+    }
+    
+    @PostMapping("/references/$json")
+    public ResponseEntity<?> parseJsonNodeReference(@RequestBody String refJsonString) throws IOException {
+    	ElementReference ref = ElementReferences.parseJsonString(refJsonString);
+    	if ( ref instanceof SubmodelBasedElementReference smbeRef ) {
+    		smbeRef.activate(m_instanceManager);
+    		Map<String,String> respMsg = Map.of("referenceString", smbeRef.toStringExpr(),
+    											"serviceUrl", smbeRef.getServiceUrl());
+    		String respJson = MDTModelSerDe.MAPPER.writeValueAsString(respMsg);
+			return ResponseEntity.ok()
+									.contentType(MediaType.APPLICATION_JSON)
+									.body(respJson);
+		}
+		else {
+			String msg = String.format("Unexpected reference type: %s", ref.getClass().getName());
+			return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
 		}
     }
     
