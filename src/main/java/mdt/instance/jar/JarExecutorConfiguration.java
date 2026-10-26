@@ -3,6 +3,7 @@ package mdt.instance.jar;
 import java.io.File;
 import java.time.Duration;
 
+import org.jetbrains.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import utils.io.FileUtils;
@@ -21,7 +22,7 @@ public class JarExecutorConfiguration {
 	private Duration m_sampleInterval = Duration.ofSeconds(2);
 	private Duration m_startTimeout = Duration.ofMinutes(1);
 	private int m_startConcurrency = 5;
-	private String m_heapSize = "512m";
+	@Nullable private String m_heapSize;
 	
 	public JarExecutorConfiguration() {
 		m_workspaceDir = new File(FileUtils.getCurrentWorkingDirectory(), "instances");

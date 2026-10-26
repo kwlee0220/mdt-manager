@@ -419,7 +419,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	 * {@code timeout}이 경과해도 만족 상태가 유지되면 {@link TimeoutException}이 발생한다.
 	 *
 	 * @param waitCond     대기 조건. {@code true}인 동안 polling이 계속된다.
-	 * @param pollInterval Polling 간격.
+	 * @param pollInterval Polling 간격. 이전 조회가 끝난 시점부터 대기하는 시간이다(fixed-delay).
 	 * @param timeout      제한 기간. {@code null}이면 무한 대기.
 	 * @return 대기 종료 시점의 상태.
 	 * @throws TimeoutException     {@code timeout} 경과 시까지 대기 조건이 해제되지 않은 경우.
@@ -433,7 +433,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 									InstanceDescriptor desc = reloadInstanceDescriptor();
 									return waitCond.test(desc.getStatus()) ? null : desc.getStatus();
 								})
-								.interval(pollInterval)
+								.fixedDelay(pollInterval)
 								.timeout(timeout)
 								.build()
 								.run();

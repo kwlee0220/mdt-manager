@@ -28,7 +28,6 @@ import utils.StopWatch;
 import utils.Throwables;
 import utils.Tuple;
 import utils.UnitUtils;
-import utils.func.Optionals;
 import utils.func.Try;
 import utils.func.Unchecked;
 import utils.io.EnvironmentFileLoader;
@@ -63,8 +62,6 @@ import mdt.model.instance.MDTInstanceStatus;
  */
 public class JarInstanceExecutor {
 	private static final Logger s_logger = LoggerFactory.getLogger(JarInstanceExecutor.class);
-
-	private static final String DEFAULT_HEAP_SIZE = "512m";
 
 	private final MDTInstanceManagerConfiguration m_mgrConfig;
 	private final JarExecutorConfiguration m_execConfig;
@@ -160,10 +157,6 @@ public class JarInstanceExecutor {
     	Try.accept(logDir, FileUtils::deleteDirectory);
 
     	String argEncoding = "-Dfile.encoding=UTF-8";
-    	String heapSize = Optionals.getOrElse(m_execConfig.getHeapSize(), DEFAULT_HEAP_SIZE);
-    	String argInitialHeap = String.format("-Xms%s", heapSize);
-    	String argMaxHeap = String.format("-Xmx%s", heapSize);
-    	
     	String argId = String.format("--id=%s", id);
     	String argType = "--type=jar";
     	String argVerbose = "-v";
@@ -180,8 +173,14 @@ public class JarInstanceExecutor {
 			}
     	}
 
-    	List<String> argList = Lists.newArrayList("java", argEncoding, argInitialHeap, argMaxHeap,
-    												"-jar", args.getJarFile(), argId, argType, argVerbose);
+    	List<String> argList = Lists.newArrayList("java", argEncoding);
+    	if ( m_execConfig.getHeapSize() != null ) {
+        	String argInitialHeap = String.format("-Xms%s", m_execConfig.getHeapSize());
+    		argList.add(argInitialHeap);
+        	String argMaxHeap = String.format("-Xmx%s", m_execConfig.getHeapSize());
+    		argList.add(argMaxHeap);
+		}
+    	argList.addAll(Arrays.asList("-jar", args.getJarFile(), argId, argType, argVerbose));
 
     	if ( args.getPort() > 0 ) {
 			argList.add(String.format("--port=%d", args.getPort()));

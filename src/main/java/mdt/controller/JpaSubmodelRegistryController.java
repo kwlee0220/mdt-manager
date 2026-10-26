@@ -63,9 +63,12 @@ public class JpaSubmodelRegistryController {
 		m_repo = repo;
 	}
 
-    @Operation(summary = "주어진 idShort에 해당하는 모든 Submodel 등록정보들을 반환한다.")
+    @Operation(summary = "주어진 idShort 또는 semanticId에 해당하는 모든 Submodel 등록정보들을 반환한다.",
+    		description = "'idShort'와 'semanticId'가 모두 지정된 경우에는 'idShort'가 우선하며, "
+    					+ "둘 다 생략된 경우에는 등록된 모든 Submodel 등록정보들을 반환한다.")
     @Parameters({
-    	@Parameter(name = "idShort", description = "검색할 Submodel idShort.")
+    	@Parameter(name = "idShort", description = "검색할 Submodel idShort."),
+    	@Parameter(name = "semanticId", description = "검색할 Submodel semanticId.")
     })
     @ApiResponses(value = {
     	@ApiResponse(responseCode = "200", description = "성공",
@@ -111,7 +114,7 @@ public class JpaSubmodelRegistryController {
 
     @Operation(summary = "주어진 식별자에 해당하는 Submodel 등록정보를 반환한다.")
     @Parameters({
-    	@Parameter(name = "submodelId", description = "검색할 Submodel 식별자")
+    	@Parameter(name = "submodelId", description = "검색할 Submodel 식별자 (Base64URL 인코딩)")
     })
     @ApiResponses(value = {
     	@ApiResponse(responseCode = "200", description = "성공",
@@ -148,18 +151,15 @@ public class JpaSubmodelRegistryController {
 		description = "현재 MDTManager에서는 Submodel Registry를 통해 Submodel 등록정보 추가를"
 					+ "지원하지 않기 때문에 호출시 항상 501 오류를 발생시킨다."
     )
-    @Parameters({
-    	@Parameter(name = "submodelJson", description = "Json 형식으로 작성된 서브모델 등록 정보"),
-    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	required = true,
+    	description = "Json 형식으로 작성된 서브모델 등록 정보",
+		content = {
+			@Content(schema = @Schema(implementation = SubmodelDescriptor.class),
+					mediaType = "application/json")
+		}
+	)
     @ApiResponses(value = {
-    	@ApiResponse(responseCode = "201", description = "성공",
-			content = {
-				@Content(schema = @Schema(implementation = SubmodelDescriptor.class),
-						mediaType = "application/json")
-			}),
-    	@ApiResponse(responseCode = "400",
-    				description = "서브모델 등록 정보 파싱에 실패하였거나,"
-    							+ "식별자에 해당하는 서브모델 등록정보가 이미 존재합니다."),
     	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
     })
     @PostMapping({"/submodel-descriptors"})
@@ -175,16 +175,9 @@ public class JpaSubmodelRegistryController {
 					+ "지원하지 않기 때문에 호출시 항상 501 오류를 발생시킨다."
     )
     @Parameters({
-    	@Parameter(name = "submodelId", description = "삭제시킬 Submodel의 식별자"),
+    	@Parameter(name = "submodelId", description = "삭제시킬 Submodel의 식별자 (Base64URL 인코딩)"),
     })
     @ApiResponses(value = {
-    	@ApiResponse(responseCode = "201", description = "성공",
-			content = {
-				@Content(schema = @Schema(implementation = SubmodelDescriptor.class),
-						mediaType = "application/json")
-			}),
-    	@ApiResponse(responseCode = "404",
-    				description = "식별자에 해당하는 Submodel 등록 정보가 존재하지 않습니다."),
     	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
     })
     @DeleteMapping(value = "/submodel-descriptors/{submodelId}")
@@ -196,22 +189,23 @@ public class JpaSubmodelRegistryController {
     }
 
     @Operation(
-		summary = "주어진 식별자에 해당하는 서브모델 등록정보를 갱신시킨다.",
-		description = "현재 MDTManager에서는 Submodel Registry를 통해 Submodel 등록정보 삭제를"
-					+ "지원하지 않기 때문에 호출시 항상 501 오류를 발생시킨다."
+		summary = "주어진 Submodel 등록정보로 기존 등록정보를 갱신시킨다.",
+		description = "요청 본문에 포함된 Submodel 식별자에 해당하는 등록정보를 갱신한다."
     )
-    @Parameters({
-    	@Parameter(name = "submodelJson", description = "변경된 Submodel 등록 정보 (Json 형태)"),
-    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	required = true,
+    	description = "Json 형식으로 작성된 갱신할 Submodel 등록 정보",
+		content = {
+			@Content(schema = @Schema(implementation = SubmodelDescriptor.class),
+					mediaType = "application/json")
+		}
+	)
     @ApiResponses(value = {
-    	@ApiResponse(responseCode = "201", description = "성공",
-			content = {
-				@Content(schema = @Schema(implementation = SubmodelDescriptor.class),
-						mediaType = "application/json")
-			}),
+    	@ApiResponse(responseCode = "204", description = "성공"),
+    	@ApiResponse(responseCode = "400",
+    				description = "Submodel 등록 정보 파싱에 실패하였습니다."),
     	@ApiResponse(responseCode = "404",
-    				description = "식별자에 해당하는 Submodel 등록 정보가 존재하지 않습니다."),
-    	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
+    				description = "식별자에 해당하는 Submodel 등록 정보가 존재하지 않습니다.")
     })
     @PutMapping("/submodel-descriptors")
     @ResponseStatus(HttpStatus.NO_CONTENT)

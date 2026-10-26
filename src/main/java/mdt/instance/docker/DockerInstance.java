@@ -282,7 +282,7 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 		
 		// 로그 파일이 생성될 때까지 대기한다.
 		PeriodicPoller<Boolean> poller = PeriodicPoller.pollUntil(() -> logFile.exists())
-												                .interval(Duration.ofMillis(300))
+												                .fixedRate(Duration.ofMillis(300))
 										                        .timeout(Duration.ofSeconds(3))
 										                        .build();
 		

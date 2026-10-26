@@ -6,7 +6,6 @@ import java.util.List;
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.SerializationException;
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
-import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
@@ -66,7 +65,7 @@ public class JpaShellRegistryController implements InitializingBean {
 	
     @Operation(summary = "주어진 식별자에 해당하는 AssetAdministrationShell 등록정보를 반환한다.")
     @Parameters({
-    	@Parameter(name = "aasId", description = "검색할 AssetAdministrationShell 식별자")
+    	@Parameter(name = "aasId", description = "검색할 AssetAdministrationShell 식별자 (Base64URL 인코딩)")
     })
     @ApiResponses(value = {
     	@ApiResponse(responseCode = "200", description = "성공",
@@ -125,6 +124,18 @@ public class JpaShellRegistryController implements InitializingBean {
 		return ResponseEntity.ok(descListJson);
     }
     
+    @Operation(summary = "주어진 Asset 식별자에 해당하는 모든 AssetAdministrationShell 등록정보들을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "assetId", description = "검색할 Asset 식별자 (Base64URL 인코딩)")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+    		content = {
+    			@Content(mediaType = "application/json",
+    					array = @ArraySchema(schema=@Schema(implementation = AssetAdministrationShellDescriptor.class)))
+    		}
+    	)
+    })
     @GetMapping({"/shell-descriptors/asset/{assetId}"})
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<List<AssetAdministrationShellDescriptor>>
@@ -146,18 +157,15 @@ public class JpaShellRegistryController implements InitializingBean {
 		description = "현재 MDTManager에서는 AssetAdministrationShell Registry를 통해 AssetAdministrationShell 등록정보 추가를"
 					+ "지원하지 않기 때문에 호출시 항상 501 오류를 발생시킨다."
     )
-    @Parameters({
-    	@Parameter(name = "submodelJson", description = "Json 형식으로 작성된 AssetAdministrationShell 등록 정보"),
-    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	required = true,
+    	description = "Json 형식으로 작성된 AssetAdministrationShell 등록 정보",
+		content = {
+			@Content(schema = @Schema(implementation = AssetAdministrationShellDescriptor.class),
+					mediaType = "application/json")
+		}
+	)
     @ApiResponses(value = {
-    	@ApiResponse(responseCode = "201", description = "성공",
-			content = {
-				@Content(schema = @Schema(implementation = SubmodelDescriptor.class),
-						mediaType = "application/json")
-			}),
-    	@ApiResponse(responseCode = "400",
-    				description = "AssetAdministrationShell 등록 정보 파싱에 실패하였거나,"
-    							+ "식별자에 해당하는 AssetAdministrationShell 등록정보가 이미 존재합니다."),
     	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
     })
     @PostMapping({"/shell-descriptors"})
@@ -173,16 +181,9 @@ public class JpaShellRegistryController implements InitializingBean {
 					+ "지원하지 않기 때문에 호출시 항상 501 오류를 발생시킨다."
     )
     @Parameters({
-    	@Parameter(name = "aasId", description = "삭제시킬 AssetAdministrationShell의 식별자"),
+    	@Parameter(name = "aasId", description = "삭제시킬 AssetAdministrationShell의 식별자 (Base64URL 인코딩)"),
     })
     @ApiResponses(value = {
-    	@ApiResponse(responseCode = "201", description = "성공",
-			content = {
-				@Content(schema = @Schema(implementation = AssetAdministrationShellDescriptor.class),
-						mediaType = "application/json")
-			}),
-    	@ApiResponse(responseCode = "404",
-    				description = "식별자에 해당하는 AssetAdministrationShell 등록 정보가 존재하지 않습니다."),
     	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
     })
     @DeleteMapping(value = "/shell-descriptors/{aasId}")
@@ -193,22 +194,23 @@ public class JpaShellRegistryController implements InitializingBean {
     }
 
     @Operation(
-		summary = "주어진 식별자에 해당하는 AssetAdministrationShell 등록정보를 갱신시킨다.",
-		description = "현재 MDTManager에서는 AssetAdministrationShell Registry를 통해 AssetAdministrationShell 등록정보 삭제를"
-					+ "지원하지 않기 때문에 호출시 항상 501 오류를 발생시킨다."
+		summary = "주어진 AssetAdministrationShell 등록정보로 기존 등록정보를 갱신시킨다.",
+		description = "요청 본문에 포함된 AssetAdministrationShell 식별자에 해당하는 등록정보를 갱신한다."
     )
-    @Parameters({
-    	@Parameter(name = "aasJson", description = "Json 형식으로 작성된 AssetAdministrationShell 등록 정보"),
-    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	required = true,
+    	description = "Json 형식으로 작성된 갱신할 AssetAdministrationShell 등록 정보",
+		content = {
+			@Content(schema = @Schema(implementation = AssetAdministrationShellDescriptor.class),
+					mediaType = "application/json")
+		}
+	)
     @ApiResponses(value = {
-    	@ApiResponse(responseCode = "201", description = "성공",
-			content = {
-				@Content(schema = @Schema(implementation = AssetAdministrationShellDescriptor.class),
-						mediaType = "application/json")
-			}),
+    	@ApiResponse(responseCode = "204", description = "성공"),
+    	@ApiResponse(responseCode = "400",
+    				description = "AssetAdministrationShell 등록 정보 파싱에 실패하였습니다."),
     	@ApiResponse(responseCode = "404",
-    				description = "식별자에 해당하는 AssetAdministrationShell 등록 정보가 존재하지 않습니다."),
-    	@ApiResponse(responseCode = "501", description = "연산이 구현되지 않았습니다.")
+    				description = "식별자에 해당하는 AssetAdministrationShell 등록 정보가 존재하지 않습니다.")
     })
     @PutMapping({"/shell-descriptors"})
     @ResponseStatus(HttpStatus.NO_CONTENT)

@@ -96,9 +96,10 @@ import mdt.model.sm.ref.MDTElementReference;
 import mdt.model.sm.ref.SubmodelBasedElementReference;
 import mdt.model.sm.value.ElementValue;
 import mdt.model.sm.value.ElementValues;
-import mdt.model.sm.variable.AbstractVariable.ReferenceVariable;
-import mdt.model.sm.variable.Variable;
-import mdt.model.sm.variable.Variables;
+import mdt.workflow.model.ArgumentSpec;
+import mdt.workflow.model.ArgumentSpec.LiteralArgument;
+import mdt.workflow.model.ArgumentSpec.ReferenceArgument;
+import mdt.workflow.model.ArgumentSpec.TaskOutputArgument;
 
 
 /**
@@ -149,6 +150,23 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(json);
     }
 
+    @Tag(name = "MDTInstance 모델 조회")
+    @Operation(summary = "MDTInstance의 연산 인자로 사용 가능한 Parameter 식별자 목록을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "instance", description="대상 MDTInstance 식별자"),
+    	@Parameter(name = "operation", description="대상 연산 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 Parameter 식별자 목록.",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			}),
+    	@ApiResponse(responseCode="404",
+    		description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+			content = {
+				@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+			})
+    })
     @GetMapping("/list/arguments")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateArguments(@RequestParam(name="instance") String instId,
@@ -185,6 +203,20 @@ public class MDTInstanceManagerController implements InitializingBean {
 		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(descList);
     }
 
+    @Tag(name = "MDTInstance 모델 조회")
+    @Operation(summary = "MDTInstanceManager에 등록된 모든 MDTInstance들의 MDT Model 전체 정보를 반환한다.")
+    @Parameters({
+    	@Parameter(name = "filter", description="검색 필터 표현식. 'instance' 객체의 속성 값을"
+    											+ "활용하여 SQL의 WHERE 절에 사용되는 표현식을 지정한다. ",
+    				example = "instance.idShort like \"abc%\"")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공",
+    		content = {
+    			@Content(mediaType="application/json",
+    					array = @ArraySchema(schema=@Schema(implementation=MDTModel.class)))
+    		})
+    })
     @GetMapping("/instances/model")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> getMDTModelAll(@RequestParam(name="filter", required=false) String filter) {
@@ -209,7 +241,9 @@ public class MDTInstanceManagerController implements InitializingBean {
     @Tag(name = "MDTInstance 관리")
     @Operation(summary = "MDTInstanceManager에 새로운 MDTInstance를 등록시킨다.")
     @Parameters({
-    	@Parameter(name = "id", description="등록 MDTInstance 식별자")
+    	@Parameter(name = "id", description="등록 MDTInstance 식별자"),
+    	@Parameter(name = "port", description="MDTInstance 서비스(FA3ST) 포트 번호. 생략하면 자동으로 결정된다."),
+    	@Parameter(name = "bundle", description="등록시킬 MDTInstance의 모델 디렉토리를 zip으로 압축한 파일")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
     	required=true,
@@ -305,7 +339,10 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@Parameter(name = "id", description="시작시킬 MDTInstance 식별자")
     })
     @ApiResponses(value = {
-    	@ApiResponse(responseCode="200", description="성공"),
+    	@ApiResponse(responseCode="200", description="성공",
+			content = {
+				@Content(schema = @Schema(implementation=InstanceDescriptor.class), mediaType="application/json")
+			}),
     	@ApiResponse(responseCode="404",
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
 					content = {
@@ -351,7 +388,10 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@Parameter(name = "id", description="중지시킬 MDTInstance 식별자")
     })
     @ApiResponses(value = {
-    	@ApiResponse(responseCode="200", description="성공"),
+    	@ApiResponse(responseCode="200", description="성공",
+			content = {
+				@Content(schema = @Schema(implementation=InstanceDescriptor.class), mediaType="application/json")
+			}),
     	@ApiResponse(responseCode="404",
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
 					content = {
@@ -388,7 +428,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     @ApiResponses(value = {
     	@ApiResponse(responseCode="200", description="성공",
 			content = {
-				@Content(schema = @Schema(implementation=JpaInstanceDescriptor.class), mediaType="application/json")
+				@Content(schema = @Schema(implementation=InstanceDescriptor.class), mediaType="application/json")
 			}),
     	@ApiResponse(responseCode="404",
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
@@ -639,9 +679,17 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@Parameter(name = "id", description="MDTInstance 식별자")
     })
     @ApiResponses(value = {
-        	@ApiResponse(responseCode="200", description="성공"),
+        	@ApiResponse(responseCode="200", description="성공",
+					content = {
+						@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+					}),
         	@ApiResponse(responseCode="404",
     					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+    					content = {
+    							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+    						}),
+        	@ApiResponse(responseCode="500",
+    					description="Log 파일을 읽는 과정에서 오류가 발생한 경우.",
     					content = {
     							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
     						})
@@ -720,10 +768,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		content = @Content(schema = @Schema(implementation=SubmodelElement.class))
 	)
     @ApiResponses(value = {
-    	@ApiResponse(responseCode="200", description="성공",
-			content = {
-				@Content(schema = @Schema(implementation=SubmodelElement.class), mediaType="application/json")
-			}),
+    	@ApiResponse(responseCode="204", description="성공"),
     	@ApiResponse(responseCode="400", description="참조 표현식에 오류가 있는 경우.",
 					content = {
 						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
@@ -756,6 +801,27 @@ public class MDTInstanceManagerController implements InitializingBean {
     	});
     }
     
+    @Tag(name = "SubmodelElement 참조 표현식 처리")
+    @Operation(summary = "참조 표현식에 해당하는 SubmodelElement의 값(ElementValue)을 JSON 표현으로 반환한다.")
+    @Parameters({
+    	@Parameter(name = "ref", description="참조 표현식")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공",
+					content = {
+						@Content(schema = @Schema(implementation=String.class), mediaType="application/json")
+					}),
+    	@ApiResponse(responseCode="400", description="참조 표현식에 오류가 있는 경우.",
+					content = {
+						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+					}),
+    	@ApiResponse(responseCode="404",
+					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+					content = {
+						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+					}),
+    	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
     @GetMapping("/submodel-element/$value")
     public ResponseEntity<?> readElementValueOfReference(@RequestParam("ref") String refString) {
     	return handleReference(refString, new ReferenceHandler() {
@@ -852,6 +918,31 @@ public class MDTInstanceManagerController implements InitializingBean {
     	});
     }
 
+    @Tag(name = "SubmodelElement 참조 표현식 처리")
+    @Operation(summary = "참조 표현식에 해당하는 SubmodelElement를 주어진 값(ElementValue)의 JSON 표현으로 갱신한다.")
+    @Parameters({
+    	@Parameter(name = "ref", description="갱신 대상 참조 표현식")
+    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	required=true,
+    	description="갱신할 새 값(ElementValue)의 JSON 표현식",
+		content = {
+			@Content(schema = @Schema(implementation=String.class), mediaType="application/json")
+		}
+	)
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="204", description="성공"),
+    	@ApiResponse(responseCode="400", description="참조 표현식에 오류가 있는 경우.",
+					content = {
+						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+					}),
+    	@ApiResponse(responseCode="404",
+					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+					content = {
+						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+					}),
+    	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
+    })
     @PatchMapping("/submodel-element/$value")
     public ResponseEntity<?> updateElementValueOfReference(@RequestParam("ref") String refString,
 															@RequestBody String newElementValueJson) throws IOException {
@@ -987,22 +1078,28 @@ public class MDTInstanceManagerController implements InitializingBean {
         	}
     	});
     }
-
+    
+    
     @Tag(name = "SubmodelElement 참조 표현식 처리")
-    @Operation(summary = "표현식으로 정의된 변수의 JSON 표현식을 반환한다. "
-    		+ "Parameter 'ref'와 'value' 중 하나는 반드시 지정되어야 한다.")
+    @Operation(summary = "표현식으로 정의된 연산 인자(ArgumentSpec)의 JSON 표현식을 반환한다. "
+    		+ "Parameter 'ref', 'value', 'taskOutput' 중 하나는 반드시 지정되어야 한다.")
     @Parameters({
+    	@Parameter(name = "id", description="인자 식별자", required=true, example="SleepTime"),
     	@Parameter(name = "ref", description="참조 표현식", example="param:test:SleepTime"),
     	@Parameter(name = "value", description="값", example="17"),
-    	@Parameter(name = "name", description="변수 이름.", example = "SleepTime"),
-    	@Parameter(name = "description", description="변수 기술.", example = "대기 시간")
+    	@Parameter(name = "taskOutput", description="다른 태스크의 출력 인자 참조. 'taskId:outputName' 형식으로 지정한다.",
+    				example="simulation:Output"),
+    	@Parameter(name = "name", description="인자 이름.", example="SleepTime"),
+    	@Parameter(name = "description", description="인자 기술.", example="대기 시간")
     })
     @ApiResponses(value = {
     	@ApiResponse(responseCode="200", description="성공",
 			content = {
-				@Content(schema = @Schema(implementation=MDTElementReference.class), mediaType="application/json")
+				@Content(schema = @Schema(implementation=ArgumentSpec.class), mediaType="application/json")
 			}),
-    	@ApiResponse(responseCode="400", description="참조 표현식에 오류가 있는 경우.",
+    	@ApiResponse(responseCode="400",
+    				description="'ref', 'value', 'taskOutput'이 모두 지정되지 않았거나, "
+    						+ "참조 표현식 또는 'taskOutput' 형식에 오류가 있는 경우.",
 					content = {
 						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
 					}),
@@ -1010,27 +1107,39 @@ public class MDTInstanceManagerController implements InitializingBean {
 					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
 					content = {
 						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
-					}),
+					})
     })
-    @GetMapping("/variables/$json")
-    public ResponseEntity<?> getVariableJson(@RequestParam(name="ref", required = false) String refString,
+    @GetMapping("/argumentSpec/$json")
+    public ResponseEntity<?> getArgumentJson(@RequestParam(name="id", required = true) String argId,
+    										@RequestParam(name="ref", required = false) String refString,
     										@RequestParam(name="value", required = false) String valueString,
-    										@RequestParam(name="name", defaultValue = "") String varName,
-											@RequestParam(name="description", defaultValue = "") String varDesc) {
-    	if ( refString == null && valueString == null ) {
+    										@RequestParam(name="taskOutput", required = false) String taskOutputString,
+    										@RequestParam(name="name", required=false) String argName,
+											@RequestParam(name="description", required=false) String argDesc) {
+    	if ( argId == null || argId.isEmpty() ) {
+			return ResponseEntity.badRequest()
+								.body(RESTfulErrorEntity.ofMessage("Argument 'id' must be specified."));
+		}
+    	if ( refString == null && valueString == null && taskOutputString == null ) {
     		return ResponseEntity.badRequest()
-								.body(RESTfulErrorEntity.ofMessage("Either 'ref' or 'value' parameter must be specified."));
+								.body(RESTfulErrorEntity.ofMessage("Either 'ref', 'value', 'taskOutput' parameter must be specified."));
     	}
-    	else if ( refString != null ) {
+    	
+    	if ( refString != null ) {
         	return handleReference(refString, new ReferenceHandler() {
         		@Override
             	public ResponseEntity<?> handle(MDTElementReference ref) {
     				try {
-						Variable var = Variables.newInstance(varName, varDesc, ref);
-						String json = MDTModelSerDe.toJsonString(var);
-						return ResponseEntity.ok()
-											.contentType(MediaType.APPLICATION_JSON)
-											.body(json);
+    					ReferenceArgument arg = ReferenceArgument.builder()
+										    					.id(argId)
+										    					.name(argName)
+										    					.description(argDesc)
+										    					.reference(refString)
+						    									.build();
+    					String json = arg.toJsonString();
+    					return ResponseEntity.ok()
+    										.contentType(MediaType.APPLICATION_JSON)
+    										.body(json);
 					}
 					catch ( Exception e ) {
 						return toHandleReferenceException(e, refString);
@@ -1039,16 +1148,66 @@ public class MDTInstanceManagerController implements InitializingBean {
         	});
 		}
 		else if ( valueString != null ) {
-			Variable var = Variables.newInstance(varName, varDesc, valueString);
+			LiteralArgument arg = LiteralArgument.builder()
+												.id(argId)
+												.name(argName)
+												.description(argDesc)
+												.value(valueString)
+												.build();
+			String json = arg.toJsonString();
 			return ResponseEntity.ok()
 								.contentType(MediaType.APPLICATION_JSON)
-								.body(Variables.toJsonString(var));
+								.body(json);
+		}
+		else if ( taskOutputString != null ) {
+			String[] parts = taskOutputString.split(":");
+			if ( parts.length != 2 ) {
+				return ResponseEntity.badRequest()
+									.body(RESTfulErrorEntity.ofMessage("Invalid taskOutput format. Expected 'taskId:outputName'."));
+			}
+			TaskOutputArgument arg = TaskOutputArgument.builder()
+														.id(argId)
+														.name(argName)
+														.description(argDesc)
+														.taskId(parts[0])
+														.argumentName(parts[1])
+														.build();
+			String json = arg.toJsonString();
+			return ResponseEntity.ok()
+								.contentType(MediaType.APPLICATION_JSON)
+								.body(json);
+
 		}
 		else {
 			throw new AssertionError("unreachable code");
 		}
     }
     
+    @Tag(name = "SubmodelElement 참조 표현식 처리")
+    @Operation(summary = "JSON 표현식으로 주어진 참조를 해석하여 참조 문자열과 접근 service URL을 반환한다.")
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    	required=true,
+    	description="해석할 참조의 JSON 표현식",
+		content = {
+			@Content(schema = @Schema(implementation=String.class), mediaType="application/json")
+		}
+	)
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200",
+    				description="성공. 'referenceString'과 'serviceUrl'을 담은 JSON 객체가 반환된다.",
+					content = {
+						@Content(schema = @Schema(implementation=String.class), mediaType="application/json")
+					}),
+    	@ApiResponse(responseCode="400", description="지원하지 않는 참조 형식인 경우.",
+					content = {
+						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+					}),
+    	@ApiResponse(responseCode="404",
+					description="참조가 가리키는 MDTInstance가 등록되어 있지 않습니다.",
+					content = {
+						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+					})
+    })
     @PostMapping("/references/$json")
     public ResponseEntity<?> parseJsonNodeReference(@RequestBody String refJsonString) throws IOException {
     	ElementReference ref = ElementReferences.parseJsonString(refJsonString);
@@ -1084,44 +1243,6 @@ public class MDTInstanceManagerController implements InitializingBean {
 										refString, cause.getMessage());
 			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(msg, cause));
 		}
-    }
-
-    @Tag(name = "SubmodelElement 참조 표현식 처리")
-    @PatchMapping("/operation-variables")
-    public ResponseEntity<?> initializeOperationVariables(@RequestParam("ref") String opRefExpr,
-    													@RequestBody String initializer) throws IOException {
-    	List<Variable> initVars = MDTModelSerDe.readValueList(initializer, Variable.class);
-    	Map<String,Variable> initializers = FStream.from(initVars)
-    												.mapToKeyValue(var -> {
-									    				if ( var instanceof ReferenceVariable refVar ) {
-									    					refVar.activate(m_instanceManager);
-									    				}
-									    				return KeyValue.of(var.getName(), var);
-    												})
-									    			.toMap();
-    	
-		ElementReference ref = ElementReferences.parseExpr(opRefExpr);
-		if ( ref instanceof MDTElementReference mdtRef ) {
-			mdtRef.activate(m_instanceManager);
-		}
-		SubmodelElement sme = ref.read();
-		if ( !(sme instanceof org.eclipse.digitaltwin.aas4j.v3.model.Operation) ) {
-			RESTfulErrorEntity error = RESTfulErrorEntity.ofMessage("Element is not Operation: " + opRefExpr);
-			return ResponseEntity.badRequest().body(error);
-		}
-		org.eclipse.digitaltwin.aas4j.v3.model.Operation op
-													= (org.eclipse.digitaltwin.aas4j.v3.model.Operation)sme;
-		FStream.from(op.getInputVariables())
-				.concatWith(FStream.from(op.getInoutputVariables()))
-				.forEachOrThrow(var -> {
-					SubmodelElement varSme = var.getValue();
-					Variable initVar = initializers.get(varSme.getIdShort());
-					if ( initVar != null ) {
-						ElementValues.update(varSme, initVar.readValue());
-					}
-				});
-		String opJson = MDTModelSerDe.toJsonString(op);
-		return ResponseEntity.ok(opJson);
     }
     
     public interface ReferenceHandler {

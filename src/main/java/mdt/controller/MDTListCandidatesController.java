@@ -18,7 +18,17 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 import utils.Utilities;
+import utils.http.RESTfulErrorEntity;
 import utils.func.Try;
 import utils.stream.FStream;
 
@@ -32,6 +42,8 @@ import mdt.model.sm.SubmodelUtils;
 *
 * @author Kang-Woo Lee (ETRI)
 */
+@Tag(name = "후보 식별자 목록 조회",
+	description = "MDT 모델 관련 식별자 후보 목록을 조회한다. 주로 명령행 도구의 자동 완성에 사용된다.")
 @RestController
 @RequestMapping(value={"/list"})
 public class MDTListCandidatesController {
@@ -39,6 +51,22 @@ public class MDTListCandidatesController {
 	
 	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
 
+    @Operation(summary = "주어진 유형에 해당하는 MDTInstance 식별자 목록을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "type", description="검색할 MDTInstance 유형. "
+    						+ "'all' (전체), 'running' (실행 중), 'non-running' (실행 중이 아님) 중 하나.",
+    				example="running")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 MDTInstance 식별자 목록.",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			}),
+    	@ApiResponse(responseCode="400", description="지원하지 않는 MDTInstance 유형인 경우.",
+			content = {
+				@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+			})
+    })
     @GetMapping("/ids/{type}")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listInstanceIds(@PathVariable("type") String type) {
@@ -47,6 +75,20 @@ public class MDTListCandidatesController {
     	return ResponseEntity.ok(output);
     }
 
+    @Operation(summary = "MDTInstance에 정의된 Parameter 식별자 목록을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "instance", description="대상 MDTInstance 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 Parameter 식별자 목록.",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			}),
+    	@ApiResponse(responseCode="404", description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+			content = {
+				@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+			})
+    })
     @GetMapping("/parameters")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateParameters(@RequestParam(name="instance") String instId) {
@@ -55,6 +97,20 @@ public class MDTListCandidatesController {
     	return ResponseEntity.ok(output);
     }
 
+    @Operation(summary = "MDTInstance에 정의된 연산 (AI/Simulation) 식별자 목록을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "instance", description="대상 MDTInstance 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 연산 식별자 목록.",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			}),
+    	@ApiResponse(responseCode="404", description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+			content = {
+				@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+			})
+    })
     @GetMapping("/operations")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateOperations(@RequestParam(name="instance") String instId) {
@@ -63,6 +119,21 @@ public class MDTListCandidatesController {
     	return ResponseEntity.ok(output);		
     }
 
+    @Operation(summary = "MDTInstance의 연산에 정의된 인자 식별자 목록을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "instance", description="대상 MDTInstance 식별자"),
+    	@Parameter(name = "operation", description="대상 연산 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 인자 식별자 목록.",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			}),
+    	@ApiResponse(responseCode="404", description="식별자에 해당하는 MDTInstance 또는 연산이 등록되어 있지 않습니다.",
+			content = {
+				@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+			})
+    })
     @GetMapping("/arguments")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateArguments(@RequestParam(name="instance") String instId,
@@ -72,6 +143,20 @@ public class MDTListCandidatesController {
     	return ResponseEntity.ok(output);
     }
 
+    @Operation(summary = "MDTInstance에 포함된 Submodel 식별자 목록을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "instance", description="대상 MDTInstance 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 Submodel 식별자 목록.",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			}),
+    	@ApiResponse(responseCode="404", description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+			content = {
+				@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+			})
+    })
     @GetMapping("/submodels")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateSubmodels(@RequestParam(name="instance") String instId) {
@@ -80,6 +165,20 @@ public class MDTListCandidatesController {
     	return ResponseEntity.ok(output);
     }
 
+    @Operation(summary = "MDTInstance에 정의된 시계열(TimeSeries) 식별자 목록을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "instance", description="대상 MDTInstance 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 시계열 식별자 목록.",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			}),
+    	@ApiResponse(responseCode="404", description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+			content = {
+				@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+			})
+    })
     @GetMapping("/timeseries")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateTimeSeries(@RequestParam(name="instance") String instId) {
@@ -88,6 +187,20 @@ public class MDTListCandidatesController {
     	return ResponseEntity.ok(output);
     }
 
+    @Operation(summary = "MDTInstance의 Submodel에 포함된 SubmodelElement의 idShort 경로 후보 목록을 반환한다.",
+    		description = "'path'가 지정되면 해당 경로를 접두어로 갖는 하위 element 경로 후보들을 반환한다. "
+    				+ "MDTInstance 또는 Submodel이 존재하지 않는 경우에는 빈 목록을 반환한다.")
+    @Parameters({
+    	@Parameter(name = "instance", description="대상 MDTInstance 식별자"),
+    	@Parameter(name = "submodel", description="대상 Submodel의 idShort"),
+    	@Parameter(name = "path", description="검색 기준 idShort 경로 접두어. 생략하면 최상위 element들이 검색된다.")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 idShort 경로 목록.",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			})
+    })
     @GetMapping("/elements")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateElements(@RequestParam(name="instance") String instId,
