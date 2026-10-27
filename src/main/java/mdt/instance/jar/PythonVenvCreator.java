@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import utils.InternalException;
 import utils.async.command.CommandExecution;
+import utils.async.command.CommandExecution.Output;
 import utils.io.FileUtils;
 
 /**
@@ -35,8 +36,8 @@ public class PythonVenvCreator {
 												.addCommand("python3", "-m", "venv", "venv")
 						                        .workingDirectory(tarDir)
 						                        .timeout(TIMEOUT_VENV)
-						                        .inheritStdout()
-						                        .inheritStderr()
+						                        .stdout(Output.inherit())
+						                        .stderr(Output.inherit())
 						                        .build();
 		exec.run();
 	}
@@ -49,8 +50,8 @@ public class PythonVenvCreator {
 															reqsFile.getAbsolutePath())
 						                        .workingDirectory(tarDir)
 						                        .timeout(TIMEOUT_PIP)
-						                        .inheritStdout()
-						                        .inheritStderr()
+						                        .stdout(Output.inherit())
+						                        .stderr(Output.inherit())
 						                        .build();
 		exec.run();
 	}

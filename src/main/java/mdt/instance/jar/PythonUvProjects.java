@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import utils.async.command.CommandExecution;
+import utils.async.command.CommandExecution.Output;
 import utils.io.FileUtils;
 
 /**
@@ -106,8 +107,8 @@ public class PythonUvProjects {
 												.addCommand("uv", "sync", "--no-dev")
 												.workingDirectory(projectDir)
 												.timeout(TIMEOUT_SYNC_UV_PROJECT)
-												.inheritStdout()
-												.inheritStderr()
+												.stdout(Output.inherit())
+												.stderr(Output.inherit())
 												.build();
 		s_logger.info("Syncing uv project in {}", projectDir.getAbsolutePath());
 		exec.run();
