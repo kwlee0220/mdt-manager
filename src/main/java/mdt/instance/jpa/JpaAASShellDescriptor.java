@@ -2,9 +2,8 @@ package mdt.instance.jpa;
 
 import java.util.Map;
 
-import org.hibernate.annotations.Type;
-
-import com.vladmihalcea.hibernate.type.json.JsonType;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -25,8 +24,9 @@ public class JpaAASShellDescriptor {
 	@Column(name="row_id")
 	private Long rowId;
 	
-	@Type(JsonType.class)                  // 핵심
-	@Column(columnDefinition = "jsonb")    // PostgreSQL 타입 지정
+	// Hibernate 6의 기본 JSON 매핑(Jackson으로 직렬화)으로 PostgreSQL jsonb 컬럼에 저장한다.
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(columnDefinition = "jsonb")
 	private Map<String, Object> attrs;     // 또는 커스텀 POJO
 	
 	public Long getRowId() {
