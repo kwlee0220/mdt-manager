@@ -79,6 +79,7 @@ import mdt.model.expr.LiteralExpr;
 import mdt.model.expr.MDTElementReferenceExpr;
 import mdt.model.expr.MDTExpression;
 import mdt.model.expr.MDTExpressionParser;
+import mdt.model.expr.MDTParserException;
 import mdt.model.expr.MDTSubmodelExpr;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.InstanceStatusChangeEvent;
@@ -908,7 +909,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     		@Override
         	public ResponseEntity<?> handle(MDTElementReference ref) {
     			try {
-					ref.updateValue(newElementValueJson);
+					ref.updateFromValueJson(newElementValueJson);
 					return ResponseEntity.noContent().build();
 				}
 				catch ( IOException e ) {
@@ -1086,7 +1087,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     @Parameters({
     	@Parameter(name = "id", description="인자 식별자", required=true, example="SleepTime"),
     	@Parameter(name = "ref", description="참조 표현식", example="param:test:SleepTime"),
-    	@Parameter(name = "value", description="값", example="17"),
+    	@Parameter(name = "value", description="값 리터럴 표현식. 따옴표 없는 숫자·불리언은 해당 타입으로, 단어나 "
+    								+ "따옴표로 감싼 값은 문자열로 해석한다(예: 17 → 정수, '17' → 문자열).", example="17"),
     	@Parameter(name = "taskOutput", description="다른 태스크의 출력 인자 참조. 'taskId:outputName' 형식으로 지정한다.",
     				example="simulation:Output"),
     	@Parameter(name = "name", description="인자 이름.", example="SleepTime"),
@@ -1099,7 +1101,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 			}),
     	@ApiResponse(responseCode="400",
     				description="'ref', 'value', 'taskOutput'이 모두 지정되지 않았거나, "
-    						+ "참조 표현식 또는 'taskOutput' 형식에 오류가 있는 경우.",
+    						+ "참조 표현식, 값 리터럴 표현식 또는 'taskOutput' 형식에 오류가 있는 경우.",
 					content = {
 						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
 					}),
@@ -1148,11 +1150,22 @@ public class MDTInstanceManagerController implements InitializingBean {
         	});
 		}
 		else if ( valueString != null ) {
+			// 값 리터럴 표현식으로 해석한다(17 → 정수, '17' → 문자열).
+			// 2026-11-01 이전에는 항상 문자열 리터럴로 만들어 'value=17'도 문자열 "17"이 되었다.
+			ElementValue value;
+			try {
+				value = ElementValues.parseExpr(valueString);
+			}
+			catch ( MDTParserException | IllegalArgumentException e ) {
+				return ResponseEntity.badRequest()
+									.body(RESTfulErrorEntity.ofMessage("Invalid value literal: '" + valueString
+																		+ "', cause=" + e.getMessage()));
+			}
 			LiteralArgument arg = LiteralArgument.builder()
 												.id(argId)
 												.name(argName)
 												.description(argDesc)
-												.value(valueString)
+												.value(value)
 												.build();
 			String json = arg.toJsonString();
 			return ResponseEntity.ok()
@@ -1198,7 +1211,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 					content = {
 						@Content(schema = @Schema(implementation=String.class), mediaType="application/json")
 					}),
-    	@ApiResponse(responseCode="400", description="지원하지 않는 참조 형식인 경우.",
+    	@ApiResponse(responseCode="400", description="참조 JSON이 올바르지 않거나 지원하지 않는 참조 형식인 경우.",
 					content = {
 						@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
 					}),
@@ -1210,7 +1223,16 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @PostMapping("/references/$json")
     public ResponseEntity<?> parseJsonNodeReference(@RequestBody String refJsonString) throws IOException {
-    	ElementReference ref = ElementReferences.parseJsonString(refJsonString);
+    	ElementReference ref;
+    	try {
+    		ref = ElementReferences.parseJsonString(refJsonString);
+    	}
+    	catch ( JsonProcessingException e ) {
+    		// JSON 문법 오류, @type 누락·미등록 타입, 필드 누락·타입 오류(JacksonDeserializationException)는
+    		// 요청 본문의 오류다. 원래 메시지만 쓴다(위치 정보에 본문 일부가 붙지 않도록).
+    		String msg = String.format("invalid reference JSON: %s", e.getOriginalMessage());
+    		return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
+    	}
     	if ( ref instanceof SubmodelBasedElementReference smbeRef ) {
     		smbeRef.activate(m_instanceManager);
     		Map<String,String> respMsg = Map.of("referenceString", smbeRef.toStringExpr(),
