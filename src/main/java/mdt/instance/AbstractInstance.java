@@ -342,7 +342,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		String myId = twinComp.getId();
 		return FStream.from(twinComp.getCompositionDependencies())
 						.filter(dep -> dep.getType().equals(depType) && dep.getSourceItem().equals(myId))
-						.flatMapNullable(dep -> itemMap.get(dep.getTargetItem()))
+						.mapNotNull(dep -> itemMap.get(dep.getTargetItem()))
 						.map(MDTCompositionItem::getReference)
 						.flatMapTry(aasId -> Try.get(() -> m_manager.getInstanceByAasId(aasId)))
 						.cast(MDTInstance.class)
@@ -359,7 +359,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		String myId = twinComp.getId();
 		return FStream.from(twinComp.getCompositionDependencies())
 						.filter(dep -> dep.getType().equals(depType) && dep.getTargetItem().equals(myId))
-						.flatMapNullable(dep -> itemMap.get(dep.getSourceItem()))
+						.mapNotNull(dep -> itemMap.get(dep.getSourceItem()))
 						.map(MDTCompositionItem::getReference)
 						.flatMapTry(aasId -> Try.get(() -> m_manager.getInstanceByAasId(aasId)))
 						.cast(MDTInstance.class)
