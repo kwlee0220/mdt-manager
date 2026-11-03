@@ -115,7 +115,7 @@ public class JpaShellRegistryController implements InitializingBean {
     		= FStream.from(instList)
 		    		.map(inst -> {
 		    			AssetAdministrationShellDescriptor desc = inst.getAASShellDescriptor();
-		    			Nullables.ifNotNull(inst.getServiceEndpoint(), ep -> AASUtils.attachEndpoint(desc, ep));
+		    			Nullables.accept(inst.getServiceEndpoint(), ep -> AASUtils.attachEndpoint(desc, ep));
 		    			return desc;
 		    		})
 		    		.toList();

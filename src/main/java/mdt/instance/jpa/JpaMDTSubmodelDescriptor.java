@@ -166,7 +166,7 @@ public class JpaMDTSubmodelDescriptor {
 		Preconditions.checkArgument(getId().equals(smDesc.getId()));
 		
 		setIdShort(smDesc.getIdShort());
-		Nullables.ifNotNull(smDesc.getSemanticId(), this::setSemanticIdReference);
+		Nullables.accept(smDesc.getSemanticId(), this::setSemanticIdReference);
 		setSubmodelDescriptor(smDesc);
 	}
 	

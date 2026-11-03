@@ -171,11 +171,11 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 	
 	public File getInstancesDir() {
-		return Nullables.orElseGet(m_conf.getInstancesDir(), () -> FileUtils.path(getHomeDir(), "instances"));
+		return Nullables.orGet(m_conf.getInstancesDir(), () -> FileUtils.path(getHomeDir(), "instances"));
 	}
 	
 	public File getBundlesDir() {
-		return Nullables.orElseGet(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
+		return Nullables.orGet(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
 	}
 	
 	public JpaInstanceDescriptor getInstanceDescriptor(String instanceId) throws ResourceNotFoundException {
