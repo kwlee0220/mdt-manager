@@ -52,7 +52,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import utils.KeyValue;
 import utils.Throwables;
-import utils.Utilities;
 import utils.func.FOption;
 import utils.func.Try;
 import utils.http.RESTfulErrorEntity;
@@ -173,7 +172,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> listCandidateArguments(@RequestParam(name="instance") String instId,
     												@RequestParam(name="operation") String opId) {
 		String output = FStream.from(m_instanceManager.listParameterIds(instId))
-								.join(Utilities.getLineSeparator());
+								.join(System.lineSeparator());
     	return ResponseEntity.ok(output);
     }
 

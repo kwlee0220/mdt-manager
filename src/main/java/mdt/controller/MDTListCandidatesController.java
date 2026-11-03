@@ -27,7 +27,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-import utils.Utilities;
 import utils.http.RESTfulErrorEntity;
 import utils.func.Try;
 import utils.stream.FStream;
@@ -71,7 +70,7 @@ public class MDTListCandidatesController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listInstanceIds(@PathVariable("type") String type) {
 		String output = FStream.from(m_instanceManager.listInstanceIds(type))
-								.join(Utilities.getLineSeparator());
+								.join(System.lineSeparator());
     	return ResponseEntity.ok(output);
     }
 
@@ -93,7 +92,7 @@ public class MDTListCandidatesController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateParameters(@RequestParam(name="instance") String instId) {
 		String output = FStream.from(m_instanceManager.listParameterIds(instId))
-								.join(Utilities.getLineSeparator());
+								.join(System.lineSeparator());
     	return ResponseEntity.ok(output);
     }
 
@@ -115,7 +114,7 @@ public class MDTListCandidatesController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateOperations(@RequestParam(name="instance") String instId) {
 		String output = FStream.from(m_instanceManager.listOperationIds(instId))
-								.join(Utilities.getLineSeparator());
+								.join(System.lineSeparator());
     	return ResponseEntity.ok(output);		
     }
 
@@ -139,7 +138,7 @@ public class MDTListCandidatesController {
     public ResponseEntity<?> listCandidateArguments(@RequestParam(name="instance") String instId,
     												@RequestParam(name="operation") String opId) {
 		String output = FStream.from(m_instanceManager.listArgumentIds(instId, opId))
-								.join(Utilities.getLineSeparator());
+								.join(System.lineSeparator());
     	return ResponseEntity.ok(output);
     }
 
@@ -161,7 +160,7 @@ public class MDTListCandidatesController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateSubmodels(@RequestParam(name="instance") String instId) {
 		String output = FStream.from(m_instanceManager.listSubmodelIds(instId))
-								.join(Utilities.getLineSeparator());
+								.join(System.lineSeparator());
     	return ResponseEntity.ok(output);
     }
 
@@ -183,7 +182,7 @@ public class MDTListCandidatesController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> listCandidateTimeSeries(@RequestParam(name="instance") String instId) {
 		String output = FStream.from(m_instanceManager.listTimeSeriesIds(instId))
-								.join(Utilities.getLineSeparator());
+								.join(System.lineSeparator());
     	return ResponseEntity.ok(output);
     }
 
@@ -217,7 +216,7 @@ public class MDTListCandidatesController {
 			return ResponseEntity.ok("");
 		}
 		
-		String output = listCandidateElements(svc, path).join(Utilities.getLineSeparator());
+		String output = listCandidateElements(svc, path).join(System.lineSeparator());
 		return ResponseEntity.ok(output);
 		
 //		String parentPath;
@@ -239,7 +238,7 @@ public class MDTListCandidatesController {
 //		String output = FStream.from(suffixes)
 //								.map(suffix -> (parentPath.isEmpty()) ? suffix.substring(1)
 //																		: parentPath + suffix)
-//								.join(Utilities.getLineSeparator());
+//								.join(System.lineSeparator());
 //    	return ResponseEntity.ok(output);
     }
 
