@@ -14,7 +14,7 @@ public class LazyDescriptor<D> {
 	private final Function<String,D> m_deser;
 	
 	public LazyDescriptor(D desc, String jsonDesc) {
-		m_descriptor = Lazy.of(desc);
+		m_descriptor = Lazy.ofValue(desc);
 		m_jsonDescriptor = jsonDesc;
 		m_deser = null;
 	}

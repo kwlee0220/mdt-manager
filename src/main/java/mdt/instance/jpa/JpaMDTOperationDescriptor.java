@@ -17,8 +17,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import utils.InternalException;
-import utils.func.Optionals;
 import utils.stream.FStream;
+import utils.func.Nullables;
 
 import mdt.model.MDTModelSerDe;
 import mdt.model.instance.MDTOperationDescriptor;
@@ -154,7 +154,7 @@ public class JpaMDTOperationDescriptor {
 	
 	@Override
 	public String toString() {
-		String id = Optionals.getOrElse(this.id, "?");
+		String id = Nullables.orElse(this.id, "?");
 		String inArgs = FStream.from(this.getInputArguments()).map(ArgumentDescriptor::getId).join(", ");
 		String outArgs = FStream.from(this.getOutputArguments()).map(ArgumentDescriptor::getId).join(", ");
 		return String.format("%s[%s]: (%s) -> (%s)", this.operationType, id, inArgs, outArgs);

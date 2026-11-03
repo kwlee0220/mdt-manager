@@ -205,7 +205,7 @@ public class MDTListCandidatesController {
     public ResponseEntity<?> listCandidateElements(@RequestParam(name="instance") String instId,
     												@RequestParam(name="submodel") String smIdShort,
     												@RequestParam(name="path", required=false) String path) {
-    	JpaInstance inst = Try.get(() -> m_instanceManager.getInstance(instId))
+    	JpaInstance inst = Try.of(() -> m_instanceManager.getInstance(instId))
     							.getOrNull();
 		if ( inst == null ) {
 			return ResponseEntity.ok("");

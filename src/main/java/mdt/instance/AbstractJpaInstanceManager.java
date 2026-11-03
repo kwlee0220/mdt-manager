@@ -24,7 +24,7 @@ import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 
 import utils.LoggerSettable;
-import utils.func.Optionals;
+import utils.func.Nullables;
 import utils.func.Try;
 import utils.func.Unchecked;
 import utils.io.FileUtils;
@@ -171,11 +171,11 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 	
 	public File getInstancesDir() {
-		return Optionals.getOrElse(m_conf.getInstancesDir(), () -> FileUtils.path(getHomeDir(), "instances"));
+		return Nullables.orElseGet(m_conf.getInstancesDir(), () -> FileUtils.path(getHomeDir(), "instances"));
 	}
 	
 	public File getBundlesDir() {
-		return Optionals.getOrElse(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
+		return Nullables.orElseGet(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
 	}
 	
 	public JpaInstanceDescriptor getInstanceDescriptor(String instanceId) throws ResourceNotFoundException {
@@ -496,7 +496,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	
 	@Override
 	public Logger getLogger() {
-		return Optionals.getOrElse(m_logger, s_logger);
+		return Nullables.orElse(m_logger, s_logger);
 	}
 
 	@Override

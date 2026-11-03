@@ -5,9 +5,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.jetbrains.annotations.Nullable;
 
-import utils.func.Optionals;
 
 import mdt.model.instance.MDTInstanceStatus;
+
+import utils.func.Nullables;
 
 
 /**
@@ -36,7 +37,7 @@ public final class InstanceRuntimeInfo {
 	
 	@Override
 	public String toString() {
-		String bepStr = Optionals.getOrElse(m_baseEndpoint, "");
+		String bepStr = Nullables.orElse(m_baseEndpoint, "");
 		return String.format("InstanceRuntimeInfo[status=%s, baseEndpoint=%s]", m_status, bepStr);
 	}
 }

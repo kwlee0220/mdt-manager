@@ -54,7 +54,7 @@ public class KubernetesInstance extends JpaInstance implements MDTInstance {
 
 	@Override
 	protected void uninitialize() throws IOException {
-		m_kube.unload(remote -> Unchecked.runOrIgnore(remote::close));
+		m_kube.invalidate(remote -> Unchecked.runOrIgnore(remote::close));
 	}
 
 	public String loadEndpoint() {

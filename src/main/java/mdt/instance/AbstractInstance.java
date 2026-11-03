@@ -21,8 +21,8 @@ import com.google.common.base.Preconditions;
 import utils.LoggerSettable;
 import utils.async.PeriodicPoller;
 import utils.func.FOption;
+import utils.func.Nullables;
 import utils.func.Funcs;
-import utils.func.Optionals;
 import utils.func.Try;
 import utils.stream.FStream;
 
@@ -344,7 +344,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 						.filter(dep -> dep.getType().equals(depType) && dep.getSourceItem().equals(myId))
 						.mapNotNull(dep -> itemMap.get(dep.getTargetItem()))
 						.map(MDTCompositionItem::getReference)
-						.flatMapTry(aasId -> Try.get(() -> m_manager.getInstanceByAasId(aasId)))
+						.flatMapTry(aasId -> Try.of(() -> m_manager.getInstanceByAasId(aasId)))
 						.cast(MDTInstance.class)
 						.toList();
 	}
@@ -361,7 +361,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 						.filter(dep -> dep.getType().equals(depType) && dep.getTargetItem().equals(myId))
 						.mapNotNull(dep -> itemMap.get(dep.getSourceItem()))
 						.map(MDTCompositionItem::getReference)
-						.flatMapTry(aasId -> Try.get(() -> m_manager.getInstanceByAasId(aasId)))
+						.flatMapTry(aasId -> Try.of(() -> m_manager.getInstanceByAasId(aasId)))
 						.cast(MDTInstance.class)
 						.toList();
 	}
@@ -379,7 +379,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 
 	@Override
 	public Logger getLogger() {
-		return Optionals.getOrElse(m_logger, s_logger);
+		return Nullables.orElse(m_logger, s_logger);
 	}
 
 	@Override

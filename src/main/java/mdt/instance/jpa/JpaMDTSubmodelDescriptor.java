@@ -12,16 +12,6 @@ import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 
 import com.google.common.base.Preconditions;
 
-import lombok.Getter;
-import lombok.Setter;
-
-import utils.InternalException;
-import utils.func.FOption;
-
-import mdt.model.DescriptorUtils;
-import mdt.model.MDTModelSerDe;
-import mdt.model.instance.MDTSubmodelDescriptor;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -32,6 +22,13 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+
+import utils.InternalException;
+import utils.func.Nullables;
+
+import mdt.model.DescriptorUtils;
+import mdt.model.MDTModelSerDe;
+import mdt.model.instance.MDTSubmodelDescriptor;
 
 
 /**
@@ -169,7 +166,7 @@ public class JpaMDTSubmodelDescriptor {
 		Preconditions.checkArgument(getId().equals(smDesc.getId()));
 		
 		setIdShort(smDesc.getIdShort());
-		FOption.accept(smDesc.getSemanticId(), this::setSemanticIdReference);
+		Nullables.ifNotNull(smDesc.getSemanticId(), this::setSemanticIdReference);
 		setSubmodelDescriptor(smDesc);
 	}
 	

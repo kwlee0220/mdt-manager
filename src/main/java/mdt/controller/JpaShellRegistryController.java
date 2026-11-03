@@ -34,7 +34,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-import utils.func.FOption;
+import utils.func.Nullables;
 import utils.stream.FStream;
 
 import mdt.instance.AbstractJpaInstanceManager;
@@ -115,7 +115,7 @@ public class JpaShellRegistryController implements InitializingBean {
     		= FStream.from(instList)
 		    		.map(inst -> {
 		    			AssetAdministrationShellDescriptor desc = inst.getAASShellDescriptor();
-		    			FOption.accept(inst.getServiceEndpoint(), ep -> AASUtils.attachEndpoint(desc, ep));
+		    			Nullables.ifNotNull(inst.getServiceEndpoint(), ep -> AASUtils.attachEndpoint(desc, ep));
 		    			return desc;
 		    		})
 		    		.toList();

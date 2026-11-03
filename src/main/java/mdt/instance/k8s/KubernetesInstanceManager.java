@@ -239,7 +239,7 @@ public class KubernetesInstanceManager extends AbstractJpaInstanceManager<Kubern
 	    	
 			if ( harborConf != null && harborConf.getEndpoint() != null ) {  	
 				// Harbor로 push하기 위한 tag를 부여한다.
-				Image image = DockerUtils.getInstanceImage(docker, id).getUnchecked();
+				Image image = DockerUtils.getInstanceImage(docker, id).getOrNull();
 				String harborRepoName = DockerUtils.tagImageForHarbor(docker, image, harborConf, "latest");
 
 				if ( getLogger().isInfoEnabled() ) {

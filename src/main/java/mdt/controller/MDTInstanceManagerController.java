@@ -52,7 +52,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import utils.KeyValue;
 import utils.Throwables;
-import utils.func.FOption;
+import utils.func.Nullables;
 import utils.func.Try;
 import utils.http.RESTfulErrorEntity;
 import utils.io.FileUtils;
@@ -867,7 +867,7 @@ public class MDTInstanceManagerController implements InitializingBean {
         	public ResponseEntity<?> handle(MDTElementReference ref) {
         		try {
 					ElementValue smev = ref.readValue();
-					String result = FOption.mapOrElse(smev, ElementValue::toValueJsonString, "");
+					String result = Nullables.mapOrElse(smev, ElementValue::toValueJsonString, "");
 					return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result);
 				}
 				catch ( IOException e ) {

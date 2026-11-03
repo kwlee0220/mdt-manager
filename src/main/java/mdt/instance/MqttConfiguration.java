@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import lombok.NoArgsConstructor;
 
 import utils.UnitUtils;
-import utils.func.FOption;
+import utils.func.Nullables;
 
 
 /**
@@ -46,6 +46,6 @@ public class MqttConfiguration {
 	}
 	
 	public void setReconnectRetryIntervalForJackson(String durStr) {
-		m_reconnectInterval = FOption.map(durStr, UnitUtils::parseDuration);
+		m_reconnectInterval = Nullables.map(durStr, UnitUtils::parseDuration);
 	}
 }
