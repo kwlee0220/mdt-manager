@@ -194,7 +194,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     @GetMapping("/instances")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> getInstanceAll(@RequestParam(name="filter", required=false) String filter) {
-    	List<? extends JpaInstance> matches = ( filter != null )
+    	List<MDTInstance> matches = ( filter != null )
 					    					? m_instanceManager.getInstanceAllByFilter(filter)
 					    					: m_instanceManager.getInstanceAll();
 		List<InstanceDescriptor> descList = FStream.from(matches)
@@ -220,12 +220,12 @@ public class MDTInstanceManagerController implements InitializingBean {
     @GetMapping("/instances/model")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> getMDTModelAll(@RequestParam(name="filter", required=false) String filter) {
-    	List<? extends JpaInstance> matches = ( filter != null )
+    	List<MDTInstance> matches = ( filter != null )
 					    					? m_instanceManager.getInstanceAllByFilter(filter)
 					    					: m_instanceManager.getInstanceAll();
     	
     	List<MDTModel> models = Lists.newArrayList();
-    	for ( JpaInstance instance: matches ) {
+    	for ( JpaInstance instance: FStream.from(matches).cast(JpaInstance.class) ) {
     		MDTModel model = new MDTModel(instance.getInstanceDescriptor());
     		model.setSubmodels(instance.getMDTSubmodelDescriptorAll());
     		model.setParameters(instance.getMDTParameterDescriptorAll());

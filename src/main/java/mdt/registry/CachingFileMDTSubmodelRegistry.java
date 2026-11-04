@@ -81,7 +81,7 @@ public class CachingFileMDTSubmodelRegistry implements SubmodelRegistryProvider 
 	}
 
 	@Override
-	public SubmodelDescriptor putSubmodelDescriptorById(SubmodelDescriptor descriptor)
+	public SubmodelDescriptor putSubmodelDescriptor(SubmodelDescriptor descriptor)
 		throws ResourceNotFoundException {
 		try {
 			String json = m_jsonSer.write(descriptor);

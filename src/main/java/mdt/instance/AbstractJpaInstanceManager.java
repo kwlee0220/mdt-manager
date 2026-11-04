@@ -194,10 +194,10 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 
 	@Override
-	public List<T> getInstanceAll() throws MDTInstanceManagerException {
-		return FStream.from(m_repos.instances().findAll())
-						.map(desc -> toInstance(desc))
-						.toList();
+	public List<MDTInstance> getInstanceAll() throws MDTInstanceManagerException {
+		return List.copyOf(FStream.from(m_repos.instances().findAll())
+									.map(desc -> (MDTInstance)toInstance(desc))
+									.toList());
 	}
 	
 	public List<String> listInstanceIds(String type) {
@@ -269,7 +269,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 
 	@Override
-	public List<T> getInstanceAllByFilter(String filterExpr) {
+	public List<MDTInstance> getInstanceAllByFilter(String filterExpr) {
 		Preconditions.checkArgument(filterExpr != null, "filterExpr is null");
 		
 		JpaProcessor processor = new JpaProcessor(m_repos.entityManagerFactory());
@@ -289,9 +289,9 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 				}
 			}
 			TypedQuery<JpaInstanceDescriptor> query = em.createQuery(sql, JpaInstanceDescriptor.class);
-			return FStream.from(query.getResultList())
-							.map(desc -> toInstance(desc))
-							.toList();
+			return List.copyOf(FStream.from(query.getResultList())
+										.map(desc -> (MDTInstance)toInstance(desc))
+										.toList());
 		});
 	}
 
