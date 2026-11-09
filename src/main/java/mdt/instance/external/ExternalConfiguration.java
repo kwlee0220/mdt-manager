@@ -4,8 +4,6 @@ import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 import lombok.NoArgsConstructor;
 
 
@@ -19,11 +17,11 @@ public class ExternalConfiguration {
 	/**
 	 * Health check interval for the external instance.
 	 */
-	@JsonProperty("checkInterval") private Duration m_checkInterval;
+	private Duration m_checkInterval;
 	/**
 	 * Connection timeout for the external instance.
 	 */
-	@JsonProperty("connectionTimeout") private Duration m_connectionTimeout;
+	private Duration m_connectionTimeout;
 	
 	/**
 	 * Health 검사 주기를 반환한다.

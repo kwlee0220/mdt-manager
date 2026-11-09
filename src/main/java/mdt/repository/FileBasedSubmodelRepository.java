@@ -44,7 +44,7 @@ public class FileBasedSubmodelRepository implements SubmodelRepositoryProvider {
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -60,7 +60,7 @@ public class FileBasedSubmodelRepository implements SubmodelRepositoryProvider {
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -74,7 +74,7 @@ public class FileBasedSubmodelRepository implements SubmodelRepositoryProvider {
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -88,7 +88,7 @@ public class FileBasedSubmodelRepository implements SubmodelRepositoryProvider {
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -100,7 +100,7 @@ public class FileBasedSubmodelRepository implements SubmodelRepositoryProvider {
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -113,7 +113,7 @@ public class FileBasedSubmodelRepository implements SubmodelRepositoryProvider {
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -124,7 +124,7 @@ public class FileBasedSubmodelRepository implements SubmodelRepositoryProvider {
 		}
 		catch ( IOException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 	

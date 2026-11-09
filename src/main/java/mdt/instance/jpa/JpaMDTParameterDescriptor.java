@@ -97,16 +97,6 @@ public class JpaMDTParameterDescriptor {
 		return String.format("%s(%s%s): %s", this.id, nameStr, this.valueType, this.reference);
 	}
 	
-	static JpaMDTParameterDescriptor from(MDTParameterDescriptor desc) {
-		JpaMDTParameterDescriptor jpaDesc = new JpaMDTParameterDescriptor();
-		jpaDesc.setId(desc.getId());
-		jpaDesc.setName(desc.getName());
-		jpaDesc.setValueType(desc.getValueType());
-		jpaDesc.setReference(desc.getReference());
-		
-		return jpaDesc;
-	}
-	
 	public MDTParameterDescriptor toMDTParameterDescriptor() {
 		return new MDTParameterDescriptor(id, name, valueType, reference);
 	}

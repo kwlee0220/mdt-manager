@@ -114,7 +114,7 @@ public class CachingFileMDTAASRegistry implements AASRegistryProvider {
 				return m_jsonDeser.read(json, AssetAdministrationShellDescriptor.class);
 			}
 			catch ( DeserializationException e ) {
-				throw new InternalException("" + e);
+				throw new InternalException(e);
 			}
 		}
     };

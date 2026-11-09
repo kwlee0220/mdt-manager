@@ -72,7 +72,7 @@ public class CachingFileBasedRegistry<D> {
 			m_getSemanticId = method;
 		}
 		catch ( IOException e ) {
-			throw new InternalException("" + e);
+			throw new InternalException(e);
 		}
 	}
 	
@@ -92,11 +92,11 @@ public class CachingFileBasedRegistry<D> {
 			return resource.get();
 		}
 		catch ( IOException e ) {
-			throw new InternalException("" + e);
+			throw new InternalException(e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -105,7 +105,7 @@ public class CachingFileBasedRegistry<D> {
         	return Lists.newArrayList(m_store.getFileObjectKeyAll());
 		}
 		catch ( IOException e ) {
-			throw new InternalException("" + e);
+			throw new InternalException(e);
 		}
     }
 
@@ -114,11 +114,11 @@ public class CachingFileBasedRegistry<D> {
 			return m_store.getFileObjectAll();
 		}
 		catch ( IOException e ) {
-			throw new InternalException("" + e);
+			throw new InternalException(e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -133,11 +133,11 @@ public class CachingFileBasedRegistry<D> {
 			return stream.toList();
 		}
 		catch ( IOException e ) {
-			throw new InternalException("" + e);
+			throw new InternalException(e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -152,11 +152,11 @@ public class CachingFileBasedRegistry<D> {
 			return stream.toList();
 		}
 		catch ( IOException e ) {
-			throw new InternalException("" + e);
+			throw new InternalException(e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -173,11 +173,11 @@ public class CachingFileBasedRegistry<D> {
 			return descriptor;
 		}
 		catch ( IOException e ) {
-			throw new InternalException("" + e);
+			throw new InternalException(e);
 		}
 		catch ( ExecutionException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -191,7 +191,7 @@ public class CachingFileBasedRegistry<D> {
     		}
 		}
 		catch ( IOException e ) {
-			throw new InternalException("" + e);
+			throw new InternalException(e);
 		}
 	}
 

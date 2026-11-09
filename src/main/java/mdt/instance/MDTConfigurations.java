@@ -4,7 +4,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration;
 
 import mdt.instance.docker.DockerConfiguration;
-import mdt.instance.docker.HarborConfiguration;
 import mdt.instance.external.ExternalConfiguration;
 import mdt.instance.jar.JarExecutorConfiguration;
 
@@ -18,7 +17,6 @@ import mdt.instance.jar.JarExecutorConfiguration;
 	MDTInstanceManagerConfiguration.class,
 	JarExecutorConfiguration.class,
 	DockerConfiguration.class,
-	HarborConfiguration.class,
 	ExternalConfiguration.class,
 	MqttConfiguration.class,
 })

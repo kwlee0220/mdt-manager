@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
@@ -23,7 +24,6 @@ import utils.async.PeriodicPoller;
 import utils.func.FOption;
 import utils.func.Nullables;
 import utils.func.Funcs;
-import utils.func.Try;
 import utils.stream.FStream;
 
 import mdt.instance.jpa.JpaInstanceDescriptor;
@@ -38,6 +38,7 @@ import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 import mdt.model.instance.MDTTwinCompositionDescriptor;
+import mdt.model.instance.MDTTwinCompositionDescriptor.MDTCompositionDependency;
 import mdt.model.instance.MDTTwinCompositionDescriptor.MDTCompositionItem;
 import mdt.model.sm.data.Data;
 import mdt.model.sm.data.DefaultDataInfo;
@@ -62,6 +63,11 @@ import mdt.model.sm.info.MDTAssetType;
 public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	private static final Logger s_logger = LoggerFactory.getLogger(AbstractInstance.class);
 	private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofMillis(500);
+	/**
+	 * 시작·중지 요청이 받아들여져 상태가 바뀌기까지(STOPPED→STARTING, RUNNING→STOPPING) 기다리는 최대 시간.
+	 * 호출자의 {@code timeout}이 없거나 이보다 길어도 이 단계는 이 시간을 넘기지 않는다.
+	 */
+	static final Duration DEFAULT_SUBMIT_TIMEOUT = Duration.ofSeconds(30);
 
 	protected final AbstractJpaInstanceManager<? extends AbstractInstance> m_manager;
 	protected final AtomicReference<InstanceDescriptor> m_desc;
@@ -178,6 +184,20 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		return m_desc.get().getGlobalAssetId();
 	}
 
+	// 마감 시각까지 남은 시간. 마감이 없으면 null(무한), 지났으면 1ms(곧바로 TimeoutException).
+	private static @Nullable Duration remaining(long deadline) {
+		if ( deadline == Long.MAX_VALUE ) {
+			return null;
+		}
+		return Duration.ofNanos(Math.max(deadline - System.nanoTime(), 1_000_000L));
+	}
+
+	// 요청이 받아들여지는 단계의 제한 시간: 호출자의 timeout과 DEFAULT_SUBMIT_TIMEOUT 중 짧은 것.
+	static Duration toSubmitTimeout(@Nullable Duration timeout) {
+		return ( timeout == null || timeout.compareTo(DEFAULT_SUBMIT_TIMEOUT) > 0 )
+				? DEFAULT_SUBMIT_TIMEOUT : timeout;
+	}
+
 	@Override
 	public MDTAssetType getAssetType() {
 		return m_desc.get().getAssetType();
@@ -200,32 +220,35 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	 * 허용하며, 그 외의 상태에서는 {@link InvalidResourceStatusException}을 던진다. 시작 요청 후 내부
 	 * 기본 polling 주기 (500ms) 로 {@code STOPPED → STARTING} 전환을 먼저 확인하고,
 	 * {@code pollInterval}이 지정된 경우 그 주기로 {@code STARTING} 상태에서 벗어날 때까지 추가 대기한다.
+	 * <p>
+	 * 첫 단계({@code STOPPED → STARTING})는 {@code timeout}이 {@code null}이어도 {@link #DEFAULT_SUBMIT_TIMEOUT}을
+	 * 넘겨 기다리지 않는다(넘으면 {@link TimeoutException}). 2026-11-05 이전에는 {@code timeout}이 {@code null}이면
+	 * 시작 요청이 상태를 바꾸지 못할 때 영원히 기다렸다({@code PUT /instances/{id}/start}와 등록 시 auto-start가
+	 * {@code start(null, null)}을 부른다).
 	 */
 	@Override
 	public MDTInstanceStatus start(@Nullable Duration pollInterval, @Nullable Duration timeout)
 		throws TimeoutException, InterruptedException, InvalidResourceStatusException, ExecutionException {
-		MDTInstanceStatus status = getStatus();
-		if ( status != MDTInstanceStatus.STOPPED && status != MDTInstanceStatus.FAILED ) {
-			throw new InvalidResourceStatusException("MDTInstance", getId(), status);
+		// 시작할 수 있는 상태(STOPPED/FAILED)를 DB에서 원자적으로 STARTING으로 바꾼다. 동시에 두 번 시작하면
+		// 하나만 통과한다. 2026-11-05 이전에는 캐시된 상태로 검사한 뒤 무조건 STOPPED로 덮어썼고, 그 뒤
+		// STOPPED→STARTING 전이를 따로 기다리느라 timeout을 두 단계가 각자 써서 실제로는 두 배까지 기다렸다(D36).
+		MDTInstanceStatus previous = getInstanceManager().claimStart(getId());
+		try {
+			startAsync();
 		}
-
-		// FAILED 상태인 경우 시작 전에 STOPPED로 리셋한다.
-		// (이후 startAsync()가 STARTING으로 전이시킬 것이므로 polling 기준 시점을 통일하기 위함)
-		getInstanceManager().updateInstanceDescriptor(getId(), MDTInstanceStatus.STOPPED, null);
+		catch ( Exception e ) {
+			// 시작 요청 자체가 실패했으면(예: 지원하지 않는 백엔드) 원래 상태로 되돌린다.
+			getInstanceManager().releaseStartClaim(getId(), previous);
+			throw e;
+		}
 		
-		startAsync();
-		// STOPPED -> STARTING 전환을 대기. 정상 진행시 status는 STARTING이 되어야 함.
-		status = waitWhileStatus(state -> state == MDTInstanceStatus.STOPPED,
-								DEFAULT_POLL_INTERVAL, timeout);
-
-		// 대기가 필요하지 않거나 STARTING 상태가 아니라면 바로 반환함.
-		if ( pollInterval == null || status != MDTInstanceStatus.STARTING ) {
-			return status;
+		// pollInterval이 없으면 시작 요청 후 바로 반환한다(상태는 STARTING).
+		if ( pollInterval == null ) {
+			return reloadInstanceDescriptor().getStatus();
 		}
 
-		// STARTING 상태가 바뀔 때까지 시작 완료를 대기.
-		waitWhileStatus(state -> state == MDTInstanceStatus.STARTING, pollInterval, timeout);
-		return getStatus();
+		// STARTING 상태가 바뀔 때까지 시작 완료를 대기(제한 시간은 timeout 하나).
+		return waitWhileStatus(state -> state == MDTInstanceStatus.STARTING, pollInterval, timeout);
 	}
 
 	/**
@@ -240,15 +263,19 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public MDTInstanceStatus stop(@Nullable Duration pollInterval, @Nullable Duration timeout)
 		throws MDTInstanceManagerException, TimeoutException, InterruptedException, InvalidResourceStatusException {
-		MDTInstanceStatus status = getStatus();
+		// 캐시가 아니라 현재 상태로 검사한다(2026-11-05 이전에는 인스턴스 객체를 만들 때의 상태로 검사했다).
+		MDTInstanceStatus status = reloadInstanceDescriptor().getStatus();
 		if ( status != MDTInstanceStatus.STARTING && status != MDTInstanceStatus.RUNNING ) {
 			throw new InvalidResourceStatusException("MDTInstance", getId(), status);
 		}
 		
+		// 두 단계 대기가 마감 시각 하나를 나눠 쓴다(2026-11-05 이전에는 단계마다 timeout을 새로 써서 최대 두 배).
+		final long deadline = ( timeout != null ) ? System.nanoTime() + timeout.toNanos() : Long.MAX_VALUE;
 		stopAsync();
 		try {
 			// MDTInstance의 종료 작업이 시작될 때까지 대기한다.
-			status = waitWhileStatus(state -> state == MDTInstanceStatus.RUNNING, DEFAULT_POLL_INTERVAL, timeout);
+			status = waitWhileStatus(state -> state == MDTInstanceStatus.RUNNING, DEFAULT_POLL_INTERVAL,
+									toSubmitTimeout(remaining(deadline)));
 		}
 		catch ( ExecutionException e ) {
 			throw new MDTInstanceManagerException(e.getCause());
@@ -262,7 +289,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 		}
 		
 		try {
-			return waitWhileStatus(state -> state == MDTInstanceStatus.STOPPING, pollInterval, timeout);
+			return waitWhileStatus(state -> state == MDTInstanceStatus.STOPPING, pollInterval, remaining(deadline));
 		}
 		catch ( ExecutionException e ) {
 			throw new MDTInstanceManagerException(e.getCause());
@@ -334,23 +361,24 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	
 	@Override
 	public List<MDTInstance> getTargetInstanceAllOfDependency(String depType) {
-		MDTTwinCompositionDescriptor twinComp = m_manager.getTwinCompositionDescriptor(getId());
-		Map<String, MDTCompositionItem> itemMap = FStream.from(twinComp.getCompositionItems())
-																	.tagKey(MDTCompositionItem::getId)
-																	.toMap();
-
-		String myId = twinComp.getId();
-		return FStream.from(twinComp.getCompositionDependencies())
-						.filter(dep -> dep.getType().equals(depType) && dep.getSourceItem().equals(myId))
-						.mapNotNull(dep -> itemMap.get(dep.getTargetItem()))
-						.map(MDTCompositionItem::getReference)
-						.flatMapTry(aasId -> Try.of(() -> m_manager.getInstanceByAasId(aasId)))
-						.cast(MDTInstance.class)
-						.toList();
+		return findInstanceAllOfDependency(depType, MDTCompositionDependency::getSourceItem,
+											MDTCompositionDependency::getTargetItem);
 	}
 
 	@Override
 	public List<MDTInstance> getSourceInstanceAllOfDependency(String depType) {
+		return findInstanceAllOfDependency(depType, MDTCompositionDependency::getTargetItem,
+											MDTCompositionDependency::getSourceItem);
+	}
+
+	/**
+	 * 본 인스턴스가 {@code myEnd} 쪽인 {@code depType} 의존 관계의 {@code otherEnd} 쪽 인스턴스들을 찾는다.
+	 * <p>
+	 * 찾지 못한 인스턴스는 결과에서 빼고 WARN으로 남긴다(2026-11-07 이전에는 흔적 없이 버렸다, 검토 I11).
+	 */
+	private List<MDTInstance> findInstanceAllOfDependency(String depType,
+														Function<MDTCompositionDependency,String> myEnd,
+														Function<MDTCompositionDependency,String> otherEnd) {
 		MDTTwinCompositionDescriptor twinComp = m_manager.getTwinCompositionDescriptor(getId());
 		Map<String, MDTCompositionItem> itemMap = FStream.from(twinComp.getCompositionItems())
 																	.tagKey(MDTCompositionItem::getId)
@@ -358,12 +386,22 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 
 		String myId = twinComp.getId();
 		return FStream.from(twinComp.getCompositionDependencies())
-						.filter(dep -> dep.getType().equals(depType) && dep.getTargetItem().equals(myId))
-						.mapNotNull(dep -> itemMap.get(dep.getSourceItem()))
+						.filter(dep -> dep.getType().equals(depType) && myEnd.apply(dep).equals(myId))
+						.mapNotNull(dep -> itemMap.get(otherEnd.apply(dep)))
 						.map(MDTCompositionItem::getReference)
-						.flatMapTry(aasId -> Try.of(() -> m_manager.getInstanceByAasId(aasId)))
-						.cast(MDTInstance.class)
+						.mapNotNull(this::findInstanceByAasIdOrWarn)
 						.toList();
+	}
+
+	private @Nullable MDTInstance findInstanceByAasIdOrWarn(String aasId) {
+		try {
+			return m_manager.getInstanceByAasId(aasId);
+		}
+		catch ( Exception e ) {
+			getLogger().warn("failed to find a dependent MDTInstance: instance={}, aasId={}, cause={}",
+							getId(), aasId, "" + e);
+			return null;
+		}
 	}
 
 	/**

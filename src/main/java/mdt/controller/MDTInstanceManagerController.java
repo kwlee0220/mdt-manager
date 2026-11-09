@@ -1,9 +1,11 @@
 package mdt.controller;
 
+import static mdt.controller.JsonResponses.jsonOk;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.time.Duration;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -18,13 +20,13 @@ import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
+import org.jetbrains.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -50,7 +52,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-import utils.KeyValue;
 import utils.Throwables;
 import utils.func.Nullables;
 import utils.func.Try;
@@ -61,7 +62,6 @@ import utils.io.ZipFile;
 import utils.stream.FStream;
 
 import mdt.Globals;
-import mdt.client.instance.MDTModelSerDes;
 import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.JpaInstance;
 import mdt.instance.external.ExternalInstance;
@@ -71,10 +71,7 @@ import mdt.model.AASUtils;
 import mdt.model.InvalidResourceStatusException;
 import mdt.model.MDTModelSerDe;
 import mdt.model.ModelValidationException;
-import mdt.model.ResourceAlreadyExistsException;
-import mdt.model.ResourceException;
 import mdt.model.ResourceNotFoundException;
-import mdt.model.expr.LiteralExpr;
 import mdt.model.expr.MDTElementReferenceExpr;
 import mdt.model.expr.MDTExpression;
 import mdt.model.expr.MDTExpressionParser;
@@ -146,34 +143,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> getInstance(@PathVariable("id") String id) throws IOException {
     	JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
     	InstanceDescriptor instDesc = desc.toInstanceDescriptor();
-    	String json = MDTModelSerDes.toJson(instDesc);
-		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(json);
-    }
-
-    @Tag(name = "MDTInstance 모델 조회")
-    @Operation(summary = "MDTInstance의 연산 인자로 사용 가능한 Parameter 식별자 목록을 반환한다.")
-    @Parameters({
-    	@Parameter(name = "instance", description="대상 MDTInstance 식별자"),
-    	@Parameter(name = "operation", description="대상 연산 식별자")
-    })
-    @ApiResponses(value = {
-    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 Parameter 식별자 목록.",
-			content = {
-				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
-			}),
-    	@ApiResponse(responseCode="404",
-    		description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
-			content = {
-				@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
-			})
-    })
-    @GetMapping("/list/arguments")
-    @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<?> listCandidateArguments(@RequestParam(name="instance") String instId,
-    												@RequestParam(name="operation") String opId) {
-		String output = FStream.from(m_instanceManager.listParameterIds(instId))
-								.join(System.lineSeparator());
-    	return ResponseEntity.ok(output);
+    	String json = MDTModelSerDe.toJsonString(instDesc);
+		return jsonOk(json);
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -194,13 +165,11 @@ public class MDTInstanceManagerController implements InitializingBean {
     @GetMapping("/instances")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> getInstanceAll(@RequestParam(name="filter", required=false) String filter) {
-    	List<MDTInstance> matches = ( filter != null )
-					    					? m_instanceManager.getInstanceAllByFilter(filter)
-					    					: m_instanceManager.getInstanceAll();
+    	List<MDTInstance> matches = findInstances(filter);
 		List<InstanceDescriptor> descList = FStream.from(matches)
 													.map(MDTInstance::getInstanceDescriptor)
 													.toList();
-		return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(descList);
+		return jsonOk(MDTModelSerDe.toJsonString(descList));
     }
 
     @Tag(name = "MDTInstance 모델 조회")
@@ -220,22 +189,28 @@ public class MDTInstanceManagerController implements InitializingBean {
     @GetMapping("/instances/model")
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<?> getMDTModelAll(@RequestParam(name="filter", required=false) String filter) {
-    	List<MDTInstance> matches = ( filter != null )
-					    					? m_instanceManager.getInstanceAllByFilter(filter)
-					    					: m_instanceManager.getInstanceAll();
+    	List<MDTInstance> matches = findInstances(filter);
     	
     	List<MDTModel> models = Lists.newArrayList();
     	for ( JpaInstance instance: FStream.from(matches).cast(JpaInstance.class) ) {
-    		MDTModel model = new MDTModel(instance.getInstanceDescriptor());
-    		model.setSubmodels(instance.getMDTSubmodelDescriptorAll());
-    		model.setParameters(instance.getMDTParameterDescriptorAll());
-    		model.setOperations(instance.getMDTOperationDescriptorAll());
-    		model.setTwinComposition(instance.getMDTTwinCompositionDescriptor());
-    		
-    		models.add(model);
+    		models.add(toMDTModel(instance));
     	}
 		
-		return ResponseEntity.ok(models);
+		return jsonOk(MDTModelSerDe.toJsonString(models));
+    }
+
+    @Tag(name = "MDTInstance 관리")
+    @Operation(summary = "등록된 MDTInstance의 수를 반환한다.")
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode = "200", description = "성공",
+    				content = {@Content(mediaType = "text/plain", schema = @Schema(type = "integer"))})
+    })
+    @GetMapping("/instances/$count")
+    public ResponseEntity<String> countInstances() {
+    	// mdt-client HttpMDTInstanceManager.countInstances()가 부른다(2026-11-05 추가, 검토 D30).
+    	return ResponseEntity.ok()
+    						.contentType(MediaType.TEXT_PLAIN)
+    						.body(Long.toString(m_instanceManager.countInstances()));
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -267,38 +242,56 @@ public class MDTInstanceManagerController implements InitializingBean {
     							@RequestParam(name = "port", defaultValue = "-1") int port,
 								@RequestParam(name="bundle", required=true) MultipartFile zipFile)
 		throws IOException, ModelValidationException, MDTInstanceManagerException {
+    	// id는 bundle/instance 디렉터리 이름으로 쓰이므로 무엇보다 먼저 검사한다(잘못되면 400).
+    	AbstractJpaInstanceManager.checkInstanceId(id);
 		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
 		
-    	// 입력 받은 zip 파일을 풀어서 bundle directory를 생성한다.
-    	File bundleDir = buildBundle(id, zipFile);
+		// ADDING을 알린 뒤에는 어떤 실패든(번들 압축 해제 포함) ADD_FAILED로 끝나야 한다. 2026-11-05 이전에는 번들을
+		// 만드는 단계가 try 밖이라, 그 단계에서 실패하면 ADD_FAILED 없이 ADDING에 멈췄다.
+		boolean added = false;
+		File workDir = null;
     	try {
+	    	// 입력 받은 zip 파일을 요청마다 따로 만든 작업 디렉터리에 풀어 bundle 디렉터리를 만든다.
+    		workDir = Files.createTempDirectory(m_instanceManager.getBundlesDir().toPath(), id + "-").toFile();
+    		File bundleDir = buildBundle(workDir, zipFile);
+    		
 	    	// Bundle directory의 내용을 이용해서 InstanceDescriptor를 생성하여 등록하고,
     		// 이를 통해 MDTInstance를 생성한다.
     		MDTInstance inst = m_instanceManager.addInstance(id, port, bundleDir);
+    		added = true;
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
     		
-    		// auto-start 옵션이 설정되어 있으면, 바로 시작시킨다.
+    		// auto-start 옵션이 설정되어 있으면 바로 시작시킨다. 시작이 실패해도 등록은 이미 끝났으므로 201로
+    		// 응답하고, 실패는 인스턴스 상태(FAILED)와 로그로 알린다. 2026-11-05 이전에는 시작 실패를 등록 실패
+    		// (ADD_FAILED, 500)로 보고해, 다시 등록하면 409가 났다.
 			if ( m_instanceManager.getConfiguration().isAutoStart() ) {
 				s_logger.info("auto-starting the newly added MDTInstance: id={}", id);
-				inst.start(null, null);
+				try {
+					inst.start(null, null);
+				}
+				catch ( Exception e ) {
+					s_logger.warn("failed to auto-start the newly added MDTInstance: id={}, cause={}", id,
+									"" + Throwables.unwrapThrowable(e));
+				}
 			}
     		
-			String descJson = MDTModelSerDes.toJson(inst.getInstanceDescriptor());
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
-
-			return descJson;
+			return MDTModelSerDe.toJsonString(m_instanceManager.getInstance(id).getInstanceDescriptor());
     	}
-		catch ( IOException | ModelValidationException | MDTInstanceManagerException | ResourceException e ) {
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
+		catch ( IOException | RuntimeException e ) {
 			throw e;
 		}
-    	catch ( Throwable e ) {
-			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
-			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new MDTInstanceManagerException("failed to add MDTInstance: id=" + id, cause);
+    	catch ( Exception e ) {
+    		// Error는 감싸지 않고 그대로 전파된다(2026-11-05 이전에는 Throwable을 잡아 감쌌다).
+			throw new MDTInstanceManagerException("failed to add MDTInstance: id=" + id, Throwables.unwrapThrowable(e));
     	}
     	finally {
-	    	// bundle directory는 docker 이미지를 생성하고나서는 필요가 없기 때문에 제거한다.
-	    	Try.accept(bundleDir, FileUtils::deleteDirectory);
+    		if ( !added ) {
+    			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADD_FAILED(id));
+    		}
+	    	// 작업 디렉터리(업로드 zip, bundle)는 인스턴스 디렉터리로 복사·이동한 뒤에는 필요 없다.
+    		if ( workDir != null ) {
+    			Try.accept(workDir, FileUtils::deleteDirectory);
+    		}
     	}
     }
 
@@ -370,13 +363,10 @@ public class MDTInstanceManagerController implements InitializingBean {
     	throws IOException, InterruptedException, InvalidResourceStatusException, TimeoutException, ExecutionException {
     	JpaInstance inst = m_instanceManager.getInstance(id);
 
-		Duration pollInterval = null;
-		Duration timeout = null;
-		
-		inst.start(pollInterval, timeout);
+		inst.start(null, null);
 
 		JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
-		return ResponseEntity.ok(MDTModelSerDes.toJson(desc.toInstanceDescriptor()));
+		return jsonOk(MDTModelSerDe.toJsonString(desc.toInstanceDescriptor()));
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -413,7 +403,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     	inst.stop(null, null);
 
     	JpaInstanceDescriptor desc = m_instanceManager.getInstanceDescriptor(id);
-    	return ResponseEntity.ok(MDTModelSerDes.toJson(desc.toInstanceDescriptor()));
+    	return jsonOk(MDTModelSerDe.toJsonString(desc.toInstanceDescriptor()));
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -436,7 +426,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class),
 									mediaType="application/json")
 						}),
-    	@ApiResponse(responseCode="405",
+    	@ApiResponse(responseCode="501",
 					description="MDTInstanceManager가 ExternalInstanceManager가 아닌 경우.",
 					content = {
 							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class),
@@ -447,16 +437,15 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> registerInstance(@PathVariable("id") String id, @RequestBody String repoEndpoint)
     	throws InterruptedException, IOException {
     	if ( !(m_instanceManager instanceof ExternalInstanceManager) ) {
-			return ResponseEntity
-					.status(HttpStatus.METHOD_NOT_ALLOWED)
-					.body(RESTfulErrorEntity.ofMessage("MDTInstance registration is only supported for "
-									+ "ExternalInstanceManager: type=" + m_instanceManager.getClass().getName()));
+    		// 지원하지 않는 기능은 501이다(advice). 2026-11-05 이전에는 405(메소드 불일치용 코드)였다.
+    		throw new UnsupportedOperationException("MDTInstance registration is only supported for "
+								+ "ExternalInstanceManager: type=" + m_instanceManager.getClass().getName());
     	}
     	
     	ExternalInstanceManager extInstMgr = (ExternalInstanceManager)m_instanceManager;
     	ExternalInstance intance = extInstMgr.register(id, repoEndpoint);
 
-		return ResponseEntity.ok(MDTModelSerDes.toJson(intance.getInstanceDescriptor()));
+		return jsonOk(MDTModelSerDe.toJsonString(intance.getInstanceDescriptor()));
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -472,7 +461,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class),
 									mediaType="application/json")
 						}),
-    	@ApiResponse(responseCode="405",
+    	@ApiResponse(responseCode="501",
 					description="MDTInstanceManager가 ExternalInstanceManager가 아닌 경우.",
 					content = {
 							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class),
@@ -487,10 +476,9 @@ public class MDTInstanceManagerController implements InitializingBean {
 	    	return ResponseEntity.noContent().build();
 		}
 		else {
-			return ResponseEntity
-						.status(HttpStatus.METHOD_NOT_ALLOWED)
-						.body(RESTfulErrorEntity.ofMessage("MDTInstance registration is only supported for "
-										+ "ExternalInstanceManager: type=" + m_instanceManager.getClass().getName()));
+    		// 2026-11-05 이전에는 405였고, 메시지가 "registration"으로 복사되어 있었다.
+			throw new UnsupportedOperationException("MDTInstance unregistration is only supported for "
+								+ "ExternalInstanceManager: type=" + m_instanceManager.getClass().getName());
 		}
     }
 
@@ -512,17 +500,10 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping("/instances/{id}/model")
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<?> getMDTModel(@PathVariable("id") String id) throws JsonProcessingException {
+    public ResponseEntity<?> getMDTModel(@PathVariable("id") String id) {
 		JpaInstance instance = m_instanceManager.getInstance(id);
 		
-		MDTModel model = new MDTModel(instance.getInstanceDescriptor());
-		model.setSubmodels(instance.getMDTSubmodelDescriptorAll());
-		model.setParameters(instance.getMDTParameterDescriptorAll());
-		model.setOperations(instance.getMDTOperationDescriptorAll());
-		model.setTwinComposition(instance.getMDTTwinCompositionDescriptor());
-		
-		String json = MDTModelSerDe.MAPPER.writeValueAsString(model);
-		return ResponseEntity.ok(json);
+		return jsonOk(MDTModelSerDe.toJsonString(toMDTModel(instance)));
     }
     
     @Tag(name = "MDTInstance 모델 조회")
@@ -547,7 +528,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		JpaInstance instance = m_instanceManager.getInstance(id);
 		List<MDTSubmodelDescriptor> submodels = instance.getMDTSubmodelDescriptorAll();
 		String json = SERIALIZER.write(submodels);
-		return ResponseEntity.ok(json);
+		return jsonOk(json);
     }
 
     @Tag(name = "MDTInstance 모델 조회")
@@ -573,7 +554,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> getMDTModelParameters(@PathVariable("id") String id) throws SerializationException {
 		JpaInstance instance = m_instanceManager.getInstance(id);
 		List<MDTParameterDescriptor> parameters = instance.getMDTParameterDescriptorAll();
-		return ResponseEntity.ok(SERIALIZER.writeList(parameters));
+		return jsonOk(SERIALIZER.writeList(parameters));
     }
 
     @Tag(name = "MDTInstance 모델 조회")
@@ -598,7 +579,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> getMDTModelOperations(@PathVariable("id") String id) throws SerializationException {
 		JpaInstance instance = m_instanceManager.getInstance(id);
 		List<MDTOperationDescriptor> operations = instance.getMDTOperationDescriptorAll();
-		return ResponseEntity.ok(SERIALIZER.writeList(operations));
+		return jsonOk(SERIALIZER.writeList(operations));
     }
 
     @Tag(name = "MDTInstance 모델 조회")
@@ -623,7 +604,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> getMDTModelCompositions(@PathVariable("id") String id) throws SerializationException {
 		JpaInstance instance = m_instanceManager.getInstance(id);
 		MDTTwinCompositionDescriptor twinComp = instance.getMDTTwinCompositionDescriptor();
-		return ResponseEntity.ok(SERIALIZER.write(twinComp));
+		return jsonOk(SERIALIZER.write(twinComp));
     }
 
     @Tag(name = "MDTInstance 모델 조회")
@@ -644,9 +625,13 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping({"instances/{id}/aas/shell_descriptor"})
     @ResponseStatus(HttpStatus.OK)
-    public AssetAdministrationShellDescriptor getAssetAdministrationShell(@PathVariable("id") String id)
+    public ResponseEntity<String> getAssetAdministrationShell(@PathVariable("id") String id)
     	throws SerializationException {
-		return m_instanceManager.getInstance(id).getAASShellDescriptor();
+    	// AAS4J 객체는 AAS JSON 직렬화기로 쓴다(클라이언트가 AAS4J로 읽는다). 2026-11-05 이전에는 객체를 그대로
+    	// 돌려 Spring 기본 매퍼가 enum을 "INSTANCE"·"GLOBAL_REFERENCE", 필드를 "_interface"로 써서 클라이언트가
+    	// 제대로 읽지 못했다(검토 D32).
+    	AssetAdministrationShellDescriptor desc = m_instanceManager.getInstance(id).getAASShellDescriptor();
+		return jsonOk(MDTModelSerDe.getJsonSerializer().write(desc));
     }
 
     @Tag(name = "MDTInstance 모델 조회")
@@ -668,9 +653,11 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping({"instances/{id}/aas/submodel_descriptors"})
     @ResponseStatus(HttpStatus.OK)
-    public List<SubmodelDescriptor> getSubmodelDescriptors(@PathVariable("id") String id)
+    public ResponseEntity<String> getSubmodelDescriptors(@PathVariable("id") String id)
     	throws SerializationException {
-		return m_instanceManager.getInstance(id).getAASSubmodelDescriptorAll();
+    	// getAssetAdministrationShell()과 같은 이유로 AAS JSON 직렬화기로 쓴다(검토 D32).
+    	List<SubmodelDescriptor> descList = m_instanceManager.getInstance(id).getAASSubmodelDescriptorAll();
+		return jsonOk(MDTModelSerDe.getJsonSerializer().writeList(descList));
     }
 
     @Tag(name = "MDTInstance 관리")
@@ -728,32 +715,18 @@ public class MDTInstanceManagerController implements InitializingBean {
 					})
     })
     @GetMapping("/submodel-element")
-    public ResponseEntity<?> readElementOfReference(@RequestParam("ref") String refString) {
+    public ResponseEntity<?> readElementOfReference(@RequestParam("ref") String refString) throws Exception {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
-        	public ResponseEntity<?> handle(MDTElementReference ref) {
-        		try {
-					SubmodelElement sme = ref.read();
-					return ResponseEntity.ok()
-										.contentType(MediaType.APPLICATION_JSON)
-										.body(MDTModelSerDe.toJsonString(sme));
-				}
-				catch ( Throwable e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+				SubmodelElement sme = ref.read();
+				return jsonOk(MDTModelSerDe.toJsonString(sme));
     		}
     		
     		@Override
-        	public ResponseEntity<?> handle(DefaultSubmodelReference ref) {
-    			try {
-					Submodel sm = ref.get().getSubmodel();
-					return ResponseEntity.ok()
-										.contentType(MediaType.APPLICATION_JSON)
-										.body(MDTModelSerDe.toJsonString(sm));
-				}
-				catch ( Throwable e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(DefaultSubmodelReference ref) throws Exception {
+				Submodel sm = ref.get().getSubmodel();
+				return jsonOk(MDTModelSerDe.toJsonString(sm));
         	}
     	});
     }
@@ -782,21 +755,15 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @PutMapping("/submodel-element")
     public ResponseEntity<?> updateElementOfReference(@RequestParam("ref") String refString,
-														@RequestBody String newElementJson) throws IOException {
+														@RequestBody String newElementJson) throws Exception {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
-        	public ResponseEntity<?> handle(MDTElementReference ref) {
-    			try {
-					SubmodelElement newElement = MDTModelSerDe.readValue(newElementJson, SubmodelElement.class);
-					ElementValue smev = ElementValues.getValue(newElement);
-					
-					ref.activate(m_instanceManager);
-					ref.updateValue(smev);
-					return ResponseEntity.noContent().build();
-				}
-				catch ( Throwable e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+				SubmodelElement newElement = MDTModelSerDe.readValue(newElementJson, SubmodelElement.class);
+				ElementValue smev = ElementValues.getValue(newElement);
+				
+				ref.updateValue(smev);
+				return ResponseEntity.noContent().build();
     		}
     	});
     }
@@ -823,18 +790,13 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
     })
     @GetMapping("/submodel-element/$value")
-    public ResponseEntity<?> readElementValueOfReference(@RequestParam("ref") String refString) {
+    public ResponseEntity<?> readElementValueOfReference(@RequestParam("ref") String refString) throws Exception {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
-        	public ResponseEntity<?> handle(MDTElementReference ref) {
-        		try {
-					ElementValue smev = ref.readValue();
-					String jsonStr = smev.toJsonString();
-					return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(jsonStr);
-				}
-				catch ( IOException e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+				ElementValue smev = ref.readValue();
+				String jsonStr = smev.toJsonString();
+				return jsonOk(jsonStr);
     		}
     	});
     }
@@ -861,18 +823,13 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
     })
     @GetMapping("/submodel-element/$raw")
-    public ResponseEntity<?> readRawObjectOfReference(@RequestParam("ref") String refString) {
+    public ResponseEntity<?> readRawObjectOfReference(@RequestParam("ref") String refString) throws Exception {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
-        	public ResponseEntity<?> handle(MDTElementReference ref) {
-        		try {
-					ElementValue smev = ref.readValue();
-					String result = Nullables.mapOrElse(smev, ElementValue::toValueJsonString, "");
-					return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result);
-				}
-				catch ( IOException e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+				ElementValue smev = ref.readValue();
+				String result = Nullables.mapOrElse(smev, ElementValue::toValueJsonString, "");
+				return jsonOk(result);
     		}
     	});
     }
@@ -903,17 +860,12 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @PatchMapping("/submodel-element/$raw")
     public ResponseEntity<?> updateRawObjectOfReference(@RequestParam("ref") String refString,
-															@RequestBody String newElementValueJson) throws IOException {
+															@RequestBody String newElementValueJson) throws Exception {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
-        	public ResponseEntity<?> handle(MDTElementReference ref) {
-    			try {
-					ref.updateFromValueJson(newElementValueJson);
-					return ResponseEntity.noContent().build();
-				}
-				catch ( IOException e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+				ref.updateFromValueJson(newElementValueJson);
+				return ResponseEntity.noContent().build();
     		}
     	});
     }
@@ -945,18 +897,13 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @PatchMapping("/submodel-element/$value")
     public ResponseEntity<?> updateElementValueOfReference(@RequestParam("ref") String refString,
-															@RequestBody String newElementValueJson) throws IOException {
+															@RequestBody String newElementValueJson) throws Exception {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
-        	public ResponseEntity<?> handle(MDTElementReference ref) {
-    			try {
-    				ElementValue newValue = ElementValues.parseJsonString(newElementValueJson);
-					ref.updateValue(newValue);
-					return ResponseEntity.noContent().build();
-				}
-				catch ( IOException e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+    			ElementValue newValue = ElementValues.parseJsonString(newElementValueJson);
+				ref.updateValue(newValue);
+				return ResponseEntity.noContent().build();
     		}
     	});
     }
@@ -989,42 +936,30 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
     })
     @GetMapping("/references/$url")
-    public ResponseEntity<?> getReferenceUrl(@RequestParam(name="ref", required=true) String refString) {
+    public ResponseEntity<?> getReferenceUrl(@RequestParam(name="ref", required=true) String refString) throws Exception {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
-        	public ResponseEntity<?> handle(MDTElementReference ref) {
-    			try {
-					SubmodelBasedElementReference smbeRef = (SubmodelBasedElementReference)ref;
-					// 'getSubmodelId'를 호출하기 위해서는 smbeRef가 activated 되어 있어야 한다.
-					smbeRef.activate(m_instanceManager);
-					String instId = ref.getInstanceId();
-					String smId = smbeRef.getSubmodelReference().getSubmodelId();
-					String idShortPath = smbeRef.getIdShortPathString();
-					String baseEp = m_instanceManager.getInstanceDescriptor(instId).getBaseEndpoint();
-					String reqUrl = String.format("%s/submodels/%s/submodel-elements/%s",
-													baseEp, AASUtils.encodeBase64UrlSafe(smId),
-													AASUtils.encodeIdShortPath(idShortPath));
-					
-					return ResponseEntity.ok(reqUrl);
-				}
-				catch ( ResourceNotFoundException e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+				SubmodelBasedElementReference smbeRef = (SubmodelBasedElementReference)ref;
+				String instId = ref.getInstanceId();
+				String smId = smbeRef.getSubmodelReference().getSubmodelId();
+				String idShortPath = smbeRef.getIdShortPathString();
+				String baseEp = m_instanceManager.getInstanceDescriptor(instId).getBaseEndpoint();
+				String reqUrl = String.format("%s/submodels/%s/submodel-elements/%s",
+												baseEp, AASUtils.encodeBase64UrlSafe(smId),
+												AASUtils.encodeIdShortPath(idShortPath));
+				
+				return ResponseEntity.ok(reqUrl);
     		}
     		
     		@Override
-        	public ResponseEntity<?> handle(DefaultSubmodelReference ref) {
-    			try {
-	        		String instId = ref.getInstanceId();
-	        		String smId = ref.getSubmodelId();
-	        		String baseEp = m_instanceManager.getInstanceDescriptor(instId).getBaseEndpoint();
-	    			String reqUrl = String.format("%s/submodels/%s", baseEp, AASUtils.encodeBase64UrlSafe(smId));
-	        		
-	    			return ResponseEntity.ok(reqUrl);
-				}
-				catch ( ResourceNotFoundException e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(DefaultSubmodelReference ref) throws Exception {
+        		String instId = ref.getInstanceId();
+        		String smId = ref.getSubmodelId();
+        		String baseEp = m_instanceManager.getInstanceDescriptor(instId).getBaseEndpoint();
+    			String reqUrl = String.format("%s/submodels/%s", baseEp, AASUtils.encodeBase64UrlSafe(smId));
+        		
+    			return ResponseEntity.ok(reqUrl);
         	}
     	});
     }
@@ -1051,30 +986,16 @@ public class MDTInstanceManagerController implements InitializingBean {
     	@ApiResponse(responseCode="500", description="참조 표현식 파싱 과정에서 오류가 발생된 경우.")
     })
     @GetMapping("/references/$json")
-    public ResponseEntity<?> getReferenceJson(@RequestParam("ref") String refString) {
+    public ResponseEntity<?> getReferenceJson(@RequestParam("ref") String refString) throws Exception {
     	return handleReference(refString, new ReferenceHandler() {
     		@Override
-        	public ResponseEntity<?> handle(MDTElementReference ref) {
-				try {
-					return ResponseEntity.ok()
-										.contentType(MediaType.APPLICATION_JSON)
-										.body(MDTModelSerDe.toJsonString(ref));
-				}
-				catch ( Exception e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+				return jsonOk(MDTModelSerDe.toJsonString(ref));
     		}
     		
     		@Override
-        	public ResponseEntity<?> handle(DefaultSubmodelReference ref) {
-				try {
-					return ResponseEntity.ok()
-										.contentType(MediaType.APPLICATION_JSON)
-										.body(MDTModelSerDe.toJsonString(ref));
-				}
-				catch ( Exception e ) {
-					return toHandleReferenceException(e, refString);
-				}
+        	public ResponseEntity<?> handle(DefaultSubmodelReference ref) throws Exception {
+				return jsonOk(MDTModelSerDe.toJsonString(ref));
         	}
     	});
     }
@@ -1116,7 +1037,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     										@RequestParam(name="value", required = false) String valueString,
     										@RequestParam(name="taskOutput", required = false) String taskOutputString,
     										@RequestParam(name="name", required=false) String argName,
-											@RequestParam(name="description", required=false) String argDesc) {
+											@RequestParam(name="description", required=false) String argDesc) throws Exception {
     	if ( argId == null || argId.isEmpty() ) {
 			return ResponseEntity.badRequest()
 								.body(RESTfulErrorEntity.ofMessage("Argument 'id' must be specified."));
@@ -1129,22 +1050,15 @@ public class MDTInstanceManagerController implements InitializingBean {
     	if ( refString != null ) {
         	return handleReference(refString, new ReferenceHandler() {
         		@Override
-            	public ResponseEntity<?> handle(MDTElementReference ref) {
-    				try {
-    					ReferenceArgument arg = ReferenceArgument.builder()
-										    					.id(argId)
-										    					.name(argName)
-										    					.description(argDesc)
-										    					.reference(refString)
-						    									.build();
-    					String json = arg.toJsonString();
-    					return ResponseEntity.ok()
-    										.contentType(MediaType.APPLICATION_JSON)
-    										.body(json);
-					}
-					catch ( Exception e ) {
-						return toHandleReferenceException(e, refString);
-					}
+            	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception {
+    				ReferenceArgument arg = ReferenceArgument.builder()
+									    					.id(argId)
+									    					.name(argName)
+									    					.description(argDesc)
+									    					.reference(refString)
+					    									.build();
+    				String json = arg.toJsonString();
+    				return jsonOk(json);
         		}
         	});
 		}
@@ -1167,9 +1081,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 												.value(value)
 												.build();
 			String json = arg.toJsonString();
-			return ResponseEntity.ok()
-								.contentType(MediaType.APPLICATION_JSON)
-								.body(json);
+			return jsonOk(json);
 		}
 		else if ( taskOutputString != null ) {
 			String[] parts = taskOutputString.split(":");
@@ -1185,9 +1097,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 														.argumentName(parts[1])
 														.build();
 			String json = arg.toJsonString();
-			return ResponseEntity.ok()
-								.contentType(MediaType.APPLICATION_JSON)
-								.body(json);
+			return jsonOk(json);
 
 		}
 		else {
@@ -1237,9 +1147,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     		Map<String,String> respMsg = Map.of("referenceString", smbeRef.toStringExpr(),
     											"serviceUrl", smbeRef.getServiceUrl());
     		String respJson = MDTModelSerDe.MAPPER.writeValueAsString(respMsg);
-			return ResponseEntity.ok()
-									.contentType(MediaType.APPLICATION_JSON)
-									.body(respJson);
+			return jsonOk(respJson);
 		}
 		else {
 			String msg = String.format("Unexpected reference type: %s", ref.getClass().getName());
@@ -1247,33 +1155,28 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
     }
     
-    private ResponseEntity<?> toHandleReferenceException(Throwable error, String refString) {
-		Throwable cause = Throwables.unwrapThrowable(error);
-		if ( cause instanceof ResourceNotFoundException ) {
-			String msg = String.format("No such resource: ref=%s, cause=%s",
-										refString, cause.getMessage());
-			return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(msg, cause));
-		}
-		else if ( cause instanceof InvalidResourceStatusException ) {
-			String msg = String.format("Unacceptable reference status: ref=%s, cause=%s",
-										refString, cause.getMessage());
-			return ResponseEntity.status(HttpStatus.CONFLICT).body(RESTfulErrorEntity.of(msg, cause));
-		}
-		else {
-			String msg = String.format("Failed to handle element reference: ref=%s, cause=%s",
-										refString, cause.getMessage());
-			return ResponseEntity.internalServerError().body(RESTfulErrorEntity.of(msg, cause));
-		}
+    private List<MDTInstance> findInstances(@Nullable String filter) {
+    	return ( filter != null ) ? m_instanceManager.getInstanceAllByFilter(filter)
+    								: m_instanceManager.getInstanceAll();
+    }
+    
+    private static MDTModel toMDTModel(JpaInstance instance) {
+    	MDTModel model = new MDTModel(instance.getInstanceDescriptor());
+    	model.setSubmodels(instance.getMDTSubmodelDescriptorAll());
+    	model.setParameters(instance.getMDTParameterDescriptorAll());
+    	model.setOperations(instance.getMDTOperationDescriptorAll());
+    	model.setTwinComposition(instance.getMDTTwinCompositionDescriptor());
+    	return model;
     }
     
     public interface ReferenceHandler {
-    	public ResponseEntity<?> handle(MDTElementReference ref);
-    	default public ResponseEntity<?> handle(DefaultSubmodelReference ref) {
+    	public ResponseEntity<?> handle(MDTElementReference ref) throws Exception;
+    	default public ResponseEntity<?> handle(DefaultSubmodelReference ref) throws Exception {
 			String msg = String.format("SubmodelReference is not supported for value: expr=%s", ref.toStringExpr());
 			return ResponseEntity.badRequest().body(RESTfulErrorEntity.ofMessage(msg));
     	}
     };
-    private ResponseEntity<?> handleReference(String refString, ReferenceHandler handler) {
+    private ResponseEntity<?> handleReference(String refString, ReferenceHandler handler) throws Exception {
 		Object ref = parseExpression(refString);
 		if ( ref instanceof MDTElementReference elmRef ) {
 			elmRef.activate(m_instanceManager);
@@ -1289,41 +1192,19 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
     }
     
-    @ExceptionHandler()
-    public ResponseEntity<RESTfulErrorEntity> handleException(Exception e) {
-    	if ( e instanceof ExecutionException ) {
-    		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(RESTfulErrorEntity.of(e));
-    	}
-    	
-		Throwable cause = Throwables.unwrapThrowable(e);
-
-    	if ( cause instanceof ResourceNotFoundException ) {
-    		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(RESTfulErrorEntity.of(cause));
-    	}
-    	else if ( cause instanceof ResourceAlreadyExistsException ) {
-    		return ResponseEntity.status(HttpStatus.CONFLICT).body(RESTfulErrorEntity.of(cause));
-    	}
-    	else if ( cause instanceof InvalidResourceStatusException ) {
-    		return ResponseEntity.status(HttpStatus.CONFLICT).body(RESTfulErrorEntity.of(cause));
-    	}
-    	else if ( cause instanceof IllegalArgumentException ) {
-    		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(RESTfulErrorEntity.of(cause));
-    	}
-    	else if ( cause instanceof TimeoutException ) {
-    		return ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).body(RESTfulErrorEntity.of(cause));
-    	}
-    	else {
-    		s_logger.error("Internal server error: ", cause);
-    		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR) .body(RESTfulErrorEntity.of(cause));
-    	}
-    }
-    
     private Object parseExpression(String refString) {
-		MDTExpression expr = MDTExpressionParser.parseExpr(refString);
+		MDTExpression expr;
+		try {
+			expr = MDTExpressionParser.parseExpr(refString);
+		}
+		catch ( MDTParserException e ) {
+			// 참조 표현식 문법 오류는 요청의 오류다(400). 2026-11-05 이전에는 500이었다.
+			throw new IllegalArgumentException("invalid reference expression: '" + refString + "', cause="
+												+ e.getMessage(), e);
+		}
 		if ( expr instanceof MDTElementReferenceExpr refExpr ) {
 			try {
 				MDTElementReference ref = refExpr.evaluate();
-//				ref.activate(m_instanceManager);
 				return ref;
 			}
 			catch ( ResourceNotFoundException | InvalidResourceStatusException e ) {
@@ -1337,12 +1218,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
 		else if ( expr instanceof MDTSubmodelExpr smExpr ) {
 			DefaultSubmodelReference smRef = smExpr.evaluate();
-//			smRef.activate(m_instanceManager);
 			return smRef;
-		}
-		else if ( expr instanceof LiteralExpr litExpr ) {
-			ElementValue literal = litExpr.evaluate();
-			return literal;
 		}
 		else {
 			String msg = String.format("Unexpected reference expression: expr=%s", refString);
@@ -1350,35 +1226,31 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
     }
     
-    private File buildBundle(String id, MultipartFile zippedBundle) throws IOException {
-    	File bundlesDir = m_instanceManager.getBundlesDir();
-    	File bundleDir = new File(bundlesDir, id).getCanonicalFile();
-    	// 'id'에 '..'나 경로 구분자가 포함되어 bundles 디렉토리를 벗어나는 것을 막는다. (path-traversal 방지)
-    	if ( !bundleDir.toPath().startsWith(bundlesDir.getCanonicalFile().toPath()) ) {
-    		throw new IllegalArgumentException("invalid MDTInstance id: " + id);
-    	}
-
-		// 동일 이름의 directory가 존재할 수도 있기 때문에 해당 디렉토리가 있으면 삭제한다.
-		FileUtils.deleteDirectory(bundleDir);
-
-    	// 입력 bundle zip파일의 압축을 푼다.
-		File zippedBundleFile = downloadFile(bundlesDir,
-											zippedBundle.getOriginalFilename(), zippedBundle);
-		new ZipFile(zippedBundleFile.toPath()).unzip(bundleDir.toPath());
-		zippedBundleFile.delete();
-		
+    /**
+     * 업로드된 bundle zip을 {@code workDir}에 저장하고 {@code workDir/bundle}에 압축을 푼다.
+     * <p>
+     * {@code workDir}은 요청마다 새로 만든 디렉터리라, 같은 id로 동시에 요청해도 서로의 파일을 건드리지 않는다.
+     * 업로드 파일 이름은 쓰지 않는다. 2026-11-05 이전에는 {@code <bundlesDir>/<원래 파일 이름>}과
+     * {@code <bundlesDir>/<id>}를 요청끼리 공유해, 동시 요청·중복 요청이 진행 중인 요청의 bundle을 지웠고, 압축 해제가
+     * 실패하면 zip이 남았으며, 파일 이름이 없으면 NPE가 났다.
+     *
+     * @param workDir		요청 전용 작업 디렉터리.
+     * @param zippedBundle	업로드된 bundle zip.
+     * @return	압축을 푼 bundle 디렉터리.
+     */
+    private File buildBundle(File workDir, MultipartFile zippedBundle) throws IOException {
+    	File zipFile = new File(workDir, "bundle.zip");
+		try ( InputStream is = zippedBundle.getInputStream() ) {
+			IOUtils.toFile(is, zipFile);
+		}
+		File bundleDir = new File(workDir, "bundle");
+		try {
+			new ZipFile(zipFile.toPath()).unzip(bundleDir.toPath());
+		}
+		catch ( java.util.zip.ZipException e ) {
+			// 올바른 zip이 아닌 업로드는 요청의 오류다(400).
+			throw new IllegalArgumentException("invalid bundle zip: " + e.getMessage(), e);
+		}
 		return bundleDir;
-    }
-
-    private File downloadFile(File topDir, String fileName, MultipartFile mpf) throws IOException {
-		// 업로드된 파일 이름은 신뢰할 수 없으므로 topDir를 벗어나는 경로를 거부한다. (path-traversal 방지)
-		File file = new File(topDir, fileName).getCanonicalFile();
-		if ( !file.toPath().startsWith(topDir.getCanonicalFile().toPath()) ) {
-			throw new IllegalArgumentException("invalid upload file name: " + fileName);
-		}
-		try ( InputStream is = mpf.getInputStream() ) {
-			IOUtils.toFile(is, file);
-		}
-		return file;
     }
 }

@@ -5,27 +5,31 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShell;
 import org.eclipse.digitaltwin.aas4j.v3.model.AssetAdministrationShellDescriptor;
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
 import org.hibernate.exception.ConstraintViolationException;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.eventbus.Subscribe;
 
+import jakarta.annotation.PreDestroy;
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 
 import utils.LoggerSettable;
 import utils.func.Nullables;
-import utils.func.Try;
 import utils.func.Unchecked;
 import utils.io.FileUtils;
 import utils.jpa.JpaProcessor;
@@ -40,7 +44,6 @@ import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.instance.jpa.JpaMDTOperationDescriptor;
 import mdt.instance.jpa.JpaMDTParameterDescriptor;
 import mdt.instance.jpa.JpaMDTSubmodelDescriptor;
-import mdt.instance.k8s.KubernetesInstanceManager;
 import mdt.model.AASUtils;
 import mdt.model.InvalidResourceStatusException;
 import mdt.model.MDTModelSerDe;
@@ -122,41 +125,31 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		return m_serviceFact;
 	}
 	
+	/**
+	 * 매니저가 쓰던 자원을 정리한다: EventBus 구독 해제, MQTT 상태 발행 서비스 중지.
+	 * <p>
+	 * Spring 컨텍스트가 닫힐 때 {@code @PreDestroy}로 불린다. 하위 클래스가 재정의하면 자기 자원(실행 중인 프로세스,
+	 * health check 등)을 먼저 정리한 뒤 {@code super.shutdown()}을 불러야 한다. 2026-11-05 이전에는 비어 있었고,
+	 * 생성자가 시작한 MQTT 연결과 EventBus 구독이 남았다.
+	 */
+	@PreDestroy
 	public void shutdown() {
+		getLogger().info("shutting down {}...", getClass().getSimpleName());
+		
+		Unchecked.runOrIgnore(() -> Globals.EVENT_BUS.unregister(this));
+		if ( m_mqttEventPublisher != null ) {
+			Unchecked.runOrIgnore(() -> Globals.EVENT_BUS.unregister(m_mqttEventPublisher));
+			try {
+				m_mqttEventPublisher.stopAsync().awaitTerminated(SHUTDOWN_TIMEOUT);
+			}
+			catch ( Exception e ) {
+				getLogger().warn("failed to stop the MQTT status publisher: cause={}", "" + e);
+			}
+		}
 	}
-//	public void shutdown() {
-//		if ( getLogger().isInfoEnabled() ) {
-//			getLogger().info("Shutting down MDTInstanceManager...");
-//		}
-//		
-//		List<AbstractInstance> stoppings = Lists.newArrayList();
-//		for ( MDTInstance inst: getAllInstances() ) {
-//			if ( inst.getStatus() == MDTInstanceStatus.RUNNING ) {
-//				if ( getLogger().isInfoEnabled() ) {
-//					getLogger().info("stopping: {}", inst);
-//				}
-//				stoppings.add((AbstractInstance)inst);
-//				Try.run(() -> inst.stop(null, null));
-//			}
-//		}
-//		Predicate<MDTInstanceStatus> whileStopping = status -> status == MDTInstanceStatus.STOPPING;
-//		for ( AbstractInstance inst: stoppings ) {
-//			try {
-//				AbstractInstance stopping = inst.reload();
-//				if ( stopping.getStatus() == MDTInstanceStatus.STOPPING ) {
-//					StateChangePoller.pollWhile(() -> whileStopping.test(stopping.reload().getStatus()))
-//									.interval(Duration.ofMillis(100))
-//									.timeout(Duration.ofSeconds(2))
-//									.build()
-//									.run();
-//				}
-//			}
-//			catch ( Exception e ) { }
-//		}
-//		if ( getLogger().isInfoEnabled() ) {
-//			getLogger().info("stopped all MDtInstances");
-//		}
-//	}
+	
+	/** {@link #shutdown()}에서 각 서비스가 끝나기를 기다리는 최대 시간. */
+	protected static final java.time.Duration SHUTDOWN_TIMEOUT = java.time.Duration.ofSeconds(5);
 	
 	public MDTInstanceManagerConfiguration getConfiguration() {
 		return m_conf;
@@ -166,16 +159,61 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		return m_conf.getHomeDir();
 	}
 	
+	/**
+	 * MDTInstance 식별자 규칙: 영문자·숫자·{@code _}·{@code -}로 된 1~64자.
+	 * <p>
+	 * 식별자는 {@code <instancesDir>/<id>}, {@code <bundlesDir>/<id>} 디렉터리 이름으로 쓰이므로 경로 구분자나
+	 * {@code .}/{@code ..}를 허용하지 않는다. 길이 상한은 DB 컬럼({@code instance_id}, 64자)과 같다.
+	 */
+	public static final Pattern INSTANCE_ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
+	
+	/**
+	 * 주어진 문자열이 MDTInstance 식별자 규칙({@link #INSTANCE_ID_PATTERN})에 맞는지 확인한다.
+	 *
+	 * @param id	검사할 식별자.
+	 * @return	{@code id}.
+	 * @throws IllegalArgumentException	{@code id}가 null이거나 규칙에 맞지 않는 경우.
+	 */
+	public static String checkInstanceId(String id) {
+		Preconditions.checkArgument(id != null, "MDTInstance id is null");
+		Preconditions.checkArgument(INSTANCE_ID_PATTERN.matcher(id).matches(),
+									"invalid MDTInstance id (allowed: [A-Za-z0-9_-], 1~64 chars): '%s'", id);
+		return id;
+	}
+	
+	/**
+	 * 주어진 id의 인스턴스가 아직 등록되지 않았는지 확인한다.
+	 * <p>
+	 * 각 백엔드의 {@code addInstance}는 인스턴스 디렉터리를 지우고 새 번들을 복사한 뒤 DB에 등록한다. 그래서 이 확인 없이
+	 * 이미 있는 id로 등록하면, DB 등록은 실패(409)해도 기존 인스턴스의 파일이 새 번들로 바뀌었다(2026-11-05 이전).
+	 *
+	 * @param id	인스턴스 id.
+	 * @throws ResourceAlreadyExistsException	이미 등록된 경우.
+	 */
+	protected void checkNotRegistered(String id) throws ResourceAlreadyExistsException {
+		if ( m_repos.instances().findByInstanceId(id).isPresent() ) {
+			throw new ResourceAlreadyExistsException("MDTInstance", "id=" + id);
+		}
+	}
+	
+	/**
+	 * MDTInstance의 홈 디렉터리 {@code <instancesDir>/<id>}를 반환한다.
+	 * <p>
+	 * 2026-11-05 이전에는 id를 검사하지 않아, id가 {@code ""}/{@code "."}이면 instances 디렉터리 자신이 되어
+	 * 등록·삭제 때 instances 디렉터리 전체가 지워질 수 있었다.
+	 *
+	 * @throws IllegalArgumentException	{@code id}가 식별자 규칙({@link #INSTANCE_ID_PATTERN})에 맞지 않는 경우.
+	 */
 	public File getInstanceHomeDir(String id) {
-		return FileUtils.path(getInstancesDir(), id);
+		return FileUtils.path(getInstancesDir(), checkInstanceId(id));
 	}
 	
 	public File getInstancesDir() {
-		return Nullables.orGet(m_conf.getInstancesDir(), () -> FileUtils.path(getHomeDir(), "instances"));
+		return m_conf.getInstancesDir();
 	}
 	
 	public File getBundlesDir() {
-		return Nullables.orGet(m_conf.getBundlesDir(), () -> FileUtils.path(getHomeDir(), "bundles"));
+		return m_conf.getBundlesDir();
 	}
 	
 	public JpaInstanceDescriptor getInstanceDescriptor(String instanceId) throws ResourceNotFoundException {
@@ -196,8 +234,20 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	@Override
 	public List<MDTInstance> getInstanceAll() throws MDTInstanceManagerException {
 		return List.copyOf(FStream.from(m_repos.instances().findAll())
-									.map(desc -> (MDTInstance)toInstance(desc))
+									.map(desc -> (MDTInstance)toAdaptedInstance(desc))
 									.toList());
+	}
+	
+	/**
+	 * 실행 엔진의 실제 상태를 반영(adapt)한 뒤 인스턴스 객체를 만든다.
+	 * <p>
+	 * 단건 조회({@link #getInstanceDescriptor(String)})와 목록 조회가 같은 상태·endpoint를 보이도록 모든 조회 경로가 이
+	 * 메소드를 거친다. 2026-11-05 이전에는 목록 조회({@code getInstanceAll}, {@code getInstanceAllByFilter})가 adapt를
+	 * 거치지 않아, docker 인스턴스의 목록이 단건 조회와 다른 상태를 보였다(검토 D37).
+	 */
+	private T toAdaptedInstance(JpaInstanceDescriptor desc) {
+		adaptInstanceDescriptor(desc);
+		return toInstance(desc);
 	}
 	
 	public List<String> listInstanceIds(String type) {
@@ -263,7 +313,8 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
 		
 		return FStream.from(m_repos.submodels().findAllByInstance_InstanceId(instanceId))
-						.filter(sm -> sm.getSemanticId().equals(TimeSeries.SEMANTIC_ID))
+						// semanticId가 없는 submodel도 있다(2026-11-05 이전에는 NPE).
+						.filter(sm -> TimeSeries.SEMANTIC_ID.equals(sm.getSemanticId()))
 						.map(JpaMDTSubmodelDescriptor::getIdShort)
 						.toList();
 	}
@@ -290,7 +341,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 			}
 			TypedQuery<JpaInstanceDescriptor> query = em.createQuery(sql, JpaInstanceDescriptor.class);
 			return List.copyOf(FStream.from(query.getResultList())
-										.map(desc -> (MDTInstance)toInstance(desc))
+										.map(desc -> (MDTInstance)toAdaptedInstance(desc))
 										.toList());
 		});
 	}
@@ -309,26 +360,79 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 											.findByInstanceId(id)
 											.orElseThrow(() -> newInstanceNotFoundException(id));
 		
+		// docker는 DB 상태가 실제와 다를 수 있으므로 실행 엔진의 상태를 반영(adapt)한 뒤 판단한다. 중지 중인
+		// 인스턴스도 지우지 않는다. 2026-11-05 이전에는 DB 상태만 보고 STARTING/RUNNING만 거부해, 실행 중인
+		// 컨테이너·Pod의 인스턴스나 중지 중인 인스턴스를 지울 수 있었다.
+		adaptInstanceDescriptor(desc);
 		MDTInstanceStatus status = desc.getStatus();
 		switch ( status ) {
 			case STARTING:
 			case RUNNING:
+			case STOPPING:
 				throw new InvalidResourceStatusException("MDTInstance", "id=" + id, status);
 			default: break;
 		}
+		T inst = toInstance(desc);		// 행을 지우기 전에(엔티티가 살아 있을 때) 만든다
 		m_repos.instances().delete(desc);
-		Unchecked.runOrIgnore(() -> toInstance(desc).uninitialize());
 		
-		File homeDir = getInstanceHomeDir(id);
-		Unchecked.runOrIgnore(() -> FileUtils.deleteDirectory(homeDir));
-		
-		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.REMOVED(id));
+		// 외부 자원 정리와 REMOVED 이벤트는 DB 삭제가 커밋된 뒤에 한다. 커밋이 실패하면 행이 남으므로 자원도
+		// 남아 있어야 한다. 정리 실패는 WARN으로 남긴다. 2026-11-05 이전에는 트랜잭션 안에서 정리·발행하고
+		// 실패를 흔적 없이 삼켰다(검토 D38).
+		runAfterCommit(() -> {
+			try {
+				inst.uninitialize();
+			}
+			catch ( Exception e ) {
+				getLogger().warn("failed to clean up the removed MDTInstance: id={}, cause={}", id, "" + e);
+			}
+			
+			// 규칙이 생기기 전에 등록된 id라 홈 디렉터리 경로를 만들 수 없으면 디렉터리 삭제만 건너뛴다.
+			if ( INSTANCE_ID_PATTERN.matcher(id).matches() ) {
+				File homeDir = getInstanceHomeDir(id);
+				try {
+					FileUtils.deleteDirectory(homeDir);
+				}
+				catch ( Exception e ) {
+					getLogger().warn("failed to delete the home directory: id={}, dir={}, cause={}", id, homeDir, "" + e);
+				}
+			}
+			else {
+				getLogger().warn("skip deleting the home directory of MDTInstance with an invalid id: '{}'", id);
+			}
+			
+			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.REMOVED(id));
+		});
+	}
+	
+	// 진행 중인 트랜잭션이 있으면 커밋된 뒤에, 없으면 곧바로 task를 실행한다.
+	private static void runAfterCommit(Runnable task) {
+		if ( TransactionSynchronizationManager.isSynchronizationActive() ) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					task.run();
+				}
+			});
+		}
+		else {
+			task.run();
+		}
 	}
 
 	@Override
+	/**
+	 * 모든 인스턴스를 하나씩 {@link #removeInstance(String)}로 지운다. 한 인스턴스의 삭제가 실패해도(예: 실행 중)
+	 * 나머지는 계속 지우고 실패는 WARN으로 남긴다. 각 삭제는 저장소 메소드의 트랜잭션으로 커밋된다(자기 호출이라
+	 * {@code removeInstance}의 {@code @Transactional}은 적용되지 않는다). 2026-11-05 이전에는 실패를 흔적 없이 버렸다.
+	 */
 	public void removeInstanceAll() throws MDTInstanceManagerException {
 		for ( MDTInstance inst: getInstanceAll() ) {
-			Try.run(() -> removeInstance(inst.getId()));
+			try {
+				removeInstance(inst.getId());
+			}
+			catch ( Exception e ) {
+				getLogger().warn("failed to remove MDTInstance: id={}, cause={}", inst.getId(), "" + e);
+			}
 		}
 	}
 	
@@ -336,7 +440,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	 * JpaInstanceDescriptor를 생성하고 데이터베이스에 추가한다.
 	 * <p>
 	 * 이 메소드는 각 MDTInstanceManager 구현체 ({@link ExternalInstanceManager}, {@link JarInstanceManager},
-	 * {@link DockerInstanceManager}, {@link KubernetesInstanceManager} 등)에서 호출된다.
+	 * {@link DockerInstanceManager})에서 호출된다.
 	 *
 	 * @param id        MDTInstance의 식별자
 	 * @param env       Asset Administration Shell과 서브모델을 포함한 {@link Environment} 객체.
@@ -364,8 +468,13 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 			Throwable cause = e.getMostSpecificCause();
 			if ( cause instanceof SQLException sqlError ) {
 				String sqlState = sqlError.getSQLState();
-				// "23505"는 PostgreSQL에서 고유 제약 조건 위반을 나타내는 SQL 상태 코드이다.
+				// "23505"는 PostgreSQL에서 고유 제약 조건 위반을 나타내는 SQL 상태 코드이다(이 매니저는
+				// PostgreSQL 전용이다). id 중복은 addInstance가 먼저 확인하므로(checkNotRegistered) 여기서는 대부분
+				// 다른 인스턴스와 AAS id가 겹친 경우다. 2026-11-05 이전에는 어떤 고유 제약이든 "id 중복"으로 보고했다.
 				if ( "23505".equals(sqlState) ) {
+					if ( m_repos.instances().findByAasId(desc.getAasId()).isPresent() ) {
+						throw new ResourceAlreadyExistsException("MDTInstance", "aasId=" + desc.getAasId());
+					}
 					throw new ResourceAlreadyExistsException("MDTInstance", "id=" + desc.getInstanceId());
 				}
 			}
@@ -386,17 +495,6 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 													.orElseThrow(() -> newInstanceNotFoundException(id));
 		update.accept(descriptor);
 		m_repos.instances().save(descriptor);
-	}
-	
-	/**
-	 * 주어진 id에 해당하는 JpaInstanceDescriptor를 데이터베이스에서 제거한다.
-	 *
-	 * @param id	제거할 MDTInstance의 식별자.
-	 */
-	protected void removeInstanceDescriptor(String id) {
-		Preconditions.checkArgument(id != null, "MDTInstance id is null");
-		
-		m_repos.instances().deleteByInstanceId(id);
 	}
 	
 	/**
@@ -438,9 +536,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		return FStream.from(jpaDescList)
 						.map(smDesc -> {
 							MDTSubmodelDescriptor desc = smDesc.toMDTSubmodelDescriptor();
-							String endpoint = (endpointPrefix != null)
-											? endpointPrefix + "/submodels/" + AASUtils.encodeBase64UrlSafe(desc.getId()) 
-											: null;
+							String endpoint = AASUtils.toSubmodelServiceEndpointString(endpointPrefix, desc.getId());
 							desc.setEndpoint(endpoint);
 							
 							return desc;
@@ -456,9 +552,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 			return List.of();
 		}
 		
-		String smEndpoint = (instDesc.getBaseEndpoint() != null)
-							? instDesc.getBaseEndpoint() + "/submodels/" + AASUtils.encodeBase64UrlSafe(dataSmDesc.getId())
-							: null;
+		String smEndpoint = AASUtils.toSubmodelServiceEndpointString(instDesc.getBaseEndpoint(), dataSmDesc.getId());
 		
 		List<JpaMDTParameterDescriptor> jpaDescList = m_repos.parameters().findAllByInstance_InstanceId(instId);
 		return FStream.from(jpaDescList)
@@ -505,6 +599,84 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	}
 	
 	@Transactional
+	/**
+	 * 시작할 수 있는 인스턴스(STOPPED/FAILED)를 원자적으로 STARTING으로 바꾼다.
+	 * <p>
+	 * 같은 인스턴스를 동시에 두 번 시작하면 하나만 성공하고 나머지는 {@link InvalidResourceStatusException}을 받는다.
+	 * 2026-11-05 이전에는 캐시된 상태로 검사한 뒤 무조건 STOPPED로 덮어써(check-then-act), 두 호출이 모두 통과했다
+	 * (검토 D36).
+	 *
+	 * @param id	인스턴스 id.
+	 * @return	바꾸기 전 상태(STOPPED 또는 FAILED). 시작 요청이 실패하면 {@link #releaseStartClaim}에 넘긴다.
+	 * @throws ResourceNotFoundException		인스턴스가 없는 경우.
+	 * @throws InvalidResourceStatusException	시작할 수 없는 상태인 경우.
+	 */
+	public MDTInstanceStatus claimStart(String id) throws ResourceNotFoundException, InvalidResourceStatusException {
+		// 판단은 실행 엔진의 실제 상태(adapt)로, 원자적 교체는 DB에 저장된 값을 기준으로 한다(docker는 둘이 다를 수
+		// 있다). 조회한 엔티티는 트랜잭션 밖이라 adapt의 변경은 저장되지 않는다.
+		JpaInstanceDescriptor desc = m_repos.instances().findByInstanceId(id)
+												.orElseThrow(() -> newInstanceNotFoundException(id));
+		MDTInstanceStatus stored = desc.getStatus();
+		adaptInstanceDescriptor(desc);
+		MDTInstanceStatus current = desc.getStatus();
+		if ( (current == MDTInstanceStatus.STOPPED || current == MDTInstanceStatus.FAILED)
+			&& m_repos.instances().compareAndSetStatus(id, stored, MDTInstanceStatus.STARTING) == 1 ) {
+			return current;
+		}
+		// 그 사이 다른 요청이 상태를 바꿨을 수 있으므로 다시 읽어 알린다.
+		throw new InvalidResourceStatusException("MDTInstance", id, getInstanceDescriptor(id).getStatus());
+	}
+	
+	/**
+	 * {@link #claimStart}로 STARTING으로 바꾼 인스턴스의 시작 요청이 곧바로 실패했을 때 이전 상태로 되돌린다(그 사이
+	 * 상태가 바뀌었으면 그대로 둔다).
+	 */
+	public void releaseStartClaim(String id, MDTInstanceStatus previous) {
+		m_repos.instances().compareAndSetStatus(id, MDTInstanceStatus.STARTING, previous);
+	}
+	
+	/**
+	 * 인스턴스의 상태 전이를 기록한다: DB의 상태·endpoint를 갱신하고 {@link InstanceStatusChangeEvent}를 발행한다
+	 * (MQTT 상태 발행 등 구독자에게 전달).
+	 * <p>
+	 * 모든 실행 백엔드는 상태가 바뀌면 이 메소드 하나로 알린다. 2026-11-05 이전에는 jar/external은 DB만 갱신하고
+	 * 이벤트를 발행하지 않았고, docker/k8s(2026-11-05 삭제)는 이벤트만 발행하고 DB를 갱신하지 않았다. 인스턴스가 이미 삭제되어
+	 * DB 행이 없으면 이벤트만 발행한다.
+	 *
+	 * @param id		인스턴스 id.
+	 * @param status	새 상태.
+	 * @param endpoint	새 endpoint(RUNNING이 아니면 보통 {@code null}).
+	 */
+	public void transitionStatus(String id, MDTInstanceStatus status, @Nullable String endpoint) {
+		try {
+			updateInstanceDescriptor(id, status, endpoint);
+		}
+		catch ( ResourceNotFoundException e ) {
+			getLogger().debug("no descriptor to update status (already removed?): id={}, status={}", id, status);
+		}
+		postStatusChanged(id, status, endpoint);
+	}
+	
+	/**
+	 * DB는 이미 갱신한 경우에 상태 변화 이벤트만 발행한다.
+	 *
+	 * @param id		인스턴스 id.
+	 * @param status	새 상태.
+	 * @param endpoint	새 endpoint.
+	 */
+	protected void postStatusChanged(String id, MDTInstanceStatus status, @Nullable String endpoint) {
+		InstanceStatusChangeEvent ev = switch ( status ) {
+			case STARTING -> InstanceStatusChangeEvent.STARTING(id);
+			case RUNNING -> InstanceStatusChangeEvent.RUNNING(id, endpoint);
+			case STOPPING -> InstanceStatusChangeEvent.STOPPING(id);
+			case STOPPED -> InstanceStatusChangeEvent.STOPPED(id);
+			case FAILED -> InstanceStatusChangeEvent.FAILED(id);
+			case ADDING -> InstanceStatusChangeEvent.ADDING(id);
+			case REMOVED -> InstanceStatusChangeEvent.REMOVED(id);
+		};
+		Globals.EVENT_BUS.post(ev);
+	}
+	
 	protected void updateInstanceDescriptor(String id, MDTInstanceStatus status, String endpoint) {
 		updateInstanceDescriptor(id, desc -> {
 			desc.setStatus(status);

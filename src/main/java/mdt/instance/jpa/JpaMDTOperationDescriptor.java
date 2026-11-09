@@ -102,7 +102,7 @@ public class JpaMDTOperationDescriptor {
 			return MDTModelSerDe.getJsonDeserializer().readList(json, ArgumentDescriptor.class);
 		}
 		catch ( DeserializationException e ) {
-			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e);
+			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e, e);
 		}
 	}
 	
@@ -112,7 +112,7 @@ public class JpaMDTOperationDescriptor {
 			this.inputArgumentsJsonBytes = json.getBytes(StandardCharsets.UTF_8);
 		}
 		catch ( Exception e ) {
-			throw new InternalException("Failed to serialize inputArguments: " + e);
+			throw new InternalException("Failed to serialize inputArguments: " + e, e);
 		}
 	}
 	
@@ -134,7 +134,7 @@ public class JpaMDTOperationDescriptor {
 			return MDTModelSerDe.getJsonDeserializer().readList(json, ArgumentDescriptor.class);
 		}
 		catch ( DeserializationException e ) {
-			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e);
+			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e, e);
 		}
 	}
 	
@@ -144,7 +144,7 @@ public class JpaMDTOperationDescriptor {
 			this.outputArgumentsJsonBytes = json.getBytes(StandardCharsets.UTF_8);
 		}
 		catch ( Exception e ) {
-			throw new InternalException("Failed to serialize outputArguments: " + e);
+			throw new InternalException("Failed to serialize outputArguments: " + e, e);
 		}
 	}
 	
@@ -158,13 +158,5 @@ public class JpaMDTOperationDescriptor {
 		String inArgs = FStream.from(this.getInputArguments()).map(ArgumentDescriptor::getId).join(", ");
 		String outArgs = FStream.from(this.getOutputArguments()).map(ArgumentDescriptor::getId).join(", ");
 		return String.format("%s[%s]: (%s) -> (%s)", this.operationType, id, inArgs, outArgs);
-	}
-	
-	static JpaMDTOperationDescriptor from(MDTOperationDescriptor desc) {
-		JpaMDTOperationDescriptor jpaDesc = new JpaMDTOperationDescriptor();
-		jpaDesc.setId(desc.getId());
-		jpaDesc.setOperationType(null);
-		
-		return jpaDesc;
 	}
 }

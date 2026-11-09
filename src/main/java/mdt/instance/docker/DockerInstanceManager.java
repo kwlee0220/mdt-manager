@@ -5,10 +5,10 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.digitaltwin.aas4j.v3.model.Environment;
 import org.mandas.docker.client.DockerClient;
-import org.mandas.docker.client.DockerClient.ListContainersFilterParam;
 import org.mandas.docker.client.DockerClient.ListContainersParam;
 import org.mandas.docker.client.DockerClient.RemoveContainerParam;
 import org.mandas.docker.client.builder.jersey.JerseyDockerClientBuilder;
@@ -24,12 +24,9 @@ import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
 
 import utils.InternalException;
 import utils.Throwables;
-import utils.Tuple;
-import utils.func.Try;
 import utils.io.FileUtils;
 
 import mdt.instance.AbstractJpaInstanceManager;
@@ -54,34 +51,32 @@ import mdt.repository.Repositories;
 @ConditionalOnProperty(prefix="instance-manager", name = "type", havingValue = "docker")
 public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInstance> {
 	private static final Logger s_logger = LoggerFactory.getLogger(DockerInstanceManager.class);
-	static final String LABEL_NAME_MDT_TWIN_ID = "mdt-twin-id";
 
 	private final DockerConfiguration m_dockerConf;
-	private final HarborConfiguration m_harborConf;
 	private final String m_repositoryEndpointFormat;
-	private final Map<String,MDTInstanceStatus> m_instanceStatus = Maps.newHashMap();
+	// 요청 스레드와 컨테이너 시작 대기 스레드가 함께 쓴다(2026-11-05 이전에는 HashMap).
+	private final Map<String,MDTInstanceStatus> m_instanceStatus = new ConcurrentHashMap<>();
 
 	public DockerInstanceManager(MDTInstanceManagerConfiguration mgrConf,
 								DockerConfiguration dockerConf,
-								HarborConfiguration harborConf,
 								Repositories repos,
 								MqttConfiguration mqttConf) throws Exception {
 		super(mgrConf, repos, mqttConf);
 		setLogger(s_logger);
 		
 		m_dockerConf = dockerConf;
-		Preconditions.checkNotNull(m_dockerConf.getDockerEndpoint());
-		
-		m_harborConf = harborConf;
+		Preconditions.checkNotNull(m_dockerConf.getDockerEndpoint(), "docker.docker-endpoint is missing");
+		Preconditions.checkNotNull(m_dockerConf.getImageName(), "docker.image-name is missing");
 		
 		String epFormat = m_conf.getInstanceEndpointFormat();
 		if ( epFormat == null ) {
 			try {
 				String host = InetAddress.getLocalHost().getHostAddress();
-				epFormat = "https:" + host + ":%d/api/v3.0";
+				// 2026-11-05 이전에는 '//'가 빠져 "https:<host>:<port>/api/v3.0"이 되었다.
+				epFormat = "https://" + host + ":%d/api/v3.0";
 			}
 			catch ( Exception e ) {
-				throw new MDTInstanceManagerException("" + e);
+				throw new MDTInstanceManagerException("Failed to determine the default instance endpoint format", e);
 			}
 		}
 		m_repositoryEndpointFormat = epFormat;
@@ -90,40 +85,14 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 		}
 	}
 
-	Tuple<MDTInstanceStatus,String> getInstanceState(String instanceId, DockerClient docker, Container container) {
-		try {
-			ContainerInfo info = docker.inspectContainer(container.id());
-			if ( info.state().running() ) {
-				MDTInstanceStatus lastStatus = getContainerStatus(instanceId);
-				if ( lastStatus == MDTInstanceStatus.STOPPED || lastStatus == MDTInstanceStatus.FAILED ) {
-					putContainerStatus(instanceId, MDTInstanceStatus.RUNNING);
-				}
-				return Tuple.of(lastStatus, toServiceEndpoint(getRepositoryPort(info)));
-			}
-			else if ( info.state().error().length() > 0 ) {
-				putContainerStatus(instanceId, MDTInstanceStatus.FAILED);
-				return Tuple.of(MDTInstanceStatus.FAILED, null);
-			}
-			else {
-				putContainerStatus(instanceId, MDTInstanceStatus.STOPPED);
-				return Tuple.of(MDTInstanceStatus.STOPPED, null);
-			}
-		}
-		catch ( ContainerNotFoundException e ) {
-			putContainerStatus(instanceId, MDTInstanceStatus.STOPPED);
-			return Tuple.of(MDTInstanceStatus.STOPPED, null);
-		}
-		catch ( InterruptedException | DockerException e ) {
-			throw new MDTInstanceManagerException("" + e);
-		}
-	}
-
 	@Override
 	public MDTInstance addInstance(String id, int port, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
-		String repoName = "kwlee0220/faaast-starter:latest";
-		
-		DockerExecutionArguments args = new DockerExecutionArguments(repoName);
+		// 2026-11-05 이전에는 image가 "kwlee0220/faaast-starter:latest"로, 호스트 포트가 443으로 고정되어
+		// docker.image-name과 port 인자가 쓰이지 않았다(포트 고정이라 인스턴스를 둘 이상 띄울 수 없었다).
+		// 기존 인스턴스의 디렉터리를 지우기 전에 확인한다(검토 D29).
+		checkNotRegistered(id);
+		DockerExecutionArguments args = new DockerExecutionArguments(m_dockerConf.getImageName(), port);
 		try {
 			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
 			// instances 디렉토리로 이동시킨다.
@@ -181,22 +150,43 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 
 	@Override
 	public void removeInstanceAll() throws MDTInstanceManagerException {
+		try {
+			super.removeInstanceAll();
+		}
+		catch ( Exception e ) {
+			getLogger().warn("failed to remove MDTInstances: cause={}", "" + e);
+		}
+		
+		// Remove all dangling MDTInstance docker containers
 		try ( DockerClient docker = newDockerClient() ) {
-			Try.run(() -> super.removeInstanceAll());
-			
-			// Remove all dangling MDTInstance docker containers
 			for ( Container container: docker.listContainers(ListContainersParam.allContainers()) ) {
-				if ( container.labels().containsKey(LABEL_NAME_MDT_TWIN_ID) ) {
-					Try.run(() -> docker.removeContainer(container.id(), RemoveContainerParam.forceKill()));
+				if ( container.labels().containsKey(DockerUtils.LABEL_NAME_MDT_TWIN_ID) ) {
+					try {
+						docker.removeContainer(container.id(), RemoveContainerParam.forceKill());
+					}
+					catch ( DockerException e ) {
+						getLogger().warn("failed to remove a dangling container: id={}, cause={}",
+										container.id(), "" + e);
+					}
 				}
 			}
 		}
-		catch ( Exception ignored ) { }
+		catch ( InterruptedException e ) {
+			Thread.currentThread().interrupt();
+			getLogger().warn("interrupted while removing dangling containers");
+		}
+		catch ( Exception e ) {
+			getLogger().warn("failed to remove dangling containers: cause={}", "" + e);
+		}
 	}
 	
 	@Override
 	public String toString() {
 		return String.format("%s[dockerHost=%s]", getClass().getSimpleName(), m_dockerConf.getDockerEndpoint());
+	}
+	
+	public DockerConfiguration getDockerConfiguration() {
+		return m_dockerConf;
 	}
 	
 	public String toServiceEndpoint(int repoPort) {
@@ -221,12 +211,15 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 		try ( DockerClient docker = newDockerClient() ) {
 			ContainerInfo info = docker.inspectContainer(id);
 			if ( info.state().running() ) {
-				MDTInstanceStatus lastStatus = getContainerStatus(id);
-				if ( lastStatus == MDTInstanceStatus.STOPPED || lastStatus == MDTInstanceStatus.FAILED ) {
-					putContainerStatus(id, MDTInstanceStatus.RUNNING);
+				// 매니저가 모르는(재시작 전부터 돌던) 컨테이너가 실행 중이면 RUNNING으로 본다. 2026-11-05 이전에는
+				// map에는 RUNNING을 넣고도 desc에는 이전 상태(STOPPED)를 넣었다.
+				MDTInstanceStatus status = getContainerStatus(id);
+				if ( status == MDTInstanceStatus.STOPPED || status == MDTInstanceStatus.FAILED ) {
+					status = MDTInstanceStatus.RUNNING;
+					putContainerStatus(id, status);
 				}
 				
-				desc.setStatus(lastStatus);
+				desc.setStatus(status);
 				desc.setBaseEndpoint(toServiceEndpoint(getRepositoryPort(info)));
 			}
 			else if ( info.state().error().length() > 0 ) {
@@ -241,11 +234,14 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 			}
 		}
 		catch ( ContainerNotFoundException e ) {
-			desc.setStatus(MDTInstanceStatus.STOPPED);
+			if ( getContainerStatus(id) != MDTInstanceStatus.STARTING ) {
+				putContainerStatus(id, MDTInstanceStatus.STOPPED);
+			}
+			desc.setStatus(getContainerStatus(id));
 			desc.setBaseEndpoint(null);
 		}
 		catch ( InterruptedException | DockerException e ) {
-			throw new MDTInstanceManagerException("" + e);
+			throw new MDTInstanceManagerException("Failed to inspect the container of MDTInstance: id=" + id, e);
 		}
 	}
 
@@ -254,21 +250,6 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 		return new DockerInstance(this, descriptor);
 	}
 
-	Container findContainerByInstanceId(DockerClient docker, String instanceId)
-		throws DockerException, InterruptedException, ContainerNotFoundException {
-		List<Container> containers = docker.listContainers(ListContainersParam.allContainers(),
-															ListContainersFilterParam.filter("name", instanceId));
-		if ( containers.size() == 0 ) {
-			throw new ContainerNotFoundException("container-id=" + instanceId);
-		}
-		else if ( containers.size() == 1 ) {
-			return containers.get(0);
-		}
-		else {
-			throw new InternalException("Duplicate DockerInstances: id=" + instanceId);
-		}
-	}
-	
 	MDTInstanceStatus getContainerStatus(String instanceId) {
 		return m_instanceStatus.computeIfAbsent(instanceId, id -> MDTInstanceStatus.STOPPED);
 	}
@@ -291,9 +272,5 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	 */
 	DockerClient newDockerClient() {
 		return new JerseyDockerClientBuilder().uri(m_dockerConf.getDockerEndpoint()).build();
-	}
-	
-	MDTHarborClient newHarborClient() {
-		return new MDTHarborClient(m_harborConf);
 	}
 }

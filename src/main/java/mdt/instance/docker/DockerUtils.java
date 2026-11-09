@@ -11,7 +11,6 @@ import org.mandas.docker.client.DockerClient.ListImagesParam;
 import org.mandas.docker.client.exceptions.DockerException;
 import org.mandas.docker.client.messages.Container;
 import org.mandas.docker.client.messages.Image;
-import org.mandas.docker.client.messages.RegistryAuth;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
@@ -36,7 +35,7 @@ import ch.qos.logback.classic.Logger;
  * @author Kang-Woo Lee (ETRI)
  */
 public class DockerUtils {
-	private static final String LABEL_NAME_MDT_TWIN_ID = "mdt-twin-id";
+	static final String LABEL_NAME_MDT_TWIN_ID = "mdt-twin-id";
 	private static final ListContainersParam ALL_CONTAINERS = ListContainersParam.allContainers(true);
 	
 	static {
@@ -57,7 +56,7 @@ public class DockerUtils {
 	public static List<Image> getInstanceImageAll(DockerClient docker) {
 		try {
 			return FStream.from(docker.listImages(ListImagesParam.allImages()))
-							.filter(img -> hasLabel(img.labels(), "mdt-twin-id"))
+							.filter(img -> hasLabel(img.labels(), LABEL_NAME_MDT_TWIN_ID))
 							.toList();
 		}
 		catch ( Exception e ) {
@@ -77,19 +76,9 @@ public class DockerUtils {
 	public static FOption<Image> getInstanceImage(DockerClient docker, String instId)
 		throws DockerException, InterruptedException {
 		return FStream.from(docker.listImages(ListImagesParam.allImages()))
-						.filter(img -> DockerUtils.hasLabel(img.labels(), "mdt-twin-id", instId))
+						.filter(img -> DockerUtils.hasLabel(img.labels(), LABEL_NAME_MDT_TWIN_ID, instId))
 						.filter(img -> DockerUtils.parseRepoTag(img).isPresent())
 						.findFirst();
-	}
-	
-	public static String tagImageForHarbor(DockerClient docker, Image image,
-											HarborConfiguration harborConf, String tag)
-		throws DockerException, InterruptedException {
-		String srcRepoName = parseRepoTag(image).get().head();
-    	String taggedRepo = String.format("%s/%s/%s:%s",
-    										harborConf.getHost(), harborConf.getProject(), srcRepoName, tag);
-    	docker.tag(image.id(), taggedRepo);
-    	return taggedRepo;
 	}
 	
 	public static String buildInstanceImage(DockerClient docker, String instId, File bundleDir)
@@ -109,14 +98,6 @@ public class DockerUtils {
     	docker.build(bundleDir.toPath(), outputImageRepo);
 		
 		return outputImageRepo;
-	}
-	
-	public static void pushImage(DockerClient docker, String imageId, HarborConfiguration harborConf)
-		throws DockerException, InterruptedException {
-		docker.push(imageId, RegistryAuth.builder()
-										.username(harborConf.getUser())
-										.password(harborConf.getPassword())
-										.build());
 	}
 	
 	public static void removeInstanceImage(DockerClient docker, String instId)

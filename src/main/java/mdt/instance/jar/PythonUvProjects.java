@@ -2,9 +2,10 @@ package mdt.instance.jar;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.time.Duration;
-import java.util.Scanner;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 
@@ -31,46 +32,61 @@ public class PythonUvProjects {
 	private PythonUvProjects() {}
 
 	/**
-	 * 개발/테스트용 진입점. 하드코딩된 프로젝트 목록 파일을 읽어 일괄 동기화한다.
+	 * 프로젝트 디렉터리 경로 목록 파일을 읽어, 각 프로젝트를 순차적으로 동기화한다.
+	 * <p>
+	 * 목록 파일은 한 줄당 하나의 프로젝트 디렉터리 경로를 담는다. 빈 줄은 무시하고,
+	 * 상대 경로는 목록 파일의 부모 디렉터리를 기준으로 해석한다. 목록 파일은 업로드된 번들의 일부이므로,
+	 * 해석한 경로(심볼릭 링크를 따라간 실제 경로)가 목록 파일의 부모 디렉터리(인스턴스 디렉터리) 자신이거나
+	 * 그 아래가 아니면 거부한다.
+	 * <p>
+	 * 하나라도 실패하면 곧바로 멈추고 {@link IOException}을 던진다. 2026-11-07 이전에는 실패를 로그로만 남겨,
+	 * Python 환경이 없는 인스턴스가 정상 등록되었다(검토 I5).
+	 *
+	 * @param projectListFile 프로젝트 경로 목록 파일.
+	 * @throws IOException	목록 파일을 읽지 못했거나, 경로가 인스턴스 디렉터리를 벗어나거나, 동기화가 실패한 경우.
 	 */
-	public static void main(String... args) throws Exception {
-		File prjListFile = new File("/home/kwlee/tmp/Welder/uv_projects.txt");
-
-		syncProjectsAll(prjListFile);
+	public static void syncProjectsAll(File projectListFile) throws IOException {
+		File baseDir = projectListFile.getAbsoluteFile().getParentFile().getCanonicalFile();
+		for ( String line: Files.readAllLines(projectListFile.toPath(), StandardCharsets.UTF_8) ) {
+			String projectDirPath = line.trim();
+			if ( projectDirPath.isEmpty() ) {
+				continue;
+			}
+			
+			File projectDir = resolveProjectDir(baseDir, projectDirPath);
+			if ( projectDir == null ) {
+				throw new IOException(String.format("uv project is outside the instance directory: path=%s, base=%s",
+													projectDirPath, baseDir));
+			}
+			try {
+				s_logger.info("Syncing project at {}", projectDir.getAbsolutePath());
+				syncProject(projectDir);
+			}
+			catch ( InterruptedException e ) {
+				Thread.currentThread().interrupt();
+				throw new InterruptedIOException("interrupted while syncing uv project: " + projectDir);
+			}
+			catch ( ExecutionException | CancellationException | IllegalArgumentException e ) {
+				throw new IOException("Failed to sync uv project: " + projectDir, e);
+			}
+		}
 	}
 
 	/**
-	 * 프로젝트 디렉터리 경로 목록 파일을 읽어, 각 프로젝트를 순차적으로 동기화한다.
-	 * <p>
-	 * 목록 파일은 한 줄당 하나의 프로젝트 디렉터리 경로를 담는다. 빈 줄은 무시되며,
-	 * 상대 경로는 목록 파일의 부모 디렉터리를 기준으로 해석된다. 개별 프로젝트 동기화가
-	 * 실패해도 다음 프로젝트로 계속 진행하고, 실패는 로그에만 남긴다.
-	 * 목록 파일 자체를 읽을 수 없는 경우에도 예외 대신 로그만 남긴다.
+	 * 목록 파일의 한 줄(프로젝트 경로)을 {@code baseDir} 기준으로 해석한다.
 	 *
-	 * @param projectListFile 프로젝트 경로 목록 파일.
+	 * @param baseDir	기준 디렉터리(canonical).
+	 * @param path		목록 파일의 경로 문자열(상대 또는 절대).
+	 * @return	해석한 canonical 디렉터리. {@code baseDir} 자신이거나 그 아래가 아니면 {@code null}.
+	 * @throws IOException	canonical 경로를 구할 수 없는 경우.
 	 */
-	public static void syncProjectsAll(File projectListFile) {
-		try ( Scanner scanner = new Scanner(projectListFile, StandardCharsets.UTF_8) ) {
-			while ( scanner.hasNextLine() ) {
-				String projectDirPath = scanner.nextLine().trim();
-				if ( !projectDirPath.isEmpty() ) {
-					File projectDir = new File(projectDirPath);
-					if ( !projectDir.isAbsolute() ) {
-						projectDir = new File(projectListFile.getParentFile(), projectDirPath);
-					}
-					try {
-						s_logger.info("Syncing project at {}", projectDir.getAbsolutePath());
-						syncProject(projectDir);
-					}
-					catch ( Exception e ) {
-						s_logger.error("Failed to sync project at {}", projectDir.getAbsolutePath(), e);
-					}
-				}
-			}
+	static File resolveProjectDir(File baseDir, String path) throws IOException {
+		File dir = new File(path);
+		if ( !dir.isAbsolute() ) {
+			dir = new File(baseDir, path);
 		}
-		catch ( IOException e ) {
-			s_logger.error("Failed to read project list file: {}", projectListFile.getAbsolutePath(), e);
-		}
+		File canonical = dir.getCanonicalFile();
+		return canonical.toPath().startsWith(baseDir.toPath()) ? canonical : null;
 	}
 
 	/**
@@ -116,7 +132,12 @@ public class PythonUvProjects {
 	
 	public static void removeVirtualEnv(File projectDir) throws IOException {
 		File uvEnvDir = new File(projectDir, ".venv");
-		if ( uvEnvDir.isDirectory() ) {
+		// .venv가 심볼릭 링크면 링크만 지운다(가리키는 다른 디렉터리를 지우지 않도록).
+		if ( Files.isSymbolicLink(uvEnvDir.toPath()) ) {
+			s_logger.info("Removing virtual environment link at {}", uvEnvDir.getAbsolutePath());
+			Files.delete(uvEnvDir.toPath());
+		}
+		else if ( uvEnvDir.isDirectory() ) {
 			s_logger.info("Removing virtual environment at {}", uvEnvDir.getAbsolutePath());
 			FileUtils.deleteDirectory(uvEnvDir);
 		}

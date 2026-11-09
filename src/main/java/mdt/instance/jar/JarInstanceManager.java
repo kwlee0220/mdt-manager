@@ -67,6 +67,11 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 		m_executor = new JarInstanceExecutor(mgrConf, jarExecConf);
 		m_executor.addExecutionListener(m_execListener);
 		
+		// 매니저가 비정상 종료되어 남은 인스턴스 프로세스를 먼저 정리한 뒤 상태를 초기화한다(포트 충돌 방지).
+		int orphans = m_executor.killOrphanProcesses();
+		if ( orphans > 0 ) {
+			getLogger().warn("stopped {} orphan MDTInstance process(es) left by a previous run", orphans);
+		}
 		repos.instances().resetAll();
 	}
 	
@@ -74,8 +79,10 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 		return m_executor;
 	}
 	
+	@Override
 	public void shutdown() {
 		m_executor.shutdown();
+		super.shutdown();
 	}
 	
 	public void startInstanceAll() {
@@ -98,6 +105,8 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	@Override
 	public MDTInstance addInstance(String id, int port, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
+		// 기존 인스턴스의 디렉터리를 지우기 전에 확인한다(검토 D29).
+		checkNotRegistered(id);
 		try {
 			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에
 			// instances 디렉토리로 이동시킨다.
@@ -141,7 +150,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 		}
 		catch ( IOExceptionList e) {
 			Throwable clause = e.getCause(0);
-			throw new IOException("Failed to add MDTInstance: id=" + id + ", cause=" + clause);
+			throw new IOException("Failed to add MDTInstance: id=" + id + ", cause=" + clause, clause);
 		}
 		catch ( IOException | ModelValidationException | MDTInstanceManagerException | ResourceException e ) {
 			throw e;
@@ -162,7 +171,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 			return m_mapper.readValue(argsJson, JarExecutionArguments.class);
 		}
 		catch ( JsonProcessingException e ) {
-			throw new InternalException("Failed to parse JarExecutionArguments string, cause=" + e);
+			throw new InternalException("Failed to parse JarExecutionArguments string, cause=" + e, e);
 		}
 	}
 	
@@ -178,40 +187,10 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	private final JarExecutionListener m_execListener = new JarExecutionListener() {
 		@Override
 		public void statusChanged(String id, MDTInstanceStatus status, String endpoint) {
-			JarInstanceManager.this.updateInstanceDescriptor(id, status, endpoint);
+			JarInstanceManager.this.transitionStatus(id, status, endpoint);
 		}
 		
 		@Override
 		public void timeoutExpired() { }
 	};
-	
-//	private final JarExecutionListener m_execListener = new JarExecutionListener() {
-//		@Override
-//		public void stausChanged(String id, MDTInstanceStatus status, int repoPort) {
-//			switch ( status ) {
-//				case RUNNING:
-//					String svcEp = toServiceEndpoint(repoPort);
-//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.RUNNING(id, svcEp));
-//					break;
-//				case STOPPED:
-//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPED(id));
-//					break;
-//				case FAILED:
-//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.FAILED(id));
-//					break;
-//				case STARTING:
-//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STARTING(id));
-//					break;
-//				case STOPPING:
-//					Globals.EVENT_BUS.post(InstanceStatusChangeEvent.STOPPING(id));
-//					break;
-//				default:
-//					throw new InternalException("JarExecutor throws an unknown status: " + status);
-//			}
-//		}
-//		
-//		@Override
-//		public void timeoutExpired() {
-//		}
-//	};
 }

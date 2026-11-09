@@ -16,6 +16,10 @@ for arg in "$@"; do
             echo "  --host-user, -H      호스트 사용자 UID/GID로 빌드 (볼륨 마운트 시 권한 맞추기)"
             echo "  --help, -h           도움말 출력"
             echo ""
+            echo "환경 변수:"
+            echo "  MDT_HOME             (필수) JAR을 가져올 설치 디렉터리(\$MDT_HOME/mdt-manager/)"
+            echo "  MDT_IMAGE_NAME       이미지 이름 (기본값 mdt-manager, push_image.sh와 같아야 함)"
+            echo ""
             echo "예제:"
             echo "  $0                    # 기본 버전, Dockerfile 기본 UID로 빌드"
             echo "  $0 --tag 1.3.0        # 1.3.0 버전으로 빌드"
@@ -26,6 +30,26 @@ for arg in "$@"; do
     esac
 done
 
+# 옵션 값이 있는지 확인한다. 값 자리에 다른 옵션(예: '--tag --uid')이 오면 거부한다.
+# 2026-11-07 이전에는 다음 인자를 그대로 값으로 받았다(검토 I2).
+require_value() {
+    local opt="$1" value="$2" example="$3"
+    if [ -z "$value" ] || [[ "$value" == -* ]]; then
+        echo "오류: '$opt' 옵션에는 값이 필요합니다 (예: $opt $example)." >&2
+        echo "사용법은 '$0 --help' 참고" >&2
+        exit 1
+    fi
+}
+
+# UID/GID는 숫자여야 한다. 확인하지 않으면 docker build의 groupadd/useradd 단계에서야 실패한다.
+require_number() {
+    local opt="$1" value="$2"
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        echo "오류: '$opt' 옵션의 값은 숫자여야 합니다: '$value'" >&2
+        exit 1
+    fi
+}
+
 # --tag(-t), --uid, --gid, --host-user 옵션 처리
 MDT_VERSION=""
 BUILD_UID=""
@@ -35,29 +59,19 @@ USE_HOST_USER=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tag|-t)
-            if [ $# -lt 2 ]; then
-                echo "오류: '$1' 옵션에는 값이 필요합니다 (예: $1 1.3.0)." >&2
-                echo "사용법은 '$0 --help' 참고" >&2
-                exit 1
-            fi
+            require_value "$1" "${2-}" 1.3.0
             MDT_VERSION="$2"
             shift 2
             ;;
         --uid)
-            if [ $# -lt 2 ]; then
-                echo "오류: '$1' 옵션에는 값이 필요합니다 (예: $1 1000)." >&2
-                echo "사용법은 '$0 --help' 참고" >&2
-                exit 1
-            fi
+            require_value "$1" "${2-}" 1000
+            require_number "$1" "$2"
             BUILD_UID="$2"
             shift 2
             ;;
         --gid)
-            if [ $# -lt 2 ]; then
-                echo "오류: '$1' 옵션에는 값이 필요합니다 (예: $1 1000)." >&2
-                echo "사용법은 '$0 --help' 참고" >&2
-                exit 1
-            fi
+            require_value "$1" "${2-}" 1000
+            require_number "$1" "$2"
             BUILD_GID="$2"
             shift 2
             ;;
@@ -93,7 +107,10 @@ if [ -z "$MDT_VERSION" ]; then
     echo "오류: --tag 또는 \$MDT_BUILD_VERSION 둘 중 하나는 지정해야 합니다." >&2
     exit 1
 fi
-REPOSITORY="mdt-manager:$MDT_VERSION"
+# 이미지 이름은 push_image.sh와 같은 환경 변수로 정한다(검토 N2).
+IMAGE_NAME="${MDT_IMAGE_NAME:-mdt-manager}"
+# 이미지 이름:태그. 2026-11-07 이전 변수 이름은 REPOSITORY였다(검토 N1).
+IMAGE="$IMAGE_NAME:$MDT_VERSION"
 
 # MDT_HOME 환경변수 가드
 if [ -z "${MDT_HOME:-}" ]; then
@@ -102,25 +119,74 @@ if [ -z "${MDT_HOME:-}" ]; then
 fi
 MDT_MANAGER_HOME="$MDT_HOME/mdt-manager"
 
-# 빌드 종료 시 임시 jar 정리 (성공/실패 모두)
-trap 'rm -f mdt-manager-all.jar mdt-instance-all.jar' EXIT
+MANAGER_JAR="$MDT_MANAGER_HOME/mdt-manager-all.jar"
+INSTANCE_JAR="$MDT_MANAGER_HOME/mdt-instance-all.jar"
 
-echo "==> Docker 이미지 빌드 시작: $REPOSITORY"
-cp "$MDT_MANAGER_HOME/mdt-manager-all.jar"  mdt-manager-all.jar
-cp "$MDT_MANAGER_HOME/mdt-instance-all.jar" mdt-instance-all.jar
+# JAR의 버전: 매니페스트의 Implementation-Version, 없으면 실제 파일 이름의 '-<버전>-all.jar'.
+# 둘 다 없으면 빈 문자열을 출력한다.
+jar_version() {
+    local jar="$1" version real
+    version=$(unzip -p "$jar" META-INF/MANIFEST.MF 2>/dev/null \
+                | sed -n 's/^Implementation-Version: *//p' | tr -d '\r' | head -n 1)
+    if [ -z "$version" ]; then
+        real=$(readlink -f "$jar")
+        if [[ "$(basename "$real")" =~ -([0-9][^/]*)-all\.jar$ ]]; then
+            version="${BASH_REMATCH[1]}"
+        fi
+    fi
+    echo "$version"
+}
+
+# 이미지에 넣을 JAR이 있고 태그와 같은 버전인지 확인한다. 2026-11-07 이전에는 확인하지 않아
+# 다른 버전의 JAR이 든 이미지가 이 태그로 만들어질 수 있었다(검토 D3).
+for jar in "$MANAGER_JAR" "$INSTANCE_JAR"; do
+    if [ ! -f "$jar" ]; then
+        echo "오류: JAR이 없습니다: $jar" >&2
+        echo "      gradle로 빌드한 build/libs/<이름>-<버전>-all.jar를 이 경로에 복사하거나 심볼릭 링크로 연결하세요." >&2
+        exit 1
+    fi
+    JAR_VERSION=$(jar_version "$jar")
+    if [ -z "$JAR_VERSION" ]; then
+        echo "경고: JAR 버전을 확인할 수 없습니다(매니페스트·파일 이름 모두 없음): $jar" >&2
+    elif [ "$JAR_VERSION" != "$MDT_VERSION" ]; then
+        echo "오류: JAR 버전($JAR_VERSION)이 이미지 태그($MDT_VERSION)와 다릅니다: $jar" >&2
+        exit 1
+    fi
+done
+
+# 빌드 컨텍스트는 임시 디렉터리로 만든다. docker/ 폴더에 사용자가 둔 파일을 덮어쓰거나 지우지 않는다
+# (2026-11-07 이전에는 docker/에 JAR을 복사했다가 trap으로 지워, 미리 둔 JAR도 사라졌다, 검토 D4).
+BUILD_CONTEXT=$(mktemp -d)
+trap 'rm -rf "$BUILD_CONTEXT"' EXIT
+cp Dockerfile "$BUILD_CONTEXT/"
+cp -L "$MANAGER_JAR"  "$BUILD_CONTEXT/mdt-manager-all.jar"
+cp -L "$INSTANCE_JAR" "$BUILD_CONTEXT/mdt-instance-all.jar"
+
+# 이 태그가 가리키던 이전 이미지. 새로 빌드하면 태그가 옮겨 가므로, 그 이미지만 정리한다.
+OLD_IMAGE_ID=$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || true)
+
+echo "==> Docker 이미지 빌드 시작: $IMAGE"
 
 # Docker 이미지 빌드 (UID/GID가 지정된 경우 --build-arg 전달)
-BUILD_ARGS=(-t "$REPOSITORY")
+BUILD_ARGS=(-t "$IMAGE")
 if [ -n "$BUILD_UID" ]; then
     BUILD_ARGS+=(--build-arg "UID=$BUILD_UID")
 fi
 if [ -n "$BUILD_GID" ]; then
     BUILD_ARGS+=(--build-arg "GID=$BUILD_GID")
 fi
-docker build "${BUILD_ARGS[@]}" .
+docker build "${BUILD_ARGS[@]}" "$BUILD_CONTEXT"
 
-# 빌드 성공으로 태그가 재지정되며 떨어져 나온 dangling 이미지 정리
-docker image prune -f
+# 태그를 잃은 이전 이미지만 지운다. 다른 태그가 남아 있거나 컨테이너가 쓰고 있으면 지우지 않는다.
+# 2026-11-07 이전에는 'docker image prune -f'로 호스트의 모든 dangling 이미지를 지웠다(검토 D1).
+NEW_IMAGE_ID=$(docker image inspect -f '{{.Id}}' "$IMAGE")
+if [ -n "$OLD_IMAGE_ID" ] && [ "$OLD_IMAGE_ID" != "$NEW_IMAGE_ID" ]; then
+    OLD_TAG_COUNT=$(docker image inspect -f '{{len .RepoTags}}' "$OLD_IMAGE_ID" 2>/dev/null || echo 1)
+    if [ "$OLD_TAG_COUNT" = "0" ]; then
+        docker image rm "$OLD_IMAGE_ID" >/dev/null 2>&1 \
+            || echo "경고: 이전 이미지를 지우지 못했습니다(사용 중일 수 있음): $OLD_IMAGE_ID" >&2
+    fi
+fi
 
 # 성공 메시지 (실패 시 set -e가 트리거되어 여기까지 도달하지 않음)
-echo "==> 빌드 완료: $REPOSITORY"
+echo "==> 빌드 완료: $IMAGE"

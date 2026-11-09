@@ -146,7 +146,7 @@ public class JpaMDTSubmodelDescriptor {
 			return MDTModelSerDe.getJsonDeserializer().read(json, SubmodelDescriptor.class);
 		}
 		catch ( DeserializationException e ) {
-			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e);
+			throw new InternalException("Failed to deserialize SubmodelDescriptor: " + e, e);
 		}
 	}
 	
@@ -158,7 +158,7 @@ public class JpaMDTSubmodelDescriptor {
 																.getBytes(StandardCharsets.UTF_8);
 		}
 		catch ( SerializationException e ) {
-			throw new InternalException("Failed to serialize AAS Descriptor: " + e);
+			throw new InternalException("Failed to serialize AAS Descriptor: " + e, e);
 		}
 	}
 	

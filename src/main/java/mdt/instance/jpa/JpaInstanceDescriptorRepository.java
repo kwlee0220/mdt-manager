@@ -8,6 +8,8 @@ import org.springframework.data.repository.CrudRepository;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
+import mdt.model.instance.MDTInstanceStatus;
+
 /**
  *
  * @author Kang-Woo Lee (ETRI)
@@ -25,18 +27,23 @@ public interface JpaInstanceDescriptorRepository extends CrudRepository<JpaInsta
 	public Iterable<JpaInstanceDescriptor> findAllByAasIdShort(String aasIdShort);
 	public Iterable<JpaInstanceDescriptor> findAllByGlobalAssetId(String assetId);
 	
-	@Modifying
-	@Transactional
-	@Query("DELETE FROM JpaInstanceDescriptor d WHERE d.instanceId = :instId")
-	public void deleteByInstanceId(@Param("instId") String instId);
-	
-	@Modifying
-	@Transactional
-	@Query("UPDATE JpaInstanceDescriptor d SET d.status = 'STOPPED', d.baseEndpoint = null WHERE d.id = :instId")
-	public void markStoppedOfInstanceId(@Param("instId") String instId);
+	// 2026-11-05 삭제(검토 D41): deleteByInstanceId(JPQL bulk DELETE라 cascade를 우회해 자식 행 FK 위반·orphan을
+	// 만들 수 있었다)와 markStoppedOfInstanceId(WHERE d.id(Long) = :instId(String)로 잘못된 쿼리). 둘 다 쓰이지 않았다.
 	
 	@Modifying
 	@Transactional
 	@Query("UPDATE JpaInstanceDescriptor d SET d.status = 'STOPPED', d.baseEndpoint = null")
 	public int resetAll();
+	
+	/**
+	 * 상태가 {@code from}일 때만 {@code to}로 바꾼다(조건부 UPDATE, 원자적). endpoint는 지운다.
+	 *
+	 * @return	바뀐 행 수(0 또는 1).
+	 */
+	@Modifying
+	@Transactional
+	@Query("UPDATE JpaInstanceDescriptor d SET d.status = :to, d.baseEndpoint = null "
+			+ "WHERE d.instanceId = :instId AND d.status = :from")
+	public int compareAndSetStatus(@Param("instId") String instId, @Param("from") MDTInstanceStatus from,
+									@Param("to") MDTInstanceStatus to);
 }

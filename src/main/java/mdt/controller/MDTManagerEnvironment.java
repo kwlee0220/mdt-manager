@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -19,6 +20,7 @@ import org.springframework.core.env.MapPropertySource;
 
 import utils.io.EnvironmentFileLoader;
 import utils.stream.KeyValueFStream;
+import utils.jdbc.JdbcUtils;
 
 /**
  *
@@ -32,6 +34,39 @@ public class MDTManagerEnvironment implements EnvironmentPostProcessor, Ordered 
 	private static final String ENV_FILE_NAME = "config/env.file";
 	
 	private static Map<String,Object> s_environmentVariables = Map.of();
+	
+	/** 로그에서 값을 가릴 변수 이름: {@code PASS}/{@code SECRET}/{@code TOKEN}/{@code CREDENTIAL}을 포함(대소문자 무시). */
+	private static final Pattern SECRET_KEY = Pattern.compile("(?i).*(PASS|SECRET|TOKEN|CREDENTIAL).*");
+	
+	/**
+	 * 로그에 남길 변수 값을 만든다.
+	 * <p>
+	 * 이름이 비밀 정보로 보이면({@link #SECRET_KEY}) 값 전체를 {@code ****}로, 아니면 값 안의 URL 비밀번호
+	 * ({@code user:pw@}, {@code password=...})만 가린다. 2026-11-05 이전에는 env 파일의 모든 값을 그대로 INFO 로그에
+	 * 남겼다.
+	 *
+	 * @param key	변수 이름.
+	 * @param value	변수 값.
+	 * @return	로그용 값. {@code value}가 null이면 null.
+	 */
+	public static String maskValue(String key, String value) {
+		if ( value == null ) {
+			return null;
+		}
+		return SECRET_KEY.matcher(key).matches() ? "****" : JdbcUtils.maskPassword(value);
+	}
+	
+	/**
+	 * 변수 맵의 값을 {@link #maskValue(String, String)}로 가린 사본을 반환한다(로그용).
+	 *
+	 * @param variables	변수 맵.
+	 * @return	값을 가린 새 맵(순서 유지).
+	 */
+	public static Map<String,String> maskVariables(Map<String,String> variables) {
+		Map<String,String> masked = new LinkedHashMap<>();
+		variables.forEach((k, v) -> masked.put(k, maskValue(k, v)));
+		return masked;
+	}
 	
 	public static Map<String,Object> getVariables() {
 		return Collections.unmodifiableMap(s_environmentVariables);
@@ -61,13 +96,16 @@ public class MDTManagerEnvironment implements EnvironmentPostProcessor, Ordered 
 			
 			s_environmentVariables
 					= KeyValueFStream.from(variables)
-									.peek(v -> s_deferredLog.info(String.format("  - EnvVar: %s=%s", v.key(), v.value())))
+									.peek(v -> s_deferredLog.info(String.format("  - EnvVar: %s=%s", v.key(), maskValue(v.key(), v.value()))))
 									.mapValue(v -> (Object)v)
 									.toMap();
 			MapPropertySource source = new MapPropertySource("mdtEnv", s_environmentVariables);
 			env.getPropertySources().addFirst(source);
 		}
-		catch ( IOException e ) { }
+		catch ( IOException e ) {
+			// 2026-11-05 이전에는 아무 흔적 없이 삼켰다.
+			s_deferredLog.warn("failed to load environment variables from file: " + envFile.getAbsolutePath(), e);
+		}
 	}
 	
 	@Override

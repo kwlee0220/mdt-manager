@@ -9,6 +9,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import utils.io.FileUtils;
 
 /**
+ * JAR 실행기 설정({@code executor.*}).
+ * <p>
+ * 인스턴스를 실행하는 디렉터리는 이 설정이 아니라 {@code instance-manager.instancesDir}이다. 2026-11-05 이전에는
+ * {@code executor.workspaceDir}이 따로 있었다(검토 D25, 별칭 없이 삭제).
  *
  * @author Kang-Woo Lee (ETRI)
  */
@@ -18,14 +22,14 @@ public class JarExecutorConfiguration {
 	private File m_keyStoreFile;
 	private String m_keyStorePassword;
 	
-	private File m_workspaceDir;
 	private Duration m_sampleInterval = Duration.ofSeconds(2);
 	private Duration m_startTimeout = Duration.ofMinutes(1);
+	/** 인스턴스 프로세스에 정상 종료를 요청한 뒤 강제 종료하기까지 기다리는 시간({@code executor.stop-timeout}). */
+	private Duration m_stopTimeout = Duration.ofSeconds(10);
 	private int m_startConcurrency = 5;
 	@Nullable private String m_heapSize;
 	
 	public JarExecutorConfiguration() {
-		m_workspaceDir = new File(FileUtils.getCurrentWorkingDirectory(), "instances");
 		m_defaultMDTInstanceJarFile = new File(FileUtils.getCurrentWorkingDirectory(), "mdt-instance-all.jar");
 		m_keyStoreFile = new File(FileUtils.getCurrentWorkingDirectory(), "mdt_cert.p12");
 	}
@@ -54,14 +58,6 @@ public class JarExecutorConfiguration {
 		m_keyStorePassword = keyStorePassword;
 	}
 	
-	public File getWorkspaceDir() {
-		return m_workspaceDir;
-	}
-	
-	public void setWorkspaceDir(File workspaceDir) {
-		m_workspaceDir = workspaceDir;
-	}
-	
 	public Duration getSampleInterval() {
 		return m_sampleInterval;
 	}
@@ -76,6 +72,14 @@ public class JarExecutorConfiguration {
 	
 	public void setStartTimeout(Duration startTimeout) {
 		m_startTimeout = startTimeout;
+	}
+	
+	public Duration getStopTimeout() {
+		return m_stopTimeout;
+	}
+	
+	public void setStopTimeout(Duration stopTimeout) {
+		m_stopTimeout = stopTimeout;
 	}
 	
 	public int getStartConcurrency() {

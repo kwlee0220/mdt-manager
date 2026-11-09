@@ -44,6 +44,7 @@ import utils.stream.FStream;
 
 import mdt.model.DescriptorUtils;
 import mdt.model.MDTModelSerDe;
+import mdt.model.ModelValidationException;
 import mdt.model.ResourceNotFoundException;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.MDTInstanceStatus;
@@ -124,17 +125,7 @@ public class JpaInstanceDescriptor {
 			}
 		}
 		catch ( SerializationException e ) {
-			throw new InternalException("" + e);
-		}
-	}
-	
-	public AssetAdministrationShellDescriptor getAASShellDescriptor() {
-		try {
-			String aasDescJson = new String(aasDescJsonBytes, StandardCharsets.UTF_8);
-			return MDTModelSerDe.getJsonDeserializer().read(aasDescJson, AssetAdministrationShellDescriptor.class);
-		}
-		catch ( DeserializationException e ) {
-			throw new InternalException("Failed to deserialize AAS Descriptor: " + e);
+			throw new InternalException(e);
 		}
 	}
 	
@@ -143,7 +134,7 @@ public class JpaInstanceDescriptor {
 			this.aasDescJsonBytes = MDTModelSerDe.getJsonSerializer().write(aasDesc).getBytes(StandardCharsets.UTF_8);
 		}
 		catch ( SerializationException e ) {
-			throw new InternalException("Failed to serialize AAS Descriptor: " + e);
+			throw new InternalException("Failed to serialize AAS Descriptor: " + e, e);
 		}
 	}
 
@@ -182,7 +173,7 @@ public class JpaInstanceDescriptor {
 															.write(twinComp).getBytes(StandardCharsets.UTF_8);
 		}
 		catch ( SerializationException e ) {
-			throw new InternalException("Failed to serialize Asset Parameters: " + e);
+			throw new InternalException("Failed to serialize Asset Parameters: " + e, e);
 		}
 	
 		return instDesc;
@@ -193,13 +184,23 @@ public class JpaInstanceDescriptor {
 		return new JpaInstanceDescriptor(instId, aasDesc, inforSubmodel);
 	}
 	
+	/**
+	 * AAS 등록정보로 이 디스크립터의 AAS 정보(idShort, globalAssetId, assetType, AAS 디스크립터 JSON)와 submodel
+	 * 목록을 갱신한다. parameters·operations·twin composition은 바꾸지 않는다.
+	 * <p>
+	 * {@code assetType}이 없거나 {@link MDTAssetType} 값이 아니면 기존 값을 유지한다. 2026-11-05 이전에는 instance id와
+	 * AAS id를 비교해(서로 다른 식별자) 둘이 같을 때만 동작했고, 알 수 없는 assetType이면 예외가 났다.
+	 *
+	 * @param aasDesc	새 AAS 등록정보. id가 이 디스크립터의 AAS id와 같아야 한다.
+	 * @throws IllegalArgumentException	AAS id가 다른 경우.
+	 */
 	public void updateFrom(AssetAdministrationShellDescriptor aasDesc) {
-		Preconditions.checkArgument(getInstanceId().equals(aasDesc.getId()));
+		Preconditions.checkArgument(this.aasId.equals(aasDesc.getId()),
+									"AAS id mismatch: expected=%s, given=%s", this.aasId, aasDesc.getId());
 		
-		this.aasId = aasDesc.getId();
 		this.aasIdShort = aasDesc.getIdShort();
 		this.globalAssetId = aasDesc.getGlobalAssetId();
-		this.assetType = MDTAssetType.valueOf(aasDesc.getAssetType());
+		this.assetType = parseAssetType(aasDesc.getAssetType(), this.assetType);
 		
 		try {
 			setAasDescriptor(aasDesc);
@@ -219,10 +220,27 @@ public class JpaInstanceDescriptor {
 				updateds.add(jid);
 			}
 			FStream.from(updateds).forEach(jisd -> jisd.setInstance(this));
-			this.submodels = updateds;
+			// orphanRemoval 컬렉션은 Hibernate가 관리하는 컬렉션 객체를 그대로 두고 내용만 바꿔야 한다. 빠진 항목은
+			// orphan으로 삭제된다. 2026-11-05 이전에는 새 리스트를 대입해서 Hibernate가 "A collection with
+			// cascade=all-delete-orphan was no longer referenced"로 실패했다.
+			this.submodels.clear();
+			this.submodels.addAll(updateds);
 		}
 		catch ( SerializationException  e ) {
-			throw new IllegalArgumentException("Failed to serialize JSON, cause=" + e);
+			throw new IllegalArgumentException("Failed to serialize JSON, cause=" + e, e);
+		}
+	}
+	
+	private MDTAssetType parseAssetType(String assetType, MDTAssetType current) {
+		if ( assetType == null ) {
+			return current;
+		}
+		try {
+			return MDTAssetType.valueOf(assetType);
+		}
+		catch ( IllegalArgumentException e ) {
+			s_logger.warn("ignore unknown assetType: instance={}, assetType={}, keep={}", getInstanceId(), assetType, current);
+			return current;
 		}
 	}
 	
@@ -239,7 +257,7 @@ public class JpaInstanceDescriptor {
 								.read(json, MDTTwinCompositionDescriptor.class);
 		}
 		catch ( DeserializationException e ) {
-			throw new InternalException("Failed to deserialize MDTTwinCompositionDescriptor: " + e);
+			throw new InternalException("Failed to deserialize MDTTwinCompositionDescriptor: " + e, e);
 		}
 	}
 	
@@ -251,7 +269,7 @@ public class JpaInstanceDescriptor {
 														.write(twinComp).getBytes(StandardCharsets.UTF_8);
 		}
 		catch ( SerializationException e ) {
-			throw new InternalException("Failed to serialize MDTTwinCompositionDescriptor: " + e);
+			throw new InternalException("Failed to serialize MDTTwinCompositionDescriptor: " + e, e);
 		}
 	}
 	
@@ -261,7 +279,7 @@ public class JpaInstanceDescriptor {
 			return MDTModelSerDe.getJsonDeserializer().read(aasDescJson, AssetAdministrationShellDescriptor.class);
 		}
 		catch ( DeserializationException e ) {
-			throw new InternalException("Failed to deserialize AAS Descriptor: " + e);
+			throw new InternalException("Failed to deserialize AAS Descriptor: " + e, e);
 		}
 	}
 	
@@ -297,17 +315,6 @@ public class JpaInstanceDescriptor {
 					s_logger.debug("loading Factory parameters: instance=" + getInstanceId());
 				}
 				break;
-			default:
-				if ( s_logger.isDebugEnabled() ) {
-					s_logger.debug("loading Unknown Asset parameters: instance=" + getInstanceId());
-				}
-				try {
-					loadParameters(getInstanceId(), submodel, "Equipment");
-				}
-				catch ( Exception e ) {
-					loadParameters(getInstanceId(), submodel, "Operation");
-				}
-				break;
 		}
 	}
 	
@@ -336,7 +343,11 @@ public class JpaInstanceDescriptor {
 					.map(param -> toJpaParameterDescriptor(param, nameMap))
 					.forEach(desc -> this.parameters.add(desc));
 		}
-		catch ( ResourceNotFoundException e ) { }
+		catch ( ResourceNotFoundException e ) {
+			// 2026-11-07 이전에는 빈 catch로 삼켜, 구조가 잘못된 모델이 파라미터 0개로 등록되었다(검토 I7).
+			throw new ModelValidationException(String.format("invalid Data submodel: instance=%s, entity=%s, cause=%s",
+															instId, entityName, e.getMessage()));
+		}
 	}
 	private JpaMDTParameterDescriptor toJpaParameterDescriptor(SubmodelElement paramValue, Map<String,String> nameMap) {
 		String paramId = SubmodelUtils.traverse(paramValue, "ParameterID", Property.class).getValue();

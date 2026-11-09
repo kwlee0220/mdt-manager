@@ -106,7 +106,7 @@ public class CachingFileMDTSubmodelRegistry implements SubmodelRegistryProvider 
 				return m_jsonDeser.read(json, SubmodelDescriptor.class);
 			}
 			catch ( DeserializationException e ) {
-				throw new InternalException("" + e);
+				throw new InternalException(e);
 			}
 		}
     };

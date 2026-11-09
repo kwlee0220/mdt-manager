@@ -48,6 +48,9 @@ dependencies {
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	// JPA 엔티티 테스트(@DataJpaTest)용 인메모리 DB
+	testRuntimeOnly 'com.h2database:h2'
 
 	implementation libs.springdoc.webmvc.ui
 	
@@ -61,9 +64,7 @@ dependencies {
 	implementation "org.glassfish.jersey.connectors:jersey-apache-connector"
 	implementation "org.glassfish.jersey.media:jersey-media-json-jackson"
 	implementation "org.glassfish.jersey.inject:jersey-hk2"
-	
-	// Kubernetes client
-	implementation libs.fabric8.kubernetes.client
+
 }
 
 bootJar {
@@ -98,4 +99,8 @@ eclipse {
 			}
 		}
 	}
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
 }

@@ -1,11 +1,17 @@
 package mdt.controller;
 
+import static mdt.controller.JsonResponses.jsonOk;
+
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.DeserializationException;
 import org.eclipse.digitaltwin.aas4j.v3.dataformat.core.SerializationException;
 import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelDescriptor;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,21 +101,44 @@ public class JpaSubmodelRegistryController {
 			jpaSmDescList = m_repo.findAll();
 		}
 		
+		// 같은 인스턴스의 서브모델이 여럿이어도 인스턴스는 한 번만 조회한다(검토 I14).
+		Map<String,Optional<String>> endpoints = new HashMap<>();
 		List<SubmodelDescriptor> smDescList
 					= FStream.from(jpaSmDescList)
 							.map(jpaDesc -> {
-								String instId = jpaDesc.getInstance().getInstanceId();
-								String svcEp = m_instanceManager.getInstance(instId).getServiceEndpoint();
 								SubmodelDescriptor smDesc = jpaDesc.getAASSubmodelDescriptor();
-								if ( svcEp != null ) {
-									smDesc = AASUtils.attachEndpoint(smDesc, svcEp);
-								}
-								return smDesc;
+								String svcEp = findServiceEndpoint(jpaDesc, endpoints);
+								return ( svcEp != null ) ? AASUtils.attachEndpoint(smDesc, svcEp) : smDesc;
 							})
 							.toList();
 			
 		String descListJsjon = MDTModelSerDe.getJsonSerializer().writeList(smDescList);
-		return ResponseEntity.ok(descListJsjon);
+		return jsonOk(descListJsjon);
+    }
+
+    /**
+     * 디스크립터가 속한 인스턴스의 서비스 endpoint를 찾는다.
+     * <p>
+     * 인스턴스를 찾을 수 없는 고아 디스크립터는 endpoint 없이 목록에 남기고 WARN으로 알린다. 2026-11-07 이전에는
+     * 고아 디스크립터 하나로 목록 전체가 실패했다. 그 밖의 오류(DB 오류 등)는 그대로 전파한다.
+     */
+    private @Nullable String findServiceEndpoint(JpaMDTSubmodelDescriptor jpaDesc,
+    												Map<String,Optional<String>> endpoints) {
+    	JpaInstanceDescriptor jpaInst = jpaDesc.getInstance();
+    	if ( jpaInst == null ) {
+    		s_logger.warn("orphan SubmodelDescriptor (no instance): id={}", jpaDesc.getId());
+    		return null;
+    	}
+    	return endpoints.computeIfAbsent(jpaInst.getInstanceId(), instId -> {
+    		try {
+    			return Optional.ofNullable(m_instanceManager.getInstance(instId).getServiceEndpoint());
+    		}
+    		catch ( ResourceNotFoundException e ) {
+    			s_logger.warn("orphan SubmodelDescriptor (instance not found): id={}, instance={}",
+    							jpaDesc.getId(), instId);
+    			return Optional.empty();
+    		}
+    	}).orElse(null);
     }
 
     @Operation(summary = "주어진 식별자에 해당하는 Submodel 등록정보를 반환한다.")
@@ -143,7 +172,7 @@ public class JpaSubmodelRegistryController {
 		}
     	
     	String descJson = MDTModelSerDe.toJsonString(smDesc);
-		return ResponseEntity.ok(descJson);
+		return jsonOk(descJson);
     }
     
     @Operation(

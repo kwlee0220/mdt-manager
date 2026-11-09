@@ -41,7 +41,7 @@ public class FileBasedAASRepository implements AssetAdministrationShellRepositor
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -58,7 +58,7 @@ public class FileBasedAASRepository implements AssetAdministrationShellRepositor
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -72,7 +72,7 @@ public class FileBasedAASRepository implements AssetAdministrationShellRepositor
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -86,7 +86,7 @@ public class FileBasedAASRepository implements AssetAdministrationShellRepositor
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -98,7 +98,7 @@ public class FileBasedAASRepository implements AssetAdministrationShellRepositor
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -111,7 +111,7 @@ public class FileBasedAASRepository implements AssetAdministrationShellRepositor
 		}
 		catch ( Exception e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 
@@ -122,7 +122,7 @@ public class FileBasedAASRepository implements AssetAdministrationShellRepositor
 		}
 		catch ( IOException e ) {
 			Throwable cause = Throwables.unwrapThrowable(e);
-			throw new InternalException("" + cause);
+			throw new InternalException(cause);
 		}
 	}
 

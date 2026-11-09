@@ -28,11 +28,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import utils.http.RESTfulErrorEntity;
-import utils.func.Try;
 import utils.stream.FStream;
 
 import mdt.instance.AbstractJpaInstanceManager;
 import mdt.instance.JpaInstance;
+import mdt.model.ResourceNotFoundException;
 import mdt.model.SubmodelService;
 import mdt.model.sm.SubmodelUtils;
 
@@ -205,11 +205,14 @@ public class MDTListCandidatesController {
     public ResponseEntity<?> listCandidateElements(@RequestParam(name="instance") String instId,
     												@RequestParam(name="submodel") String smIdShort,
     												@RequestParam(name="path", required=false) String path) {
-    	JpaInstance inst = Try.of(() -> m_instanceManager.getInstance(instId))
-    							.getOrNull();
-		if ( inst == null ) {
-			return ResponseEntity.ok("");
-		}
+    	JpaInstance inst;
+    	try {
+    		inst = m_instanceManager.getInstance(instId);
+    	}
+    	catch ( ResourceNotFoundException e ) {
+    		// 없는 인스턴스만 빈 목록이다. DB 오류 등은 숨기지 않는다(2026-11-07 이전에는 모두 빈 목록, 검토 I14).
+    		return ResponseEntity.ok("");
+    	}
 		
 		SubmodelService svc = inst.getSubmodelServiceByIdShort(smIdShort).getOrNull();
 		if ( svc == null ) {
@@ -218,28 +221,6 @@ public class MDTListCandidatesController {
 		
 		String output = listCandidateElements(svc, path).join(System.lineSeparator());
 		return ResponseEntity.ok(output);
-		
-//		String parentPath;
-//		List<String> suffixes;
-//		if ( path.isEmpty() ) {
-//			parentPath = "";
-//			suffixes = listChildren(svc, parentPath, "");
-//		}
-//		else if ( path.endsWith(".") || path.endsWith("[") ) {
-//			parentPath = path.substring(0, path.length()-1);
-//			suffixes = listChildren(svc, parentPath, "");
-//		}
-//		else {
-//			List<String> pathSegs = SubmodelUtils.parseIdShortPath(path).toList();
-//			parentPath = SubmodelUtils.buildIdShortPath(pathSegs.subList(0, pathSegs.size()-1));
-//			suffixes = listChildren(svc, parentPath, pathSegs.get(pathSegs.size()-1));
-//		}
-//		
-//		String output = FStream.from(suffixes)
-//								.map(suffix -> (parentPath.isEmpty()) ? suffix.substring(1)
-//																		: parentPath + suffix)
-//								.join(System.lineSeparator());
-//    	return ResponseEntity.ok(output);
     }
 
     private FStream<String> listCandidateElements(SubmodelService svc, String path) {

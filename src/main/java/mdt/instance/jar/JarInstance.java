@@ -7,8 +7,10 @@ import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import utils.Tuple;
+
 import mdt.exector.jar.JarInstanceExecutor;
-import mdt.exector.jar.MDTInstanceExecutorException;
+import mdt.model.instance.MDTInstanceStatus;
 import mdt.instance.JpaInstance;
 import mdt.instance.jpa.JpaInstanceDescriptor;
 import mdt.model.instance.MDTInstanceManagerException;
@@ -54,7 +56,8 @@ public class JarInstance extends JpaInstance {
 	 * <p>
 	 * JPA 디스크립터에서 실행 인자를 가져와 파싱한 뒤, {@link JarInstanceExecutor}를 통해
 	 * 비동기적으로 JAR 프로세스를 기동한다. 실행 도중 발생하는
-	 * {@link MDTInstanceExecutorException}은 로깅만 수행한다.
+	 * 예외는 로그로 남기고, 실행기가 상태를 알리기 전에 실패했으면 상태를 실제 상태(실행기가 모르면 FAILED)로
+	 * 맞춘다({@code start()}가 STOPPED에서 기다리지 않도록).
 	 *
 	 * @throws MDTInstanceManagerException 실행 인자 파싱 등 준비 단계에서 오류가 발생한 경우.
 	 */
@@ -71,11 +74,31 @@ public class JarInstance extends JpaInstance {
 			try {
 				executor.start(getId(), getAasId(), jargs);
 			}
-			catch ( MDTInstanceExecutorException e ) {
+			catch ( Exception e ) {
 				getLogger().error("Failed to start instance: {}", this, e);
+				syncStatusAfterStartFailure(executor);
 			}
 		}, threadName).start();
-//		executor.start(getId(), getAasId(), jargs);
+	}
+
+	// 실행기가 상태를 알리기 전에 시작이 실패했으면(예: 실행기가 이미 이 id를 실행 중이라 거부) DB 상태가
+	// STOPPED에 남아 start()가 기다리게 된다. 실행기가 아는 실제 상태로 맞추고, 실행기도 모르면 FAILED로 둔다.
+	// 2026-11-05 이전에는 로그만 남겼다(검토 D13).
+	private void syncStatusAfterStartFailure(JarInstanceExecutor executor) {
+		try {
+			Tuple<MDTInstanceStatus,String> actual = executor.getStatus(getId());
+			if ( actual._1 != MDTInstanceStatus.STOPPED ) {
+				getInstanceManager().transitionStatus(getId(), actual._1, actual._2);
+			}
+			else if ( reloadInstanceDescriptor().getStatus() == MDTInstanceStatus.STARTING
+					|| reloadInstanceDescriptor().getStatus() == MDTInstanceStatus.STOPPED ) {
+				// start()가 STARTING을 미리 차지했으므로(D36) STARTING에 남은 경우도 실패로 바꾼다.
+				getInstanceManager().transitionStatus(getId(), MDTInstanceStatus.FAILED, null);
+			}
+		}
+		catch ( Exception e ) {
+			getLogger().warn("failed to update the status after a start failure: id={}, cause={}", getId(), "" + e);
+		}
 	}
 
 	/**
