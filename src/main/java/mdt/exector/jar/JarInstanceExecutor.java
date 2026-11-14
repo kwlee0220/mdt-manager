@@ -224,7 +224,7 @@ public class JarInstanceExecutor {
     	if ( !configFile.exists() ) {
     		try {
     			s_logger.info("creating an empty config file: {}", configFile);
-				IOUtils.toFile("{}", configFile);
+				IOUtils.writeString(configFile, "{}");
 			}
 			catch ( IOException e ) {
 				throw new MDTInstanceExecutorException("failed to create a config file: " + configFile, e);
@@ -639,13 +639,6 @@ public class JarInstanceExecutor {
 	private Tuple<MDTInstanceStatus,String> waitWhileStarting(final String instId, ProcessDesc procDesc) {
 		Instant started = Instant.now();
 		
-		LogTailer tailer = LogTailer.builder()
-									.file(procDesc.m_stdoutLogFile)
-									.startAtBeginning(true)
-									.sampleInterval(m_execConfig.getSampleInterval())
-									.timeout(m_execConfig.getStartTimeout())
-									.build();
-		
 		// mdt-instance가 시작을 마치면 찍는 성공 마커만 찾는다. 시작에 실패한 mdt-instance는 종료하므로
 		// (HomeDirPicocliCommand가 System.exit(-1)) 프로세스가 끝나면 곧바로 실패로 본다. 2026-11-05 이전에는
 		// 부분 문자열 "ERROR"를 실패 마커로 써서, 라이브러리가 기동 중 찍는 무해한 ERROR 로그 하나로 시작 실패가
@@ -653,7 +646,14 @@ public class JarInstanceExecutor {
 		List<String> sentinels = Arrays.asList(STARTED_MARKER);
 		SentinelFinder finder = new SentinelFinder(sentinels,
 								() -> procDesc.m_process != null && !procDesc.m_process.isAlive());
-		tailer.addLogTailerListener(finder);
+		
+		LogTailer tailer = LogTailer.builder()
+									.file(procDesc.m_stdoutLogFile)
+									.startAtBeginning(true)
+									.sampleInterval(m_execConfig.getSampleInterval())
+									.timeout(m_execConfig.getStartTimeout())
+									.listener(finder)
+									.build();
 		
 		try {
 			// Sentinel 문자열 감시 작업 수행.

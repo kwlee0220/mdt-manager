@@ -56,6 +56,7 @@ import mdt.model.instance.MDTInstance;
 import mdt.model.instance.MDTInstanceManagerException;
 import mdt.model.instance.MDTInstanceStatus;
 import mdt.model.instance.MDTOperationDescriptor;
+import mdt.model.instance.MDTOperationDescriptor.ArgumentDescriptor;
 import mdt.model.instance.MDTParameterDescriptor;
 import mdt.model.instance.MDTSubmodelDescriptor;
 import mdt.model.instance.MDTTwinCompositionDescriptor;
@@ -298,6 +299,17 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 						.flatMap(opDesc -> FStream.from(opDesc.getInputArguments())
 													.concatWith(opDesc.getOutputArguments()))
 						.map(argDesc -> argDesc.getId())
+						.toList();
+	}
+	
+	public List<ArgumentDescriptor> listArgumentDescriptors(String instanceId, String operationId) {
+		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
+		Preconditions.checkArgument(operationId != null, "Operation id is null");
+		
+		return FStream.from(m_repos.operations().findAllByInstance_InstanceId(instanceId))
+						.filter(opDesc -> opDesc.getId().equals(operationId))
+						.flatMap(opDesc -> FStream.from(opDesc.getInputArguments())
+													.concatWith(opDesc.getOutputArguments()))
 						.toList();
 	}
 	
@@ -624,7 +636,8 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 			return current;
 		}
 		// 그 사이 다른 요청이 상태를 바꿨을 수 있으므로 다시 읽어 알린다.
-		throw new InvalidResourceStatusException("MDTInstance", id, getInstanceDescriptor(id).getStatus());
+		throw new InvalidResourceStatusException("MDTInstance", "id=" + id,
+												getInstanceDescriptor(id).getStatus());
 	}
 	
 	/**

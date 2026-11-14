@@ -50,7 +50,8 @@ public class FileBasedAASRepository implements AssetAdministrationShellRepositor
 		try {
 			AssetAdministrationShell aas
 					= m_store.get(aasId)
-							.orElseThrow(() -> new ResourceNotFoundException("AssetAdministrationShell", aasId));
+							.orElseThrow(() -> new ResourceNotFoundException("AssetAdministrationShell",
+																				"id=" + aasId));
 			return toIdentifier(aas);
 		}
 		catch ( ResourceNotFoundException e ) {

@@ -222,16 +222,14 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	 * {@code pollInterval}이 지정된 경우 그 주기로 {@code STARTING} 상태에서 벗어날 때까지 추가 대기한다.
 	 * <p>
 	 * 첫 단계({@code STOPPED → STARTING})는 {@code timeout}이 {@code null}이어도 {@link #DEFAULT_SUBMIT_TIMEOUT}을
-	 * 넘겨 기다리지 않는다(넘으면 {@link TimeoutException}). 2026-11-05 이전에는 {@code timeout}이 {@code null}이면
-	 * 시작 요청이 상태를 바꾸지 못할 때 영원히 기다렸다({@code PUT /instances/{id}/start}와 등록 시 auto-start가
-	 * {@code start(null, null)}을 부른다).
+	 * 넘겨 기다리지 않는다(넘으면 {@link TimeoutException}). {@code PUT /instances/{id}/start}와 등록 시
+	 * auto-start가 {@code start(null, null)}을 부르므로, 시작 요청이 상태를 바꾸지 못해도 영원히 기다리지 않는다.
 	 */
 	@Override
 	public MDTInstanceStatus start(@Nullable Duration pollInterval, @Nullable Duration timeout)
 		throws TimeoutException, InterruptedException, InvalidResourceStatusException, ExecutionException {
 		// 시작할 수 있는 상태(STOPPED/FAILED)를 DB에서 원자적으로 STARTING으로 바꾼다. 동시에 두 번 시작하면
-		// 하나만 통과한다. 2026-11-05 이전에는 캐시된 상태로 검사한 뒤 무조건 STOPPED로 덮어썼고, 그 뒤
-		// STOPPED→STARTING 전이를 따로 기다리느라 timeout을 두 단계가 각자 써서 실제로는 두 배까지 기다렸다(D36).
+		// 하나만 통과한다.
 		MDTInstanceStatus previous = getInstanceManager().claimStart(getId());
 		try {
 			startAsync();
@@ -263,13 +261,13 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	@Override
 	public MDTInstanceStatus stop(@Nullable Duration pollInterval, @Nullable Duration timeout)
 		throws MDTInstanceManagerException, TimeoutException, InterruptedException, InvalidResourceStatusException {
-		// 캐시가 아니라 현재 상태로 검사한다(2026-11-05 이전에는 인스턴스 객체를 만들 때의 상태로 검사했다).
+		// 캐시가 아니라 현재 상태로 검사한다.
 		MDTInstanceStatus status = reloadInstanceDescriptor().getStatus();
 		if ( status != MDTInstanceStatus.STARTING && status != MDTInstanceStatus.RUNNING ) {
-			throw new InvalidResourceStatusException("MDTInstance", getId(), status);
+			throw new InvalidResourceStatusException("MDTInstance", "id=" + getId(), status);
 		}
 		
-		// 두 단계 대기가 마감 시각 하나를 나눠 쓴다(2026-11-05 이전에는 단계마다 timeout을 새로 써서 최대 두 배).
+		// 두 단계 대기가 마감 시각 하나를 나눠 쓴다(전체 대기 시간이 timeout을 넘지 않는다).
 		final long deadline = ( timeout != null ) ? System.nanoTime() + timeout.toNanos() : Long.MAX_VALUE;
 		stopAsync();
 		try {
@@ -374,7 +372,7 @@ public abstract class AbstractInstance implements MDTInstance, LoggerSettable {
 	/**
 	 * 본 인스턴스가 {@code myEnd} 쪽인 {@code depType} 의존 관계의 {@code otherEnd} 쪽 인스턴스들을 찾는다.
 	 * <p>
-	 * 찾지 못한 인스턴스는 결과에서 빼고 WARN으로 남긴다(2026-11-07 이전에는 흔적 없이 버렸다, 검토 I11).
+	 * 찾지 못한 인스턴스는 결과에서 빼고 WARN으로 남긴다.
 	 */
 	private List<MDTInstance> findInstanceAllOfDependency(String depType,
 														Function<MDTCompositionDependency,String> myEnd,

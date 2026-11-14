@@ -1241,7 +1241,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     private File buildBundle(File workDir, MultipartFile zippedBundle) throws IOException {
     	File zipFile = new File(workDir, "bundle.zip");
 		try ( InputStream is = zippedBundle.getInputStream() ) {
-			IOUtils.toFile(is, zipFile);
+			IOUtils.write(zipFile, is);
 		}
 		File bundleDir = new File(workDir, "bundle");
 		try {

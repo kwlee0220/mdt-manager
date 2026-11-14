@@ -294,18 +294,18 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 		
 		File logFile = getAppLogFile();
 		
+		// 시작 완료 문구만 찾고, 컨테이너가 끝나면 곧바로 실패로 본다. 2026-11-05 이전에는 부분 문자열 "ERROR"를
+		// 실패 마커로 써서 무해한 ERROR 로그 하나로 시작 실패가 되었고, 컨테이너가 죽어도 제한 시간까지 기다렸다.
+		List<String> sentinels = Arrays.asList("HTTP endpoint available on port");
+		SentinelFinder finder = new SentinelFinder(sentinels, () -> !isContainerRunning(containerId));
+		
 		LogTailer tailer = LogTailer.builder()
 									.file(logFile)
 									.startAtBeginning(true)
 									.sampleInterval(sampleInterval)
 									.timeout(timeout)
+									.listener(finder)
 									.build();
-		
-		// 시작 완료 문구만 찾고, 컨테이너가 끝나면 곧바로 실패로 본다. 2026-11-05 이전에는 부분 문자열 "ERROR"를
-		// 실패 마커로 써서 무해한 ERROR 로그 하나로 시작 실패가 되었고, 컨테이너가 죽어도 제한 시간까지 기다렸다.
-		List<String> sentinels = Arrays.asList("HTTP endpoint available on port");
-		SentinelFinder finder = new SentinelFinder(sentinels, () -> !isContainerRunning(containerId));
-		tailer.addLogTailerListener(finder);
 		
 		// 로그 파일이 생성될 때까지 대기한다.
 		PeriodicPoller<Boolean> poller = PeriodicPoller.pollUntil(() -> logFile.exists())

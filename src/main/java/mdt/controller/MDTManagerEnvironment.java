@@ -92,7 +92,7 @@ public class MDTManagerEnvironment implements EnvironmentPostProcessor, Ordered 
 		s_deferredLog.info("loading environment variables from file: " + envFile.getAbsolutePath());
 		try {
 			EnvironmentFileLoader envLoader = EnvironmentFileLoader.from(new File(path));
-			LinkedHashMap<String, String> variables = envLoader.load();
+			Map<String,String> variables = envLoader.load();
 			
 			s_environmentVariables
 					= KeyValueFStream.from(variables)

@@ -46,13 +46,25 @@ ln -sfn ~/development/mdt/mdt-instance/build/libs/mdt-instance-${MDT_BUILD_VERSI
 cd ~/development/mdt/mdt-manager/docker
 ./build_image.sh --tag 1.7.2                 # 이미지 안의 mdt 사용자: UID/GID 1000
 ./build_image.sh --host-user --tag 1.7.2     # 현재 호스트 사용자의 UID/GID
+./build_image.sh                             # --tag 생략: $MDT_BUILD_VERSION(2장에서 설정한 1.7.2)을 태그로 쓴다
 ```
 
 결과는 `mdt-manager:1.7.2` 이미지다. 옵션은 `./build_image.sh --help`로 볼 수 있다.
 
+`--tag`를 주지 않으면 환경 변수 `MDT_BUILD_VERSION`의 값을 태그로 쓴다. 2장에서 `export`한 셸에서는 `--tag` 없이 실행해도 된다. 둘 다 있으면 `--tag`가 우선하고, 둘 다 없으면 `오류: --tag 또는 $MDT_BUILD_VERSION 둘 중 하나는 지정해야 합니다.`를 출력하고 빌드하지 않는다. 어느 쪽에서 태그를 정하든 JAR 버전과 같아야 한다(아래 확인 항목).
+
+`--host-user`는 이미지의 `mdt` 사용자·그룹을 빌드한 호스트 사용자의 UID/GID(`id -u`, `id -g`)로 만든다. compose는 호스트의 `config`, `instances`, `logs` 디렉터리를 바인드 마운트하는데(5.1장), 바인드 마운트의 권한은 이름이 아니라 UID/GID 숫자로 판단한다.
+
+- **UID/GID가 같으면:** 컨테이너가 이 디렉터리에 인스턴스와 로그를 쓸 수 있고, 생긴 파일은 호스트에서도 그 사용자 소유라 `sudo` 없이 고치거나 지울 수 있다.
+- **UID/GID가 다르면:** 컨테이너가 `Permission denied`로 쓰지 못하거나, 호스트에서 다루기 어려운 소유자의 파일이 생긴다.
+
+호스트 사용자의 UID/GID가 기본값 1000/1000이면 `--host-user`를 주든 주지 않든 같은 이미지가 된다.
+이 방식으로 만든 이미지를 레지스트리에 올려 다른 호스트에서 쓰려면, 그 호스트의 마운트 디렉터리 소유자도 같은 UID/GID여야 한다.
+
 | 옵션·환경 변수 | 설명 |
 | --- | --- |
 | `--tag`, `-t <버전>` | 이미지 태그. 생략하면 `MDT_BUILD_VERSION` |
+| `MDT_BUILD_VERSION` | `--tag`를 생략했을 때 쓰는 이미지 태그. 2장에서 JAR 버전을 정할 때 쓴 값과 같다. |
 | `--host-user`, `-H` | 이미지의 `mdt` 사용자를 현재 호스트 사용자의 UID/GID로 만든다. 마운트 디렉터리의 소유자와 맞출 때 쓴다. |
 | `--uid <UID>`, `--gid <GID>` | UID/GID를 직접 지정한다. `--host-user`와 함께 쓸 수 없다. |
 | `MDT_IMAGE_NAME` | 이미지 이름(기본값 `mdt-manager`). `push_image.sh`에도 같은 값을 쓴다. |
@@ -136,6 +148,7 @@ cd ~/development/mdt/mdt-manager/docker
 | 증상 | 원인과 조치 |
 | --- | --- |
 | `오류: $MDT_HOME 환경변수가 설정되어 있어야 합니다.` | `export MDT_HOME=...`을 설정한다. |
+| `오류: --tag 또는 $MDT_BUILD_VERSION 둘 중 하나는 지정해야 합니다.` | `--tag <버전>`을 주거나 `export MDT_BUILD_VERSION=<버전>`을 설정한다. |
 | `오류: JAR이 없습니다: ...` | 2장·3장을 다시 확인한다. 링크가 가리키는 파일이 없어도 이 오류가 난다. |
 | `오류: JAR 버전(x)이 이미지 태그(y)와 다릅니다` | `--tag`를 JAR 버전과 맞추거나, 원하는 버전으로 JAR을 다시 빌드하고 링크를 바꾼다. |
 | `경고: JAR 버전을 확인할 수 없습니다` | 매니페스트에 버전이 없고 파일 이름에도 버전이 없는 JAR이다. 빌드는 진행되지만 버전을 보장하지 못하므로, 버전이 붙은 파일에 링크하는 편이 좋다. |

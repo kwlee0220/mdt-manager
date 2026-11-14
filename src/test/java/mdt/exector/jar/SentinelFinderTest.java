@@ -58,8 +58,8 @@ public class SentinelFinderTest {
 									.startAtBeginning(true)
 									.sampleInterval(Duration.ofMillis(100))
 									.timeout(timeout)
+									.listener(finder)
 									.build();
-		tailer.addLogTailerListener(finder);
 		tailer.run();
 	}
 }

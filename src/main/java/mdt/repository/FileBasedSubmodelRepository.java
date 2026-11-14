@@ -52,7 +52,8 @@ public class FileBasedSubmodelRepository implements SubmodelRepositoryProvider {
 	public ServiceIdentifier getSubmodelById(String id) {
 		try {
 			Submodel submodel = m_store.get(id)
-										.orElseThrow(() -> new ResourceNotFoundException("SubmodelService", id));
+										.orElseThrow(() -> new ResourceNotFoundException("SubmodelService",
+																								"id=" + id));
 			return toIdentifier(submodel);
 		}
 		catch ( ResourceNotFoundException e ) {
