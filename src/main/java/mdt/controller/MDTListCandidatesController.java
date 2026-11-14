@@ -1,11 +1,8 @@
 package mdt.controller;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
-import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElement;
-import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElementCollection;
-import org.eclipse.digitaltwin.aas4j.v3.model.SubmodelElementList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,24 +28,66 @@ import utils.http.RESTfulErrorEntity;
 import utils.stream.FStream;
 
 import mdt.instance.AbstractJpaInstanceManager;
+import mdt.instance.AbstractJpaInstanceManager.SubmodelKey;
 import mdt.instance.JpaInstance;
+import mdt.model.InvalidResourceStatusException;
 import mdt.model.ResourceNotFoundException;
 import mdt.model.SubmodelService;
-import mdt.model.sm.SubmodelUtils;
+import mdt.model.instance.MDTInstanceStatus;
+import mdt.model.instance.MDTOperationDescriptor.ArgumentDescriptor;
 
 
 /**
-*
-* @author Kang-Woo Lee (ETRI)
-*/
+ * 명령행 도구의 자동 완성에 쓰는 후보 목록 API({@code /list}). 결과는 줄마다 후보 하나인 {@code text/plain}이다.
+ * <p>
+ * {@code /list/expr}는 MDT 표현식의 앞부분을 받아 완성 후보를 돌려준다(규칙은 {@link ExpressionCompleter}).
+ * 나머지는 MDTInstance 식별자, 파라미터, 연산, 인자, Submodel, 시계열, element 경로 같은 개별 식별자 목록이다.
+ *
+ * @author Kang-Woo Lee (ETRI)
+ */
 @Tag(name = "후보 식별자 목록 조회",
 	description = "MDT 모델 관련 식별자 후보 목록을 조회한다. 주로 명령행 도구의 자동 완성에 사용된다.")
 @RestController
 @RequestMapping(value={"/list"})
 public class MDTListCandidatesController {
-	private final Logger s_logger = LoggerFactory.getLogger(MDTListCandidatesController.class);
+	private static final Logger s_logger = LoggerFactory.getLogger(MDTListCandidatesController.class);
 	
 	@Autowired AbstractJpaInstanceManager<? extends JpaInstance> m_instanceManager;
+	private final ExpressionCompleter m_completer = new ExpressionCompleter(new InstanceManagerSource());
+
+    @Operation(summary = "MDT 표현식의 앞부분에 대한 자동 완성 후보 목록을 반환한다.",
+    		description = "후보는 입력한 앞부분 전체로 시작하는 완전한 표현식이며, 다음 단계가 있으면 구분자"
+    				+ "(':', '.', '[')로 끝난다. 다루는 형태: param:, oparg:, opvar:, timeseries:, "
+    				+ "submodel:id=, <instance>:<submodel>:<path>. 식별자 후보는 실행 중이 아닌 MDTInstance도 "
+    				+ "포함하고, element 경로 후보는 실행 중인 MDTInstance에서만 만든다. 해석할 수 없는 입력은 "
+    				+ "오류 없이 빈 목록이다. 후보에 ':'가 들어가므로 bash 자동 완성에서는 COMP_WORDBREAKS의 ':'를 "
+    				+ "처리해야 한다(예: __ltrim_colon_completions).")
+    @Parameters({
+    	@Parameter(name = "prefix", description="입력 중인 MDT 표현식 앞부분. 생략하면 빈 문자열.",
+    				example="param:CNC-04:")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공. 줄 단위로 구분된 후보 목록(최대 "
+    				+ ExpressionCompleter.MAX_CANDIDATES + "개).",
+			content = {
+				@Content(schema = @Schema(implementation=String.class), mediaType="text/plain")
+			})
+    })
+	@GetMapping(value="/expr", produces="text/plain")
+    @ResponseStatus(HttpStatus.OK)
+    public ResponseEntity<String> listExpressionCandidates(@RequestParam(name="prefix", defaultValue="")
+    														String prefix) {
+		List<String> candidates;
+		try {
+			candidates = m_completer.complete(prefix);
+		}
+		catch ( RuntimeException e ) {
+			// 자동 완성은 입력 중인 미완성 표현식을 다루므로 실패를 오류로 돌려주지 않는다.
+			s_logger.debug("failed to list expression candidates: prefix={}, cause={}", prefix, e.toString());
+			candidates = List.of();
+		}
+		return ResponseEntity.ok(String.join(System.lineSeparator(), candidates));
+	}
 
     @Operation(summary = "주어진 유형에 해당하는 MDTInstance 식별자 목록을 반환한다.")
     @Parameters({
@@ -210,7 +249,7 @@ public class MDTListCandidatesController {
     		inst = m_instanceManager.getInstance(instId);
     	}
     	catch ( ResourceNotFoundException e ) {
-    		// 없는 인스턴스만 빈 목록이다. DB 오류 등은 숨기지 않는다(2026-11-07 이전에는 모두 빈 목록, 검토 I14).
+    		// 없는 인스턴스만 빈 목록이다. DB 오류 등은 숨기지 않는다.
     		return ResponseEntity.ok("");
     	}
 		
@@ -219,78 +258,66 @@ public class MDTListCandidatesController {
 			return ResponseEntity.ok("");
 		}
 		
-		String output = listCandidateElements(svc, path).join(System.lineSeparator());
-		return ResponseEntity.ok(output);
+		List<String> paths = SubmodelElementCandidates.list(svc, path, null);
+		return ResponseEntity.ok(String.join(System.lineSeparator(), paths));
     }
 
-    private FStream<String> listCandidateElements(SubmodelService svc, String path) {
-		String parentPath;
-		List<String> suffixes;
-		if ( path == null || path.isEmpty() ) {
-			parentPath = "";
-			suffixes = listChildren(svc, parentPath, "");
+	/**
+	 * {@link ExpressionCompleter}가 쓰는 조회를 MDTInstance 관리자로 구현한다.
+	 */
+	private final class InstanceManagerSource implements ExpressionCompleter.Source {
+		@Override
+		public List<String> instanceIds() {
+			return m_instanceManager.listInstanceIds("all");
 		}
-		else if ( path.endsWith(".") || path.endsWith("[") ) {
-			parentPath = path.substring(0, path.length()-1);
-			suffixes = listChildren(svc, parentPath, "");
+
+		@Override
+		public List<String> parameterIds(String instanceId) {
+			return m_instanceManager.listParameterIds(instanceId);
 		}
-		else {
-			List<String> pathSegs = SubmodelUtils.parseIdShortPath(path).toList();
-			parentPath = SubmodelUtils.buildIdShortPath(pathSegs.subList(0, pathSegs.size()-1));
-			suffixes = listChildren(svc, parentPath, pathSegs.get(pathSegs.size()-1));
+
+		@Override
+		public List<String> operationSubmodels(String instanceId) {
+			return m_instanceManager.listOperationIds(instanceId);
 		}
-		
-		return FStream.from(suffixes)
-						.map(suffix -> (parentPath.isEmpty()) ? suffix.substring(1)
-																: parentPath + suffix);
-    }
-    
-    private List<String> listChildren(SubmodelService svc, String parentPath, String prefix) {
-    	SubmodelElement sme = ( !parentPath.isEmpty() )
-    						? svc.getSubmodelElementByPath(parentPath) : null;
-    	if ( sme == null ) {
-    		return listCollectionChildren(svc.getSubmodel().getSubmodelElements(), prefix);
-    	}
-    	else if ( sme instanceof SubmodelElementCollection smc ) {
-    		return listCollectionChildren(smc.getValue(), prefix);
-    	}
-    	else if ( sme instanceof SubmodelElementList sml ) {
-    		if ( sml.getValue().size() == 0 ) {
-        		return Collections.emptyList();
-    		}
-    		
-    		SubmodelElement proto = sml.getValue().get(0);
-    		if ( prefix.length() > 0 ) {
-    			int idx = Integer.parseInt(prefix);
-    			return listChildCandidates(proto, "", "[" + idx + "]");
-    		}
-    		else {
-				return FStream.range(0, sml.getValue().size())
-								.flatMapIterable(idx -> listChildCandidates(proto, "", "[" + idx + "]"))
-								.toList();
-    		}
-    	}
-    	else {
-    		return Collections.emptyList();
-    	}
-    }
-    
-	private List<String> listCollectionChildren(List<SubmodelElement> children, String prefix) {
-		return FStream.from(children)
-						.filter(sme -> sme.getIdShort().startsWith(prefix))
-						.flatMapIterable(sme -> listChildCandidates(sme, ".", sme.getIdShort()))
-						.toList();
-	}
-	
-	private List<String> listChildCandidates(SubmodelElement child, String delim, String title) {
-		if ( child instanceof SubmodelElementCollection ) {
-			return List.of(delim + title, delim + title + ".");
+
+		@Override
+		public List<String> argumentIds(String instanceId, String operationSubmodel, String kind) {
+			// 인자 참조는 'oparg:<instance>:<submodel>:(in|out):<argumentId>' 형식이다.
+			String refPrefix = String.format("oparg:%s:%s:%s:", instanceId, operationSubmodel, kind);
+			return FStream.from(m_instanceManager.listArgumentDescriptors(instanceId, operationSubmodel))
+							.filter(desc -> desc.getReference().startsWith(refPrefix))
+							.map(ArgumentDescriptor::getId)
+							.toList();
 		}
-    	else if ( child instanceof SubmodelElementList ) {
-			return List.of(delim + title, delim + title + "[");
-    	}
-    	else {
-    		return List.of(delim + title);
-    	}
+
+		@Override
+		public List<String> submodelIdShorts(String instanceId) {
+			return m_instanceManager.listSubmodelIds(instanceId);
+		}
+
+		@Override
+		public List<String> timeSeriesSubmodels(String instanceId) {
+			return m_instanceManager.listTimeSeriesIds(instanceId);
+		}
+
+		@Override
+		public List<SubmodelKey> submodels() {
+			return m_instanceManager.listSubmodelKeys();
+		}
+
+		@Override
+		public Optional<SubmodelService> runningSubmodelService(String instanceId, String submodelIdShort) {
+			try {
+				JpaInstance inst = m_instanceManager.getInstance(instanceId);
+				if ( inst.getStatus() != MDTInstanceStatus.RUNNING ) {
+					return Optional.empty();
+				}
+				return Optional.ofNullable(inst.getSubmodelServiceByIdShort(submodelIdShort).getOrNull());
+			}
+			catch ( ResourceNotFoundException | InvalidResourceStatusException e ) {
+				return Optional.empty();
+			}
+		}
 	}
 }

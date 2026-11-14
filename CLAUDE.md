@@ -63,6 +63,8 @@ cd docker && ./build_image.sh --tag <VERSION>
 `@ConfigurationPropertiesScan("mdt")`). 기동 후 `auto-start`가 켜져 있으면 등록된 인스턴스를 자동 시작한다(`jar` 백엔드만).
 
 - `mdt/controller/` — REST 컨트롤러. 진입 컨트롤러는 [MDTInstanceManagerController](src/main/java/mdt/controller/MDTInstanceManagerController.java) (`/instance-manager`). 레지스트리 컨트롤러(`JpaShellRegistryController`, `JpaSubmodelRegistryController`), 예외 처리(`MDTExceptionAdvice`) 포함.
+  - [MDTListCandidatesController](src/main/java/mdt/controller/MDTListCandidatesController.java) (`/list`) — mdt-cli bash 자동 완성용 후보 목록(`text/plain`, 줄마다 하나). `/list/ids/{type}`, `/parameters`, `/operations`, `/arguments`, `/submodels`, `/timeseries`, `/elements`와, MDT 참조식 앞부분을 받아 참조식 전체를 후보로 돌려주는 `/list/expr?prefix=`가 있다.
+  - `/list/expr`의 규칙은 [ExpressionCompleter](src/main/java/mdt/controller/ExpressionCompleter.java)에 있다: `param:`, `oparg:`, `opvar:`, `timeseries:`, `submodel:id=`, `<inst>:<sm>:<path>`를 단계별로 완성한다. 다음 단계가 있는 후보는 `:`/`.`/`[`로 끝나고, `ID`가 아닌 이름은 따옴표로 감싸며, `*`·정수 인덱스는 내지 않고, 최대 500개다. 식별자는 DB 정보로(정지한 인스턴스 포함), element 경로는 실행 중인 인스턴스에서만 만든다. 해석할 수 없는 입력과 조회 실패는 200 + 빈 목록이다. 데이터 조회는 `ExpressionCompleter.Source`(컨트롤러의 `InstanceManagerSource`)를 거치므로 [ExpressionCompleterTest](src/test/java/mdt/controller/ExpressionCompleterTest.java)처럼 DB 없이 시험한다. element 경로 완성은 `/elements`와 같이 [SubmodelElementCandidates](src/main/java/mdt/controller/SubmodelElementCandidates.java)를 쓴다.
 - `mdt/instance/` — 인스턴스 추상화(`AbstractInstance`, `AbstractJpaInstanceManager`)와 실행 백엔드별 구현:
   - `jar/` — 로컬 JAR 프로세스. Python `uv` 연동(`PythonUvProjects`).
   - `docker/` — Docker 컨테이너.

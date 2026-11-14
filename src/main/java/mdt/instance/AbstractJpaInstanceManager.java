@@ -331,6 +331,26 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 						.toList();
 	}
 
+	/**
+	 * 등록된 모든 MDTInstance의 Submodel을 (MDTInstance 식별자, Submodel 식별자, idShort)로 반환한다.
+	 *
+	 * @return	Submodel 키 목록.
+	 */
+	public List<SubmodelKey> listSubmodelKeys() {
+		return FStream.from(m_repos.submodels().findAll())
+						.map(sm -> new SubmodelKey(sm.getInstance().getInstanceId(), sm.getId(), sm.getIdShort()))
+						.toList();
+	}
+
+	/**
+	 * Submodel 하나를 가리키는 키.
+	 *
+	 * @param instanceId	Submodel이 속한 MDTInstance 식별자.
+	 * @param submodelId	Submodel 식별자.
+	 * @param idShort		Submodel idShort.
+	 */
+	public record SubmodelKey(String instanceId, String submodelId, String idShort) { }
+
 	@Override
 	public List<MDTInstance> getInstanceAllByFilter(String filterExpr) {
 		Preconditions.checkArgument(filterExpr != null, "filterExpr is null");
