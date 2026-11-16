@@ -77,6 +77,8 @@ import mdt.model.expr.MDTExpression;
 import mdt.model.expr.MDTExpressionParser;
 import mdt.model.expr.MDTParserException;
 import mdt.model.expr.MDTSubmodelExpr;
+import mdt.model.SubmodelService;
+import mdt.model.instance.AASOperationDescriptor;
 import mdt.model.instance.InstanceDescriptor;
 import mdt.model.instance.InstanceStatusChangeEvent;
 import mdt.model.instance.MDTInstance;
@@ -86,6 +88,7 @@ import mdt.model.instance.MDTOperationDescriptor;
 import mdt.model.instance.MDTParameterDescriptor;
 import mdt.model.instance.MDTSubmodelDescriptor;
 import mdt.model.instance.MDTTwinCompositionDescriptor;
+import mdt.model.sm.SubmodelUtils;
 import mdt.model.sm.ref.DefaultSubmodelReference;
 import mdt.model.sm.ref.ElementReference;
 import mdt.model.sm.ref.ElementReferences;
@@ -580,6 +583,40 @@ public class MDTInstanceManagerController implements InitializingBean {
 		JpaInstance instance = m_instanceManager.getInstance(id);
 		List<MDTOperationDescriptor> operations = instance.getMDTOperationDescriptorAll();
 		return jsonOk(SERIALIZER.writeList(operations));
+    }
+
+    @Tag(name = "MDTInstance 모델 조회")
+    @Operation(summary = "MDTInstance 식별자에 해당하는 인스턴스의 모든 서브모델에 정의된 AAS Operation들의 정보를 반환한다.")
+    @Parameters({
+    	@Parameter(name = "instanceId", description="검색할 MDTInstance 식별자")
+    })
+    @ApiResponses(value = {
+    	@ApiResponse(responseCode="200", description="성공",
+			content = {
+				@Content(array = @ArraySchema(schema = @Schema(implementation=AASOperationDescriptor.class)),
+												mediaType="application/json")
+			}),
+    	@ApiResponse(responseCode="404",
+					description="식별자에 해당하는 MDTInstance가 등록되어 있지 않습니다.",
+					content = {
+							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
+						})
+    })
+    @GetMapping("/aas-operations/{instanceId}")
+    @ResponseStatus(HttpStatus.OK)
+    public ResponseEntity<?> getAASOperations(@PathVariable("instanceId") String instanceId) throws IOException {
+		JpaInstance instance = m_instanceManager.getInstance(instanceId);
+
+		List<AASOperationDescriptor> opDescList = Lists.newArrayList();
+		for ( SubmodelService svc: instance.getSubmodelServiceAll() ) {
+			Submodel submodel = svc.getSubmodel();
+			SubmodelUtils.walk(submodel)
+						.filter(kv -> kv.value() instanceof org.eclipse.digitaltwin.aas4j.v3.model.Operation)
+						.map(kv -> AASOperationDescriptor.from(submodel.getIdShort(), kv.key(),
+										(org.eclipse.digitaltwin.aas4j.v3.model.Operation)kv.value()))
+						.forEach(opDescList::add);
+		}
+		return jsonOk(MDTModelSerDe.toJsonString(opDescList));
     }
 
     @Tag(name = "MDTInstance 모델 조회")
