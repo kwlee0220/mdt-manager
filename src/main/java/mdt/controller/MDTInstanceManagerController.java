@@ -220,7 +220,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     @Operation(summary = "MDTInstanceManager에 새로운 MDTInstance를 등록시킨다.")
     @Parameters({
     	@Parameter(name = "id", description="등록 MDTInstance 식별자"),
-    	@Parameter(name = "port", description="MDTInstance 서비스(FA3ST) 포트 번호. 생략하면 자동으로 결정된다."),
+    	@Parameter(name = "port", description="MDTInstance 서비스(FA3ST) 포트 번호. 생략하면 config.json의 port를 쓰며, "
+    											+ "둘 다 없으면 MDTInstance를 시작할 수 없다."),
     	@Parameter(name = "bundle", description="등록시킬 MDTInstance의 모델 디렉토리를 zip으로 압축한 파일")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -239,7 +240,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 							@Content(schema = @Schema(implementation=RESTfulErrorEntity.class), mediaType="application/json")
 						})
         })
-    @PostMapping({"/instances"})
+    @PostMapping(value={"/instances"}, produces=MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public String addInstance(@RequestParam("id") String id,
     							@RequestParam(name = "port", defaultValue = "-1") int port,

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.ByteArrayOutputStream;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -100,6 +102,18 @@ public class AddInstanceFlowTest {
 			.andExpect(status().isCreated());
 		assertEquals(List.of("ADDING", "ADDED"), m_events);
 		assertEquals(0, m_bundles.list().length);
+	}
+
+	@Test
+	public void createdDescriptorIsSentAsJson() throws Exception {
+		JpaInstance inst = mock(JpaInstance.class);
+		when(m_manager.addInstance(eq("t1"), anyInt(), any(File.class))).thenReturn(inst);
+		when(m_manager.getInstance("t1")).thenReturn(inst);
+		when(inst.getInstanceDescriptor()).thenReturn(descriptor());
+
+		m_mvc.perform(multipart("/instance-manager/instances").file(bundle(zip())).param("id", "t1"))
+			.andExpect(status().isCreated())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
 	}
 
 	@Test
