@@ -294,6 +294,7 @@ public class JpaInstanceDescriptor {
 		
 		switch ( getAssetType() ) {
 			case Machine:
+			case Material:
 				if ( s_logger.isDebugEnabled() ) {
 					s_logger.debug("loading EQUIPMENT parameters: instance=" + getInstanceId());
 				}

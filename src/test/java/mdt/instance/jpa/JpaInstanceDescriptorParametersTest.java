@@ -44,6 +44,13 @@ public class JpaInstanceDescriptorParametersTest {
 	}
 
 	@Test
+	public void materialReadsEquipment() {
+		// Material은 Machine과 같이 DataInfo.Equipment를 읽는다.
+		assertTrue(build("Material", entity("Equipment", true, true)).getParameters().isEmpty());
+		assertThrows(ModelValidationException.class, () -> build("Material", entity("Operation", true, true)));
+	}
+
+	@Test
 	public void missingEntityIsRejected() {
 		// Machine은 DataInfo.Equipment를 읽는다.
 		assertThrows(ModelValidationException.class, () -> build("Machine", entity("Operation", true, true)));
