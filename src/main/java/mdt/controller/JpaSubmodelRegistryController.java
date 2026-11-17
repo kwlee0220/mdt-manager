@@ -101,7 +101,7 @@ public class JpaSubmodelRegistryController {
 			jpaSmDescList = m_repo.findAll();
 		}
 		
-		// 같은 인스턴스의 서브모델이 여럿이어도 인스턴스는 한 번만 조회한다(검토 I14).
+		// 같은 인스턴스의 서브모델이 여럿이어도 인스턴스는 한 번만 조회한다.
 		Map<String,Optional<String>> endpoints = new HashMap<>();
 		List<SubmodelDescriptor> smDescList
 					= FStream.from(jpaSmDescList)
@@ -119,8 +119,8 @@ public class JpaSubmodelRegistryController {
     /**
      * 디스크립터가 속한 인스턴스의 서비스 endpoint를 찾는다.
      * <p>
-     * 인스턴스를 찾을 수 없는 고아 디스크립터는 endpoint 없이 목록에 남기고 WARN으로 알린다. 2026-11-07 이전에는
-     * 고아 디스크립터 하나로 목록 전체가 실패했다. 그 밖의 오류(DB 오류 등)는 그대로 전파한다.
+     * 인스턴스를 찾을 수 없는 고아 디스크립터는 endpoint 없이 목록에 남기고 WARN으로 알린다. 고아
+     * 디스크립터 하나 때문에 목록 전체가 실패하지는 않는다. 그 밖의 오류(DB 오류 등)는 그대로 전파한다.
      */
     private @Nullable String findServiceEndpoint(JpaMDTSubmodelDescriptor jpaDesc,
     												Map<String,Optional<String>> endpoints) {

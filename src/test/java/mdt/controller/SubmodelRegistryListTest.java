@@ -28,7 +28,7 @@ import mdt.model.ResourceNotFoundException;
 
 
 /**
- * 서브모델 디스크립터 목록과 후보 조회가 고아 디스크립터와 그 밖의 오류를 구분하는지 확인한다(mdt-manager 검토 I14).
+ * 서브모델 디스크립터 목록과 후보 조회가 고아 디스크립터와 그 밖의 오류를 구분하는지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

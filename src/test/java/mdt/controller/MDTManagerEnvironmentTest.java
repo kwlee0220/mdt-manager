@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 
 
 /**
- * 로그용 환경 변수 값 가리기({@link MDTManagerEnvironment#maskValue})를 확인한다(mdt-manager 검토 D4).
+ * 로그용 환경 변수 값 가리기({@link MDTManagerEnvironment#maskValue})를 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

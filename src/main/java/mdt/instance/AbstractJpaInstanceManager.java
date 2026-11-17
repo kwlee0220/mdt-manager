@@ -130,8 +130,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	 * 매니저가 쓰던 자원을 정리한다: EventBus 구독 해제, MQTT 상태 발행 서비스 중지.
 	 * <p>
 	 * Spring 컨텍스트가 닫힐 때 {@code @PreDestroy}로 불린다. 하위 클래스가 재정의하면 자기 자원(실행 중인 프로세스,
-	 * health check 등)을 먼저 정리한 뒤 {@code super.shutdown()}을 불러야 한다. 2026-11-05 이전에는 비어 있었고,
-	 * 생성자가 시작한 MQTT 연결과 EventBus 구독이 남았다.
+	 * health check 등)을 먼저 정리한 뒤 {@code super.shutdown()}을 불러야 한다.
 	 */
 	@PreDestroy
 	public void shutdown() {
@@ -186,7 +185,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	 * 주어진 id의 인스턴스가 아직 등록되지 않았는지 확인한다.
 	 * <p>
 	 * 각 백엔드의 {@code addInstance}는 인스턴스 디렉터리를 지우고 새 번들을 복사한 뒤 DB에 등록한다. 그래서 이 확인 없이
-	 * 이미 있는 id로 등록하면, DB 등록은 실패(409)해도 기존 인스턴스의 파일이 새 번들로 바뀌었다(2026-11-05 이전).
+	 * 이미 있는 id로 등록하면, DB 등록은 실패(409)해도 기존 인스턴스의 파일이 새 번들로 바뀐다.
 	 *
 	 * @param id	인스턴스 id.
 	 * @throws ResourceAlreadyExistsException	이미 등록된 경우.
@@ -200,8 +199,8 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	/**
 	 * MDTInstance의 홈 디렉터리 {@code <instancesDir>/<id>}를 반환한다.
 	 * <p>
-	 * 2026-11-05 이전에는 id를 검사하지 않아, id가 {@code ""}/{@code "."}이면 instances 디렉터리 자신이 되어
-	 * 등록·삭제 때 instances 디렉터리 전체가 지워질 수 있었다.
+	 * id를 먼저 검사한다. id가 {@code ""}/{@code "."}이면 instances 디렉터리 자신이 되어 등록·삭제 때 instances
+	 * 디렉터리 전체가 지워질 수 있기 때문이다.
 	 *
 	 * @throws IllegalArgumentException	{@code id}가 식별자 규칙({@link #INSTANCE_ID_PATTERN})에 맞지 않는 경우.
 	 */
@@ -243,8 +242,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	 * 실행 엔진의 실제 상태를 반영(adapt)한 뒤 인스턴스 객체를 만든다.
 	 * <p>
 	 * 단건 조회({@link #getInstanceDescriptor(String)})와 목록 조회가 같은 상태·endpoint를 보이도록 모든 조회 경로가 이
-	 * 메소드를 거친다. 2026-11-05 이전에는 목록 조회({@code getInstanceAll}, {@code getInstanceAllByFilter})가 adapt를
-	 * 거치지 않아, docker 인스턴스의 목록이 단건 조회와 다른 상태를 보였다(검토 D37).
+	 * 메소드를 거친다(목록 조회 {@code getInstanceAll}, {@code getInstanceAllByFilter} 포함).
 	 */
 	private T toAdaptedInstance(JpaInstanceDescriptor desc) {
 		adaptInstanceDescriptor(desc);
@@ -325,7 +323,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		Preconditions.checkArgument(instanceId != null, "MDTInstance id is null");
 		
 		return FStream.from(m_repos.submodels().findAllByInstance_InstanceId(instanceId))
-						// semanticId가 없는 submodel도 있다(2026-11-05 이전에는 NPE).
+						// semanticId가 없는 submodel도 있다.
 						.filter(sm -> TimeSeries.SEMANTIC_ID.equals(sm.getSemanticId()))
 						.map(JpaMDTSubmodelDescriptor::getIdShort)
 						.toList();
@@ -393,8 +391,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 											.orElseThrow(() -> newInstanceNotFoundException(id));
 		
 		// docker는 DB 상태가 실제와 다를 수 있으므로 실행 엔진의 상태를 반영(adapt)한 뒤 판단한다. 중지 중인
-		// 인스턴스도 지우지 않는다. 2026-11-05 이전에는 DB 상태만 보고 STARTING/RUNNING만 거부해, 실행 중인
-		// 컨테이너·Pod의 인스턴스나 중지 중인 인스턴스를 지울 수 있었다.
+		// 인스턴스도 지우지 않는다.
 		adaptInstanceDescriptor(desc);
 		MDTInstanceStatus status = desc.getStatus();
 		switch ( status ) {
@@ -408,8 +405,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 		m_repos.instances().delete(desc);
 		
 		// 외부 자원 정리와 REMOVED 이벤트는 DB 삭제가 커밋된 뒤에 한다. 커밋이 실패하면 행이 남으므로 자원도
-		// 남아 있어야 한다. 정리 실패는 WARN으로 남긴다. 2026-11-05 이전에는 트랜잭션 안에서 정리·발행하고
-		// 실패를 흔적 없이 삼켰다(검토 D38).
+		// 남아 있어야 한다. 정리 실패는 WARN으로 남긴다.
 		runAfterCommit(() -> {
 			try {
 				inst.uninitialize();
@@ -418,7 +414,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 				getLogger().warn("failed to clean up the removed MDTInstance: id={}, cause={}", id, "" + e);
 			}
 			
-			// 규칙이 생기기 전에 등록된 id라 홈 디렉터리 경로를 만들 수 없으면 디렉터리 삭제만 건너뛴다.
+			// 식별자 규칙에 맞지 않는 id라 홈 디렉터리 경로를 만들 수 없으면 디렉터리 삭제만 건너뛴다.
 			if ( INSTANCE_ID_PATTERN.matcher(id).matches() ) {
 				File homeDir = getInstanceHomeDir(id);
 				try {
@@ -455,7 +451,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	/**
 	 * 모든 인스턴스를 하나씩 {@link #removeInstance(String)}로 지운다. 한 인스턴스의 삭제가 실패해도(예: 실행 중)
 	 * 나머지는 계속 지우고 실패는 WARN으로 남긴다. 각 삭제는 저장소 메소드의 트랜잭션으로 커밋된다(자기 호출이라
-	 * {@code removeInstance}의 {@code @Transactional}은 적용되지 않는다). 2026-11-05 이전에는 실패를 흔적 없이 버렸다.
+	 * {@code removeInstance}의 {@code @Transactional}은 적용되지 않는다).
 	 */
 	public void removeInstanceAll() throws MDTInstanceManagerException {
 		for ( MDTInstance inst: getInstanceAll() ) {
@@ -502,7 +498,8 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 				String sqlState = sqlError.getSQLState();
 				// "23505"는 PostgreSQL에서 고유 제약 조건 위반을 나타내는 SQL 상태 코드이다(이 매니저는
 				// PostgreSQL 전용이다). id 중복은 addInstance가 먼저 확인하므로(checkNotRegistered) 여기서는 대부분
-				// 다른 인스턴스와 AAS id가 겹친 경우다. 2026-11-05 이전에는 어떤 고유 제약이든 "id 중복"으로 보고했다.
+				// 다른 인스턴스와 AAS id가 겹친 경우다. AAS id가 겹치면 aasId로, 아니면 id로
+				// 보고한다.
 				if ( "23505".equals(sqlState) ) {
 					if ( m_repos.instances().findByAasId(desc.getAasId()).isPresent() ) {
 						throw new ResourceAlreadyExistsException("MDTInstance", "aasId=" + desc.getAasId());
@@ -635,8 +632,7 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	 * 시작할 수 있는 인스턴스(STOPPED/FAILED)를 원자적으로 STARTING으로 바꾼다.
 	 * <p>
 	 * 같은 인스턴스를 동시에 두 번 시작하면 하나만 성공하고 나머지는 {@link InvalidResourceStatusException}을 받는다.
-	 * 2026-11-05 이전에는 캐시된 상태로 검사한 뒤 무조건 STOPPED로 덮어써(check-then-act), 두 호출이 모두 통과했다
-	 * (검토 D36).
+	 * 상태 교체는 DB의 compare-and-set으로 하므로, 검사와 교체 사이에 다른 요청이 끼어들 수 없다.
 	 *
 	 * @param id	인스턴스 id.
 	 * @return	바꾸기 전 상태(STOPPED 또는 FAILED). 시작 요청이 실패하면 {@link #releaseStartClaim}에 넘긴다.
@@ -672,9 +668,8 @@ public abstract class AbstractJpaInstanceManager<T extends JpaInstance>
 	 * 인스턴스의 상태 전이를 기록한다: DB의 상태·endpoint를 갱신하고 {@link InstanceStatusChangeEvent}를 발행한다
 	 * (MQTT 상태 발행 등 구독자에게 전달).
 	 * <p>
-	 * 모든 실행 백엔드는 상태가 바뀌면 이 메소드 하나로 알린다. 2026-11-05 이전에는 jar/external은 DB만 갱신하고
-	 * 이벤트를 발행하지 않았고, docker/k8s(2026-11-05 삭제)는 이벤트만 발행하고 DB를 갱신하지 않았다. 인스턴스가 이미 삭제되어
-	 * DB 행이 없으면 이벤트만 발행한다.
+	 * 모든 실행 백엔드(jar/docker/external)는 상태가 바뀌면 이 메소드 하나로 알린다. 그래서 DB 갱신과 이벤트 발행이
+	 * 함께 일어난다. 인스턴스가 이미 삭제되어 DB 행이 없으면 이벤트만 발행한다.
 	 *
 	 * @param id		인스턴스 id.
 	 * @param status	새 상태.

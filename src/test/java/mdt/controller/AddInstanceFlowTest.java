@@ -42,7 +42,7 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 
 
 /**
- * {@code POST /instance-manager/instances}의 흐름을 확인한다(mdt-manager 검토 D28·D29).
+ * {@code POST /instance-manager/instances}의 흐름을 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */
@@ -127,7 +127,7 @@ public class AddInstanceFlowTest {
 
 	@Test
 	public void uploadFileNameIsNotUsed() throws Exception {
-		// 이름 없는 업로드(2026-11-05 이전에는 NPE)와 경로를 담은 이름도 문제없이 처리된다.
+		// 이름 없는 업로드와 경로를 담은 이름도 문제없이 처리된다.
 		JpaInstance inst = mock(JpaInstance.class);
 		when(m_manager.addInstance(eq("t1"), anyInt(), any(File.class))).thenReturn(inst);
 		when(m_manager.getInstance("t1")).thenReturn(inst);

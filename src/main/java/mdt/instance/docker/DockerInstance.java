@@ -100,8 +100,7 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 			// 기존 docker container가 존재하는 경우에는 이를 먼저 삭제한다.
 			getInstanceContainer(docker, getId())
 						.ifPresent(cont -> stopAndRemoveContainer(docker, cont.id()));
-			// 이전 실행의 로그에 남은 시작 완료 문구로 곧바로 RUNNING이 되지 않도록 로그를 지운다
-			// (2026-11-05 이전에는 지우지 않고 처음부터 읽었다).
+			// 이전 실행의 로그에 남은 시작 완료 문구로 곧바로 RUNNING이 되지 않도록 로그를 지운다.
 			Files.deleteIfExists(getAppLogFile().toPath());
 
 			// Docker container를 생성한다.
@@ -118,7 +117,7 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 																conf.getStartTimeout());
 					instManager.putContainerStatus(getId(), status);
 					
-					// 2026-11-05 이전에는 결과와 상관없이 RUNNING을 알렸다.
+					// 시작에 성공한 경우에만 RUNNING을 알린다.
 					if ( status == MDTInstanceStatus.RUNNING ) {
 						// container가 시작되면 할당된 port을 확인해 MDTInstance의 endpoint를 설정한다.
 						String svcEndpoint = instManager.toServiceEndpoint(svcPort);
@@ -152,8 +151,7 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 	/**
 	 * {@inheritDoc}
 	 * <p>
-	 * 컨테이너가 이미 없으면 STOPPED로 본다. docker 호출이 실패하면 FAILED로 알린다. 2026-11-05 이전에는 STOPPING을
-	 * 먼저 넣은 뒤 컨테이너를 찾지 못하면 그 예외를 잡지 않아 STOPPING에 고정되었다.
+	 * 컨테이너가 이미 없으면 STOPPED로 본다. docker 호출이 실패하면 FAILED로 알린다.
 	 */
 	@Override
 	public void stopAsync() {
@@ -294,8 +292,8 @@ public class DockerInstance extends JpaInstance implements MDTInstance {
 		
 		File logFile = getAppLogFile();
 		
-		// 시작 완료 문구만 찾고, 컨테이너가 끝나면 곧바로 실패로 본다. 2026-11-05 이전에는 부분 문자열 "ERROR"를
-		// 실패 마커로 써서 무해한 ERROR 로그 하나로 시작 실패가 되었고, 컨테이너가 죽어도 제한 시간까지 기다렸다.
+		// 시작 완료 문구만 찾고, 컨테이너가 끝나면 곧바로 실패로 본다. "ERROR" 같은 실패 마커는
+		// 쓰지 않는다(무해한 ERROR 로그도 있다).
 		List<String> sentinels = Arrays.asList("HTTP endpoint available on port");
 		SentinelFinder finder = new SentinelFinder(sentinels, () -> !isContainerRunning(containerId));
 		

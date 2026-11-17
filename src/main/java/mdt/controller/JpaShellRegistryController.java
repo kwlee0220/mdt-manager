@@ -144,7 +144,7 @@ public class JpaShellRegistryController implements InitializingBean {
     	List<AssetAdministrationShellDescriptor> descList = FStream.from(matches)
 														    		.map(inst -> inst.getAASShellDescriptor())
 														    		.toList();
-		// AAS JSON 직렬화기로 쓴다(2026-11-05 이전에는 Spring 기본 매퍼, 검토 D32).
+		// Spring 기본 매퍼가 아니라 AAS JSON 직렬화기로 쓴다.
 		return jsonOk(MDTModelSerDe.getJsonSerializer().writeList(descList));
     }
 
@@ -215,8 +215,8 @@ public class JpaShellRegistryController implements InitializingBean {
 																		AssetAdministrationShellDescriptor.class);
 		Preconditions.checkArgument(aas.getId() != null, "AssetAdministrationShellDescriptor id is null");
 		
-		// 본문의 id는 AAS id다. 그 AAS를 가진 인스턴스를 찾아 갱신한다(없으면 404). 2026-11-05 이전에는 AAS id를
-		// instance id로 넘겨, 두 id가 다르면 항상 404였다.
+		// 본문의 id는 AAS id다. 그 AAS를 가진 인스턴스를 찾아 갱신한다(없으면 404).
+		// AAS id와 instance id는 다를 수 있으므로 AAS id를 instance id로 쓰지 않는다.
 		String instId = m_instanceManager.getInstanceByAasId(aas.getId()).getId();
 		m_instanceManager.updateInstanceDescriptor(instId, desc -> desc.updateFrom(aas));
     }

@@ -15,7 +15,7 @@ group은 `etri`, 루트 패키지는 `mdt`이다.
 - **빌드**: Gradle (`org.springframework.boot`, `io.spring.dependency-management` 플러그인)
 - **영속화**: JPA / Hibernate, PostgreSQL 전용(컬럼 타입 `bytea`·`jsonb`, 고유 제약 위반 SQLState `23505`에 의존). MariaDB는 지원하지 않는다.
 - **API 문서**: springdoc-openapi (Swagger UI)
-- **실행 백엔드 연동**: Docker(`org.mandas:docker-client` + Jersey). Kubernetes 백엔드는 2026-11-05에 삭제했다.
+- **실행 백엔드 연동**: Docker(`org.mandas:docker-client` + Jersey).
 - **메시징**: Eclipse Paho MQTT
 - **HTTP 클라이언트**: OkHttp
 - **유틸**: Lombok, JSR305(`@Nullable` 등, compileOnly)
@@ -42,7 +42,7 @@ cd docker && ./build_image.sh --tag <VERSION>
 
 ## 테스트
 
-`src/test/java`의 JUnit 5 테스트(2026-11-05부터). 실행 중인 DB·MQTT·Docker 없이 돈다.
+`src/test/java`의 JUnit 5 테스트. 실행 중인 DB·MQTT·Docker 없이 돈다.
 
 - JPA: `@DataJpaTest` + H2(`MODE=PostgreSQL`, `testRuntimeOnly 'com.h2database:h2'`). 트랜잭션 밖에서만 드러나는 결함은 `@Transactional(propagation = NOT_SUPPORTED)`로 시험한다(`ExternalInstanceManagerRegistrationTest`).
 - 컨트롤러: `MockMvcBuilders.standaloneSetup` + Mockito로 매니저를 흉내 내고 `ReflectionTestUtils`로 `m_instanceManager`를 넣는다. 예외 응답은 advice를 함께 등록한다(`MDTInstanceManagerExceptionAdvice`, `MDTExceptionAdvice`).

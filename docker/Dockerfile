@@ -1,4 +1,4 @@
-# 기반 이미지를 digest로 고정해, 같은 소스로 빌드하면 같은 JRE·OS 패키지가 들어가게 한다(검토 I6).
+# 기반 이미지를 digest로 고정해, 같은 소스로 빌드하면 같은 JRE·OS 패키지가 들어가게 한다.
 # 대신 보안 갱신을 자동으로 받지 않으므로 주기적으로 갱신한다:
 #   docker buildx imagetools inspect eclipse-temurin:21-jre-jammy   # 'Digest:' 값으로 아래를 바꾼다
 FROM eclipse-temurin:21-jre-jammy@sha256:1eac8b8fee11ca7d6725a48bc5d41992ed1561504ebae25490d2d062847e8269
@@ -52,12 +52,12 @@ EXPOSE 12985
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -fsS "http://localhost:${MDT_MANAGER_PORT}/health" > /dev/null || exit 1
 
-# java가 PID 1이면 jar 인스턴스가 남긴 고아 프로세스(uv, python 등)가 좀비로 쌓인다(검토 D2).
+# java가 PID 1이면 jar 인스턴스가 남긴 고아 프로세스(uv, python 등)가 좀비로 쌓인다.
 # tini가 PID 1이 되어 이들을 거두고, SIGTERM 등은 java에 전달한다.
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
 # 관리자 JVM 옵션. 컨테이너 메모리 제한과 인스턴스 JVM(executor.heap-size)의 몫을 고려해
-# 'docker run -e JAVA_OPTS=...'이나 compose의 environment로 바꾼다(검토 I1).
+# 'docker run -e JAVA_OPTS=...'이나 compose의 environment로 바꾼다.
 # JDK_JAVA_OPTIONS는 쓰지 않는다. java가 자동으로 읽어 컨테이너 안의 인스턴스 JVM에도 적용되기 때문이다.
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0"
 CMD ["sh", "-c", "exec java $JAVA_OPTS -jar /mdt/mdt-manager/mdt-manager-all.jar"]

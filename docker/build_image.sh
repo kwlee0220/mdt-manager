@@ -31,7 +31,6 @@ for arg in "$@"; do
 done
 
 # 옵션 값이 있는지 확인한다. 값 자리에 다른 옵션(예: '--tag --uid')이 오면 거부한다.
-# 2026-11-07 이전에는 다음 인자를 그대로 값으로 받았다(검토 I2).
 require_value() {
     local opt="$1" value="$2" example="$3"
     if [ -z "$value" ] || [[ "$value" == -* ]]; then
@@ -107,9 +106,9 @@ if [ -z "$MDT_VERSION" ]; then
     echo "오류: --tag 또는 \$MDT_BUILD_VERSION 둘 중 하나는 지정해야 합니다." >&2
     exit 1
 fi
-# 이미지 이름은 push_image.sh와 같은 환경 변수로 정한다(검토 N2).
+# 이미지 이름은 push_image.sh와 같은 환경 변수로 정한다.
 IMAGE_NAME="${MDT_IMAGE_NAME:-mdt-manager}"
-# 이미지 이름:태그. 2026-11-07 이전 변수 이름은 REPOSITORY였다(검토 N1).
+# 이미지 이름:태그.
 IMAGE="$IMAGE_NAME:$MDT_VERSION"
 
 # MDT_HOME 환경변수 가드
@@ -137,8 +136,8 @@ jar_version() {
     echo "$version"
 }
 
-# 이미지에 넣을 JAR이 있고 태그와 같은 버전인지 확인한다. 2026-11-07 이전에는 확인하지 않아
-# 다른 버전의 JAR이 든 이미지가 이 태그로 만들어질 수 있었다(검토 D3).
+# 이미지에 넣을 JAR이 있고 태그와 같은 버전인지 확인한다. 다른 버전의 JAR이 든 이미지가 이 태그로
+# 만들어지지 않게 한다.
 for jar in "$MANAGER_JAR" "$INSTANCE_JAR"; do
     if [ ! -f "$jar" ]; then
         echo "오류: JAR이 없습니다: $jar" >&2
@@ -154,8 +153,8 @@ for jar in "$MANAGER_JAR" "$INSTANCE_JAR"; do
     fi
 done
 
-# 빌드 컨텍스트는 임시 디렉터리로 만든다. docker/ 폴더에 사용자가 둔 파일을 덮어쓰거나 지우지 않는다
-# (2026-11-07 이전에는 docker/에 JAR을 복사했다가 trap으로 지워, 미리 둔 JAR도 사라졌다, 검토 D4).
+# 빌드 컨텍스트는 임시 디렉터리로 만든다. docker/ 폴더에 사용자가 둔 파일(미리 둔 JAR 등)을 덮어쓰거나
+# 지우지 않는다.
 BUILD_CONTEXT=$(mktemp -d)
 trap 'rm -rf "$BUILD_CONTEXT"' EXIT
 cp Dockerfile "$BUILD_CONTEXT/"
@@ -178,7 +177,7 @@ fi
 docker build "${BUILD_ARGS[@]}" "$BUILD_CONTEXT"
 
 # 태그를 잃은 이전 이미지만 지운다. 다른 태그가 남아 있거나 컨테이너가 쓰고 있으면 지우지 않는다.
-# 2026-11-07 이전에는 'docker image prune -f'로 호스트의 모든 dangling 이미지를 지웠다(검토 D1).
+# 호스트의 다른 dangling 이미지는 건드리지 않는다.
 NEW_IMAGE_ID=$(docker image inspect -f '{{.Id}}' "$IMAGE")
 if [ -n "$OLD_IMAGE_ID" ] && [ "$OLD_IMAGE_ID" != "$NEW_IMAGE_ID" ]; then
     OLD_TAG_COUNT=$(docker image inspect -f '{{len .RepoTags}}' "$OLD_IMAGE_ID" 2>/dev/null || echo 1)

@@ -11,8 +11,7 @@ import utils.io.FileUtils;
 /**
  * JAR 실행기 설정({@code executor.*}).
  * <p>
- * 인스턴스를 실행하는 디렉터리는 이 설정이 아니라 {@code instance-manager.instancesDir}이다. 2026-11-05 이전에는
- * {@code executor.workspaceDir}이 따로 있었다(검토 D25, 별칭 없이 삭제).
+ * 인스턴스를 실행하는 디렉터리는 이 설정이 아니라 {@code instance-manager.instancesDir}이다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Test;
 
 
 /**
- * 시작·중지 요청이 받아들여지는 단계의 제한 시간({@link AbstractInstance#toSubmitTimeout})을 확인한다
- * (mdt-manager 검토 D13: timeout이 null이면 이 단계가 영원히 기다렸다).
+ * 시작·중지 요청이 받아들여지는 단계의 제한 시간({@link AbstractInstance#toSubmitTimeout})을 확인한다.
+ * timeout이 null이어도 이 단계가 영원히 기다리지 않아야 한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

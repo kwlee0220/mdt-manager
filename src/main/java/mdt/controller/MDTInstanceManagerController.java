@@ -210,7 +210,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     })
     @GetMapping("/instances/$count")
     public ResponseEntity<String> countInstances() {
-    	// mdt-client HttpMDTInstanceManager.countInstances()가 부른다(2026-11-05 추가, 검토 D30).
+    	// mdt-client HttpMDTInstanceManager.countInstances()가 부른다.
     	return ResponseEntity.ok()
     						.contentType(MediaType.TEXT_PLAIN)
     						.body(Long.toString(m_instanceManager.countInstances()));
@@ -250,8 +250,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     	AbstractJpaInstanceManager.checkInstanceId(id);
 		Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDING(id));
 		
-		// ADDING을 알린 뒤에는 어떤 실패든(번들 압축 해제 포함) ADD_FAILED로 끝나야 한다. 2026-11-05 이전에는 번들을
-		// 만드는 단계가 try 밖이라, 그 단계에서 실패하면 ADD_FAILED 없이 ADDING에 멈췄다.
+		// ADDING을 알린 뒤에는 어떤 실패든(번들 압축 해제 포함) ADD_FAILED로 끝나야 한다. 그래서
+		// 번들을 만드는 단계도 try 안에 둔다.
 		boolean added = false;
 		File workDir = null;
     	try {
@@ -266,8 +266,8 @@ public class MDTInstanceManagerController implements InitializingBean {
 			Globals.EVENT_BUS.post(InstanceStatusChangeEvent.ADDED(id));
     		
     		// auto-start 옵션이 설정되어 있으면 바로 시작시킨다. 시작이 실패해도 등록은 이미 끝났으므로 201로
-    		// 응답하고, 실패는 인스턴스 상태(FAILED)와 로그로 알린다. 2026-11-05 이전에는 시작 실패를 등록 실패
-    		// (ADD_FAILED, 500)로 보고해, 다시 등록하면 409가 났다.
+    		// 응답하고, 실패는 인스턴스 상태(FAILED)와 로그로 알린다. 시작 실패를 등록 실패
+    		// (ADD_FAILED)로 보고하지 않는다.
 			if ( m_instanceManager.getConfiguration().isAutoStart() ) {
 				s_logger.info("auto-starting the newly added MDTInstance: id={}", id);
 				try {
@@ -285,7 +285,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 			throw e;
 		}
     	catch ( Exception e ) {
-    		// Error는 감싸지 않고 그대로 전파된다(2026-11-05 이전에는 Throwable을 잡아 감쌌다).
+    		// Error는 감싸지 않고 그대로 전파된다.
 			throw new MDTInstanceManagerException("failed to add MDTInstance: id=" + id, Throwables.unwrapThrowable(e));
     	}
     	finally {
@@ -441,7 +441,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     public ResponseEntity<?> registerInstance(@PathVariable("id") String id, @RequestBody String repoEndpoint)
     	throws InterruptedException, IOException {
     	if ( !(m_instanceManager instanceof ExternalInstanceManager) ) {
-    		// 지원하지 않는 기능은 501이다(advice). 2026-11-05 이전에는 405(메소드 불일치용 코드)였다.
+    		// 지원하지 않는 기능은 501이다(advice).
     		throw new UnsupportedOperationException("MDTInstance registration is only supported for "
 								+ "ExternalInstanceManager: type=" + m_instanceManager.getClass().getName());
     	}
@@ -480,7 +480,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 	    	return ResponseEntity.noContent().build();
 		}
 		else {
-    		// 2026-11-05 이전에는 405였고, 메시지가 "registration"으로 복사되어 있었다.
+    		// 지원하지 않는 기능은 501이다(advice).
 			throw new UnsupportedOperationException("MDTInstance unregistration is only supported for "
 								+ "ExternalInstanceManager: type=" + m_instanceManager.getClass().getName());
 		}
@@ -665,9 +665,8 @@ public class MDTInstanceManagerController implements InitializingBean {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getAssetAdministrationShell(@PathVariable("id") String id)
     	throws SerializationException {
-    	// AAS4J 객체는 AAS JSON 직렬화기로 쓴다(클라이언트가 AAS4J로 읽는다). 2026-11-05 이전에는 객체를 그대로
-    	// 돌려 Spring 기본 매퍼가 enum을 "INSTANCE"·"GLOBAL_REFERENCE", 필드를 "_interface"로 써서 클라이언트가
-    	// 제대로 읽지 못했다(검토 D32).
+    	// AAS4J 객체는 AAS JSON 직렬화기로 쓴다(클라이언트가 AAS4J로 읽는다). Spring 기본 매퍼는
+    	// enum을 "INSTANCE"·"GLOBAL_REFERENCE", 필드를 "_interface"로 써서 클라이언트가 제대로 읽지 못한다.
     	AssetAdministrationShellDescriptor desc = m_instanceManager.getInstance(id).getAASShellDescriptor();
 		return jsonOk(MDTModelSerDe.getJsonSerializer().write(desc));
     }
@@ -693,7 +692,7 @@ public class MDTInstanceManagerController implements InitializingBean {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<String> getSubmodelDescriptors(@PathVariable("id") String id)
     	throws SerializationException {
-    	// getAssetAdministrationShell()과 같은 이유로 AAS JSON 직렬화기로 쓴다(검토 D32).
+    	// getAssetAdministrationShell()과 같은 이유로 AAS JSON 직렬화기로 쓴다.
     	List<SubmodelDescriptor> descList = m_instanceManager.getInstance(id).getAASSubmodelDescriptorAll();
 		return jsonOk(MDTModelSerDe.getJsonSerializer().writeList(descList));
     }
@@ -1102,7 +1101,6 @@ public class MDTInstanceManagerController implements InitializingBean {
 		}
 		else if ( valueString != null ) {
 			// 값 리터럴 표현식으로 해석한다(17 → 정수, '17' → 문자열).
-			// 2026-11-01 이전에는 항상 문자열 리터럴로 만들어 'value=17'도 문자열 "17"이 되었다.
 			ElementValue value;
 			try {
 				value = ElementValues.parseExpr(valueString);
@@ -1236,7 +1234,7 @@ public class MDTInstanceManagerController implements InitializingBean {
 			expr = MDTExpressionParser.parseExpr(refString);
 		}
 		catch ( MDTParserException e ) {
-			// 참조 표현식 문법 오류는 요청의 오류다(400). 2026-11-05 이전에는 500이었다.
+			// 참조 표현식 문법 오류는 요청의 오류다(400).
 			throw new IllegalArgumentException("invalid reference expression: '" + refString + "', cause="
 												+ e.getMessage(), e);
 		}
@@ -1268,9 +1266,7 @@ public class MDTInstanceManagerController implements InitializingBean {
      * 업로드된 bundle zip을 {@code workDir}에 저장하고 {@code workDir/bundle}에 압축을 푼다.
      * <p>
      * {@code workDir}은 요청마다 새로 만든 디렉터리라, 같은 id로 동시에 요청해도 서로의 파일을 건드리지 않는다.
-     * 업로드 파일 이름은 쓰지 않는다. 2026-11-05 이전에는 {@code <bundlesDir>/<원래 파일 이름>}과
-     * {@code <bundlesDir>/<id>}를 요청끼리 공유해, 동시 요청·중복 요청이 진행 중인 요청의 bundle을 지웠고, 압축 해제가
-     * 실패하면 zip이 남았으며, 파일 이름이 없으면 NPE가 났다.
+     * 업로드 파일 이름은 쓰지 않으므로, 이름이 없거나 경로를 담은 업로드도 처리된다.
      *
      * @param workDir		요청 전용 작업 디렉터리.
      * @param zippedBundle	업로드된 bundle zip.

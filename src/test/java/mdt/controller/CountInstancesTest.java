@@ -15,7 +15,7 @@ import mdt.instance.AbstractJpaInstanceManager;
 
 
 /**
- * {@code GET /instance-manager/instances/$count}(mdt-manager 검토 D30): mdt-client의 {@code countInstances()}가
+ * {@code GET /instance-manager/instances/$count}: mdt-client의 {@code countInstances()}가
  * {@code Long.parseLong}으로 읽는 숫자 본문을 돌려준다. {@code /instances/{id}}보다 먼저 매칭되어야 한다.
  *
  * @author Kang-Woo Lee (ETRI)

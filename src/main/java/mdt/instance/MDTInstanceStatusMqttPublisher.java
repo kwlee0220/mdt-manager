@@ -24,8 +24,6 @@ import mdt.model.instance.InstanceStatusChangeEvent;
  * {@code Globals.EVENT_BUS}(동기 EventBus)의 구독자다. 발행은 이 객체의 전용 스레드 하나에서 순서대로 하므로,
  * 이벤트를 발행한 스레드(인스턴스 시작·중지, 컨트롤러)는 broker를 기다리지 않는다. 발행마다 broker 확인은
  * {@link #getOperationTimeout()}까지만 기다린다. broker와 연결되어 있지 않을 때의 이벤트는 버리고 WARN을 남긴다.
- * 2026-11-05 이전에는 EventBus 스레드에서 제한 시간 없는 {@code MqttClient.publish}를 불러, broker가 늦으면
- * 이벤트를 발행한 스레드가 모두 막혔고, 연결이 없을 때의 이벤트는 로그 없이 버렸다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

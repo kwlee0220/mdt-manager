@@ -29,7 +29,7 @@ import mdt.model.instance.MDTInstanceStatus;
 
 
 /**
- * 예외 → HTTP 상태 규칙({@link AbstractMDTExceptionAdvice})을 MockMvc로 확인한다(mdt-manager 검토 D15·D16·D17).
+ * 예외 → HTTP 상태 규칙({@link AbstractMDTExceptionAdvice})을 MockMvc로 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

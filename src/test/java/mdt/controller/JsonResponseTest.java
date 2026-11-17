@@ -26,7 +26,7 @@ import mdt.model.sm.info.MDTAssetType;
 
 
 /**
- * JSON 응답의 Content-Type이 요청의 Accept와 상관없이 {@code application/json}인지 확인한다(mdt-manager 검토 A4).
+ * JSON 응답의 Content-Type이 요청의 Accept와 상관없이 {@code application/json}인지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

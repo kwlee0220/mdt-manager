@@ -33,8 +33,7 @@ import mdt.model.AASUtils;
 
 
 /**
- * AAS4J 디스크립터를 돌려주는 엔드포인트의 JSON을 클라이언트(AAS4J 역직렬화)가 원래 객체로 읽는지 확인한다
- * (mdt-manager 검토 D32).
+ * AAS4J 디스크립터를 돌려주는 엔드포인트의 JSON을 클라이언트(AAS4J 역직렬화)가 원래 객체로 읽는지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */
@@ -61,7 +60,7 @@ public class AasDescriptorJsonTest {
 		m_mvc = MockMvcBuilders.standaloneSetup(instCtrl, regCtrl).build();
 	}
 
-	/** Spring 기본 매퍼의 JSON은 AAS4J로 되읽으면 원래 객체가 아니다(이 수정이 필요한 이유). */
+	/** Spring 기본 매퍼의 JSON은 AAS4J로 되읽으면 원래 객체가 아니다(그래서 AAS JSON 직렬화기를 쓴다). */
 	@Test
 	public void springDefaultMapperIsNotAasJson() throws Exception {
 		String json = Jackson2ObjectMapperBuilder.json().build().writeValueAsString(m_desc);

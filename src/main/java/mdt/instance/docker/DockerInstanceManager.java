@@ -54,7 +54,7 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 
 	private final DockerConfiguration m_dockerConf;
 	private final String m_repositoryEndpointFormat;
-	// 요청 스레드와 컨테이너 시작 대기 스레드가 함께 쓴다(2026-11-05 이전에는 HashMap).
+	// 요청 스레드와 컨테이너 시작 대기 스레드가 함께 쓰므로 ConcurrentHashMap을 쓴다.
 	private final Map<String,MDTInstanceStatus> m_instanceStatus = new ConcurrentHashMap<>();
 
 	public DockerInstanceManager(MDTInstanceManagerConfiguration mgrConf,
@@ -72,7 +72,6 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 		if ( epFormat == null ) {
 			try {
 				String host = InetAddress.getLocalHost().getHostAddress();
-				// 2026-11-05 이전에는 '//'가 빠져 "https:<host>:<port>/api/v3.0"이 되었다.
 				epFormat = "https://" + host + ":%d/api/v3.0";
 			}
 			catch ( Exception e ) {
@@ -88,9 +87,8 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 	@Override
 	public MDTInstance addInstance(String id, int port, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
-		// 2026-11-05 이전에는 image가 "kwlee0220/faaast-starter:latest"로, 호스트 포트가 443으로 고정되어
-		// docker.image-name과 port 인자가 쓰이지 않았다(포트 고정이라 인스턴스를 둘 이상 띄울 수 없었다).
-		// 기존 인스턴스의 디렉터리를 지우기 전에 확인한다(검토 D29).
+		// 컨테이너는 docker.image-name의 image와 port 인자의 호스트 포트로 만든다.
+		// 기존 인스턴스의 디렉터리를 지우기 전에 확인한다.
 		checkNotRegistered(id);
 		DockerExecutionArguments args = new DockerExecutionArguments(m_dockerConf.getImageName(), port);
 		try {
@@ -211,8 +209,8 @@ public class DockerInstanceManager extends AbstractJpaInstanceManager<DockerInst
 		try ( DockerClient docker = newDockerClient() ) {
 			ContainerInfo info = docker.inspectContainer(id);
 			if ( info.state().running() ) {
-				// 매니저가 모르는(재시작 전부터 돌던) 컨테이너가 실행 중이면 RUNNING으로 본다. 2026-11-05 이전에는
-				// map에는 RUNNING을 넣고도 desc에는 이전 상태(STOPPED)를 넣었다.
+				// 매니저가 모르는(재시작 전부터 돌던) 컨테이너가 실행 중이면 RUNNING으로 본다. map과
+				// desc에 같은 상태를 넣는다.
 				MDTInstanceStatus status = getContainerStatus(id);
 				if ( status == MDTInstanceStatus.STOPPED || status == MDTInstanceStatus.FAILED ) {
 					status = MDTInstanceStatus.RUNNING;

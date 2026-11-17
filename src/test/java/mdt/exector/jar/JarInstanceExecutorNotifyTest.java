@@ -21,7 +21,7 @@ import mdt.model.instance.MDTInstanceStatus;
 
 
 /**
- * 상태 통지가 실행기의 락을 쥔 채 리스너를 기다리지 않는지 확인한다(mdt-manager 검토 D27).
+ * 상태 통지가 실행기의 락을 쥔 채 리스너를 기다리지 않는지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

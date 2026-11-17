@@ -83,7 +83,6 @@ public class JarInstance extends JpaInstance {
 
 	// 실행기가 상태를 알리기 전에 시작이 실패했으면(예: 실행기가 이미 이 id를 실행 중이라 거부) DB 상태가
 	// STOPPED에 남아 start()가 기다리게 된다. 실행기가 아는 실제 상태로 맞추고, 실행기도 모르면 FAILED로 둔다.
-	// 2026-11-05 이전에는 로그만 남겼다(검토 D13).
 	private void syncStatusAfterStartFailure(JarInstanceExecutor executor) {
 		try {
 			Tuple<MDTInstanceStatus,String> actual = executor.getStatus(getId());
@@ -92,7 +91,7 @@ public class JarInstance extends JpaInstance {
 			}
 			else if ( reloadInstanceDescriptor().getStatus() == MDTInstanceStatus.STARTING
 					|| reloadInstanceDescriptor().getStatus() == MDTInstanceStatus.STOPPED ) {
-				// start()가 STARTING을 미리 차지했으므로(D36) STARTING에 남은 경우도 실패로 바꾼다.
+				// start()가 STARTING을 미리 차지했으므로(claimStart) STARTING에 남은 경우도 실패로 바꾼다.
 				getInstanceManager().transitionStatus(getId(), MDTInstanceStatus.FAILED, null);
 			}
 		}

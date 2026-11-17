@@ -42,8 +42,7 @@ public class MDTManagerEnvironment implements EnvironmentPostProcessor, Ordered 
 	 * 로그에 남길 변수 값을 만든다.
 	 * <p>
 	 * 이름이 비밀 정보로 보이면({@link #SECRET_KEY}) 값 전체를 {@code ****}로, 아니면 값 안의 URL 비밀번호
-	 * ({@code user:pw@}, {@code password=...})만 가린다. 2026-11-05 이전에는 env 파일의 모든 값을 그대로 INFO 로그에
-	 * 남겼다.
+	 * ({@code user:pw@}, {@code password=...})만 가린다.
 	 *
 	 * @param key	변수 이름.
 	 * @param value	변수 값.
@@ -103,7 +102,6 @@ public class MDTManagerEnvironment implements EnvironmentPostProcessor, Ordered 
 			env.getPropertySources().addFirst(source);
 		}
 		catch ( IOException e ) {
-			// 2026-11-05 이전에는 아무 흔적 없이 삼켰다.
 			s_deferredLog.warn("failed to load environment variables from file: " + envFile.getAbsolutePath(), e);
 		}
 	}

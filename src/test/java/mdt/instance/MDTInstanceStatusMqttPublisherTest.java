@@ -10,7 +10,7 @@ import mdt.model.instance.InstanceStatusChangeEvent;
 
 
 /**
- * 상태 이벤트 발행이 이벤트를 보낸 스레드를 막지 않는지 확인한다(mdt-manager 검토 D14).
+ * 상태 이벤트 발행이 이벤트를 보낸 스레드를 막지 않는지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

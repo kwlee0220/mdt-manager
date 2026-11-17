@@ -16,7 +16,7 @@ import mdt.model.MDTModelSerDe;
 
 
 /**
- * Docker 백엔드 설정 처리를 확인한다(mdt-manager 검토 D19·D20).
+ * Docker 백엔드 설정 처리를 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */
@@ -49,7 +49,7 @@ public class DockerInstanceManagerConfigTest {
 		assertEquals(args, MDTModelSerDe.getJsonMapper().readValue(json, DockerExecutionArguments.class));
 		assertEquals(10443, args.getPort());
 
-		// 2026-11-05 이전에 저장된 인자에는 port가 없다 → 임의 포트.
+		// port가 없는 인자도 읽는다 → 임의 포트.
 		DockerExecutionArguments old = MDTModelSerDe.getJsonMapper()
 										.readValue("{\"imageRepoName\":\"x\"}", DockerExecutionArguments.class);
 		assertNull(old.getPort());

@@ -29,7 +29,7 @@ import mdt.model.sm.info.InformationModel;
 
 
 /**
- * Data 서브모델 구조가 잘못된 모델을 파라미터 0개로 등록하지 않고 거부하는지 확인한다(mdt-manager 검토 I7).
+ * Data 서브모델 구조가 잘못된 모델을 파라미터 0개로 등록하지 않고 거부하는지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

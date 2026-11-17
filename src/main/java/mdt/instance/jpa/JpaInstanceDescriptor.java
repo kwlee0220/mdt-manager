@@ -188,8 +188,8 @@ public class JpaInstanceDescriptor {
 	 * AAS 등록정보로 이 디스크립터의 AAS 정보(idShort, globalAssetId, assetType, AAS 디스크립터 JSON)와 submodel
 	 * 목록을 갱신한다. parameters·operations·twin composition은 바꾸지 않는다.
 	 * <p>
-	 * {@code assetType}이 없거나 {@link MDTAssetType} 값이 아니면 기존 값을 유지한다. 2026-11-05 이전에는 instance id와
-	 * AAS id를 비교해(서로 다른 식별자) 둘이 같을 때만 동작했고, 알 수 없는 assetType이면 예외가 났다.
+	 * {@code assetType}이 없거나 {@link MDTAssetType} 값이 아니면 기존 값을 유지한다. instance id와
+	 * AAS id는 서로 다른 식별자이므로, 비교하는 것은 AAS id다.
 	 *
 	 * @param aasDesc	새 AAS 등록정보. id가 이 디스크립터의 AAS id와 같아야 한다.
 	 * @throws IllegalArgumentException	AAS id가 다른 경우.
@@ -221,8 +221,8 @@ public class JpaInstanceDescriptor {
 			}
 			FStream.from(updateds).forEach(jisd -> jisd.setInstance(this));
 			// orphanRemoval 컬렉션은 Hibernate가 관리하는 컬렉션 객체를 그대로 두고 내용만 바꿔야 한다. 빠진 항목은
-			// orphan으로 삭제된다. 2026-11-05 이전에는 새 리스트를 대입해서 Hibernate가 "A collection with
-			// cascade=all-delete-orphan was no longer referenced"로 실패했다.
+			// orphan으로 삭제된다. 새 리스트를 대입하면 Hibernate가 "A collection with
+			// cascade=all-delete-orphan was no longer referenced"로 실패한다.
 			this.submodels.clear();
 			this.submodels.addAll(updateds);
 		}
@@ -344,7 +344,7 @@ public class JpaInstanceDescriptor {
 					.forEach(desc -> this.parameters.add(desc));
 		}
 		catch ( ResourceNotFoundException e ) {
-			// 2026-11-07 이전에는 빈 catch로 삼켜, 구조가 잘못된 모델이 파라미터 0개로 등록되었다(검토 I7).
+			// 구조가 잘못된 모델을 파라미터 0개로 등록하지 않고 거부한다.
 			throw new ModelValidationException(String.format("invalid Data submodel: instance=%s, entity=%s, cause=%s",
 															instId, entityName, e.getMessage()));
 		}

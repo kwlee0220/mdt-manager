@@ -15,7 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 
 /**
- * {@code uv_projects.txt}의 경로가 인스턴스 디렉터리 밖을 가리키지 못하는지 확인한다(mdt-manager 검토 D8).
+ * {@code uv_projects.txt}의 경로가 인스턴스 디렉터리 밖을 가리키지 못하는지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class DockerConfiguration {
 	private String m_dockerEndpoint;
-	/** 인스턴스 컨테이너를 만들 image 이름({@code docker.image-name}, 필수). 2026-11-05 이전에는 쓰이지 않았다. */
+	/** 인스턴스 컨테이너를 만들 image 이름({@code docker.image-name}, 필수). */
 	private String m_imageName;
 	/** 컨테이너 시작 후 인스턴스가 준비될 때까지 기다리는 최대 시간({@code docker.start-timeout}). */
 	private Duration m_startTimeout = Duration.ofMinutes(1);

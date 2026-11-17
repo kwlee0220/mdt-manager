@@ -19,7 +19,7 @@ import utils.io.LogTailer;
 
 
 /**
- * 시작 판정(mdt-manager 검토 D23): 성공 마커만 찾고, 무해한 ERROR 줄에는 반응하지 않으며, 감시 대상이 끝나면
+ * 시작 판정: 성공 마커만 찾고, 무해한 ERROR 줄에는 반응하지 않으며, 감시 대상이 끝나면
  * 제한 시간을 기다리지 않고 멈춘다.
  *
  * @author Kang-Woo Lee (ETRI)

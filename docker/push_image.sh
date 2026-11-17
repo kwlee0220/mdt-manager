@@ -20,9 +20,7 @@ usage() {
     echo "  $0 --repo myrepo --latest            # latest 태그도 함께 푸시"
 }
 
-# 2026-11-05 이전에는 set -e와 인자 검증이 없어, 값 없는 옵션·모르는 옵션을 조용히 무시하고 태그가 빈 채로
-# 진행했으며 'docker tag' 실패도 검사하지 않았다.
-# 이미지 이름은 build_image.sh와 같은 환경 변수로 정한다(검토 N2).
+# 이미지 이름은 build_image.sh와 같은 환경 변수로 정한다.
 IMAGE_NAME="${MDT_IMAGE_NAME:-mdt-manager}"
 REPO=""
 TAG=""

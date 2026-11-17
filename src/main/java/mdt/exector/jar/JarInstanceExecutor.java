@@ -94,9 +94,6 @@ public class JarInstanceExecutor {
 	 * 인스턴스는 매니저의 인스턴스 디렉터리({@link MDTInstanceManagerConfiguration#getInstancesDir()})의
 	 * {@code <id>} 아래에서 실행한다. 매니저가 번들을 복사하는 곳과 같다. 디렉터리가 없으면 새로 만든다. 동시 시작
 	 * 가능 프로세스 수는 {@link JarExecutorConfiguration#getStartConcurrency()} 값으로 제한된다.
-	 * <p>
-	 * 2026-11-05 이전에는 별도 설정 {@code executor.workspaceDir}(기본 {@code <cwd>/instances})에서 실행해, 두 설정이
-	 * 다르면 모델·jar가 없는 디렉터리에서 기동했다(그 설정은 삭제).
 	 *
 	 * @param mgrConf	{@link MDTInstanceManagerConfiguration}. 인스턴스 디렉터리 / MDT URL / 전역 설정 파일 등을 제공.
 	 * @param conf		{@link JarExecutorConfiguration}. 힙 크기/Key Store/제한 시간 등을 제공.
@@ -142,8 +139,7 @@ public class JarInstanceExecutor {
 	public Tuple<MDTInstanceStatus,String> start(String id, String aasId, JarExecutionArguments args)
 		throws MDTInstanceExecutorException {
 		// semaphore를 기다리기 전에 이 id의 실행 자리를 먼저 차지한다(STARTING). 같은 id로 두 번 시작하면 두 번째는
-		// 여기서 거부된다. 2026-11-05 이전에는 semaphore를 얻은 뒤 put으로 등록해, 중복 시작한 앞의 프로세스가
-		// 추적·중지할 수 없는 고아가 되었다.
+		// 여기서 거부되므로, 중복 시작한 프로세스가 추적·중지할 수 없는 고아가 되지 않는다.
 		ProcessDesc procDesc = reserve(id);
 		
 		// 동시에 실행할 수 있는 프로세스 수 제한을 위해 semaphore를 획득한다.
@@ -287,12 +283,12 @@ public class JarInstanceExecutor {
 		}
 		
 		// KeyStore 암호는 명령행(ps, /proc/<pid>/cmdline에 보임) 대신 환경 변수로 넘긴다. mdt-instance는
-		// --keyStorePassword가 없으면 MDT_KEY_STORE_PASSWORD를 읽는다. 2026-11-05 이전에는 --keyStorePassword로 넘겼다.
+		// --keyStorePassword가 없으면 MDT_KEY_STORE_PASSWORD를 읽는다.
 		if ( m_execConfig.getKeyStorePassword() != null ) {
 			udEnvVars.put(ENV_KEY_STORE_PASSWORD, m_execConfig.getKeyStorePassword());
 		}
 		
-		// 환경 변수 값은 비밀 정보를 가려서 남긴다(2026-11-05 이전에는 평문).
+		// 환경 변수 값은 비밀 정보를 가려서 남긴다.
 		s_logger.info("creating MDTInstance: home={}, args={}, envs={}",
 						m_workspaceDir.getAbsolutePath(), argList, MDTManagerEnvironment.maskVariables(udEnvVars));
 		builder.environment().putAll(udEnvVars);
@@ -314,8 +310,8 @@ public class JarInstanceExecutor {
 			instanceProcess.onExit()
 							.whenCompleteAsync((proc, error) -> onProcessTerminated(procDesc, error));
 			writePidFile(instHomeDir, instanceProcess.pid());
-			// 프로세스를 띄우는 사이에 중지 요청을 받았으면 바로 종료시킨다. 2026-11-05 이전에는 이때 stop()이
-			// null 프로세스를 destroy하다 NPE가 나서(CompletableFuture 안에서 사라짐) 상태가 STOPPING에 고정되었다.
+			// 프로세스를 띄우는 사이에 중지 요청을 받았으면 바로 종료시킨다. 프로세스가 아직 없을 때
+			// 받은 중지 요청은 stop()이 이쪽에 맡긴다.
 			boolean stopRequested = m_guard.get(() -> {
 				procDesc.m_process = instanceProcess;
 				return procDesc.m_status == MDTInstanceStatus.STOPPING;
@@ -443,8 +439,8 @@ public class JarInstanceExecutor {
 	 * 본 실행기를 종료한다.
 	 * <p>
 	 * 등록된 모든 인스턴스에 종료를 요청하고(정상 종료 요청 후 {@link JarExecutorConfiguration#getStopTimeout()}가
-	 * 지나면 강제 종료), 그 시간보다 조금 더 기다린다. 그래도 남은 프로세스와 그 자손은 강제 종료한다.
-	 * 2026-11-05 이전에는 5초 뒤 그냥 반환해, 남은 자식 프로세스가 매니저 종료 뒤에도 살아 있었다.
+	 * 지나면 강제 종료), 그 시간보다 조금 더 기다린다. 그래도 남은 프로세스와 그 자손은 강제 종료해, 매니저
+	 * 종료 뒤에 자식 프로세스가 남지 않게 한다.
 	 */
 	public void shutdown() {
 		if ( s_logger.isInfoEnabled() ) {
@@ -503,8 +499,8 @@ public class JarInstanceExecutor {
 	 * <p>
 	 * 각 인스턴스 디렉터리의 pid 파일({@value #PID_FILE_NAME})을 읽어, 그 프로세스가 살아 있고 명령행에
 	 * {@code --id=<인스턴스 id>}가 있으면(같은 pid를 다른 프로세스가 재사용한 경우를 거르기 위함) 종료한다.
-	 * 매니저가 비정상 종료되어 정리를 못 한 경우를 위한 것이다. 이 기능이 생기기 전(2026-11-05)에 띄운 프로세스는
-	 * pid 파일이 없어 찾지 못한다.
+	 * 매니저가 비정상 종료되어 정리를 못 한 경우를 위한 것이다. pid 파일이 없는 프로세스는
+	 * 찾지 못한다.
 	 *
 	 * @return	종료한 프로세스 수.
 	 */
@@ -554,7 +550,7 @@ public class JarInstanceExecutor {
 		}
 	}
 	
-	// 프로세스 종료를 별도 스레드에서 수행한다. 오류는 로그로 남긴다(2026-11-05 이전에는 CompletableFuture 안에서 사라졌다).
+	// 프로세스 종료를 별도 스레드에서 수행한다. 오류는 로그로 남긴다.
 	private void terminateAsync(ProcessDesc desc) {
 		Process proc = desc.m_process;
 		CompletableFuture.runAsync(() -> terminate(desc.m_id, proc.toHandle(), m_execConfig.getStopTimeout()))
@@ -569,7 +565,6 @@ public class JarInstanceExecutor {
 	 * <p>
 	 * 먼저 정상 종료(SIGTERM)를 요청하고, {@code timeout} 안에 모두 끝나지 않으면 강제 종료(SIGKILL)한다. 자손
 	 * 목록은 종료 요청 전에 만든다(부모가 끝나면 자손이 다른 부모 밑으로 옮겨져 {@code descendants()}에 나오지 않는다).
-	 * 2026-11-05 이전에는 부모에게 {@code destroy()}를 한 번 보낼 뿐이었다.
 	 *
 	 * @return	정상 종료되었으면 {@code true}, 강제 종료했으면 {@code false}.
 	 */
@@ -640,9 +635,8 @@ public class JarInstanceExecutor {
 		Instant started = Instant.now();
 		
 		// mdt-instance가 시작을 마치면 찍는 성공 마커만 찾는다. 시작에 실패한 mdt-instance는 종료하므로
-		// (HomeDirPicocliCommand가 System.exit(-1)) 프로세스가 끝나면 곧바로 실패로 본다. 2026-11-05 이전에는
-		// 부분 문자열 "ERROR"를 실패 마커로 써서, 라이브러리가 기동 중 찍는 무해한 ERROR 로그 하나로 시작 실패가
-		// 되어 강제 종료되었고, 반대로 ERROR 없이 죽으면 startTimeout(기본 1분)까지 기다렸다.
+		// (HomeDirPicocliCommand가 System.exit(-1)) 프로세스가 끝나면 곧바로 실패로 본다. "ERROR" 같은
+		// 실패 마커는 쓰지 않는다. 라이브러리가 기동 중 찍는 무해한 ERROR 로그도 있기 때문이다.
 		List<String> sentinels = Arrays.asList(STARTED_MARKER);
 		SentinelFinder finder = new SentinelFinder(sentinels,
 								() -> procDesc.m_process != null && !procDesc.m_process.isAlive());
@@ -701,7 +695,7 @@ public class JarInstanceExecutor {
 				}
 				else if ( procDesc.m_status != MDTInstanceStatus.STARTING ) {
 					// 그 사이 프로세스가 끝났거나(onProcessTerminated가 이미 상태를 알림) 중지 요청을 받았다.
-					// 상태를 덮어쓰거나 다시 알리지 않는다(2026-11-05 이전에는 FAILED로 덮어쓰고 한 번 더 알렸다).
+					// 상태를 덮어쓰거나 다시 알리지 않는다.
 					return procDesc.toResult();
 				}
 				else {
@@ -730,8 +724,8 @@ public class JarInstanceExecutor {
 		}
 		catch ( Exception e ) {
 			// 시작 대기 시간이 지났거나 로그 감시가 실패했다. 그 사이 중지 요청을 받았거나(STOPPING) 프로세스가 이미
-			// 끝났으면 상태를 덮어쓰지 않는다. 2026-11-05 이전에는 무조건 FAILED로 덮어써, 사용자가 시작 중에
-			// 중지한 인스턴스도 FAILED로 남았다(검토 D43).
+			// 끝났으면 상태를 덮어쓰지 않는다. 사용자가 시작 중에 중지한 인스턴스가 FAILED로
+			// 남지 않게 하기 위함이다.
 			boolean failed = m_guard.get(() -> {
 				if ( procDesc.m_status != MDTInstanceStatus.STARTING ) {
 					return false;
@@ -789,8 +783,7 @@ public class JarInstanceExecutor {
 	 * <p>
 	 * 호출 시점의 상태를 스냅샷으로 떠서 통지 전용 스레드({@link #m_notifier}, 하나라서 순서 유지)에 넘기고 바로
 	 * 돌아온다. 그래서 {@link #m_guard} 락 안에서 불러도 리스너(JPA로 DB 갱신, MQTT 이벤트 발행)를 기다리지 않는다.
-	 * 리스너 예외는 WARN으로 남긴다. 2026-11-05 이전에는 락을 쥔 채 리스너를 직접 불러, DB가 느리면 getStatus/stop이
-	 * 모두 막혔고 리스너 예외는 흔적 없이 사라졌다.
+	 * DB가 느려도 getStatus/stop이 막히지 않는다. 리스너 예외는 WARN으로 남긴다.
 	 */
 	private void notifyStatusChanged(ProcessDesc pdesc) {
 		String id = pdesc.m_id;

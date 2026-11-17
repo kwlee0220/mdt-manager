@@ -38,7 +38,7 @@ import mdt.repository.Repositories;
 
 
 /**
- * 외부 인스턴스의 등록·해제가 DB에 반영되는지 확인한다(mdt-manager 검토 D11).
+ * 외부 인스턴스의 등록·해제가 DB에 반영되는지 확인한다.
  * <p>
  * 결함은 트랜잭션 밖에서 호출할 때만 드러나므로, 테스트 트랜잭션 없이(NOT_SUPPORTED) 실행한다.
  *
@@ -92,7 +92,7 @@ public class ExternalInstanceManagerRegistrationTest {
 	}
 
 	/**
-	 * 등록·해제가 상태 변화 이벤트(MQTT 발행의 원천)를 내보낸다(검토 D12: 이전에는 jar/external이 이벤트를 내지 않았다).
+	 * 등록·해제가 상태 변화 이벤트(MQTT 발행의 원천)를 내보낸다.
 	 */
 	@Test
 	public void registrationPostsStatusEvents() throws Exception {
@@ -115,7 +115,7 @@ public class ExternalInstanceManagerRegistrationTest {
 	}
 
 	/**
-	 * 실행 중인 인스턴스는 지울 수 없다(검토 D12: STOPPING도 거부).
+	 * 실행 중인 인스턴스는 지울 수 없다(STOPPING도 거부).
 	 */
 	@Test
 	public void runningOrStoppingInstanceCannotBeRemoved() throws Exception {
@@ -126,7 +126,7 @@ public class ExternalInstanceManagerRegistrationTest {
 	}
 
 	/**
-	 * 이미 등록된 id로 등록하면 아무것도 건드리기 전에 거부한다(검토 D29).
+	 * 이미 등록된 id로 등록하면 아무것도 건드리기 전에 거부한다.
 	 */
 	@Test
 	public void addingAnExistingIdIsRejected() {
@@ -135,8 +135,8 @@ public class ExternalInstanceManagerRegistrationTest {
 	}
 
 	/**
-	 * 실행 인자가 없거나 깨졌어도 등록하면 마지막 갱신 시각이 기록된다(검토 D35: 이전에는 빈 catch로 삼켜, 다음
-	 * health check에서 곧바로 STOPPED가 되었다).
+	 * 실행 인자가 없거나 깨졌어도 등록하면 마지막 갱신 시각이 기록된다. 그래야 다음 health check에서
+	 * 곧바로 STOPPED가 되지 않는다.
 	 */
 	@Test
 	public void registerRebuildsBrokenArguments() throws Exception {
@@ -165,7 +165,7 @@ public class ExternalInstanceManagerRegistrationTest {
 	}
 
 	/**
-	 * 시작 자리는 원자적으로 하나만 차지된다(검토 D36: 이전에는 두 start()가 모두 상태 검사를 통과했다).
+	 * 시작 자리는 원자적으로 하나만 차지된다(동시에 부른 두 start() 중 하나만 상태 검사를 통과한다).
 	 */
 	@Test
 	public void startClaimIsExclusive() throws Exception {
@@ -185,7 +185,7 @@ public class ExternalInstanceManagerRegistrationTest {
 	}
 
 	/**
-	 * 지운 인스턴스는 REMOVED 이벤트를 낸다(검토 D38: 트랜잭션 밖이면 곧바로, 안이면 커밋 뒤).
+	 * 지운 인스턴스는 REMOVED 이벤트를 낸다(트랜잭션 밖이면 곧바로, 안이면 커밋 뒤).
 	 */
 	@Test
 	public void removeInstancePostsRemovedAfterDeleting() throws Exception {

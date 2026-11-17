@@ -43,7 +43,7 @@ public class SentinelFinder implements LogTailerListener {
 	 * <p>
 	 * 로그 파일에 변화가 없을 때마다 {@code abortCondition}을 확인해, {@code true}이면 sentinel을 찾지 못한 채
 	 * 감시를 끝낸다({@link #isAborted()}). 감시 대상 프로세스·컨테이너가 끝났는지 확인하는 데 쓴다.
-	 * 2026-11-05 이전에는 이 조건이 없어, 프로세스가 죽어도 제한 시간까지 기다렸다.
+	 * 그래서 프로세스가 죽으면 제한 시간까지 기다리지 않는다.
 	 *
 	 * @param sentinels			Sentinel 문자열 목록.
 	 * @param abortCondition	중단 조건. {@code null}이면 중단하지 않는다.

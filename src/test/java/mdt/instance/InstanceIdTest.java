@@ -9,8 +9,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 
 /**
- * MDTInstance 식별자 규칙({@link AbstractJpaInstanceManager#checkInstanceId(String)})을 확인한다
- * (mdt-manager 검토 D2: id가 ""/"."이면 bundles·instances 디렉터리 전체가 지워졌다).
+ * MDTInstance 식별자 규칙({@link AbstractJpaInstanceManager#checkInstanceId(String)})을 확인한다.
+ * id가 ""/"."이면 bundles·instances 디렉터리 자신을 가리켜 전체가 지워질 수 있으므로 거부해야 한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

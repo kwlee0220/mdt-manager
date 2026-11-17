@@ -57,7 +57,6 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 		setLogger(s_logger);
 		
 		// 설정이 잘못되었으면 health check 스레드 안에서 NPE·IAE로 조용히 멈추지 않도록 기동 시 실패시킨다.
-		// 2026-11-05 이전에는 이 검사가 정의만 되어 있고 호출되지 않았다.
 		checkExternalConfigurationValidity(extConfig);
 		m_extConfig = extConfig;
 		
@@ -113,8 +112,8 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	/**
 	 * 외부 인스턴스를 등록한다(상태 RUNNING, 주어진 endpoint, 마지막 갱신 시각 기록).
 	 * <p>
-	 * {@link #unregister(String)}와 같이 {@code updateInstanceDescriptor}로 명시적으로 저장한다. 2026-11-05 이전에는
-	 * Spring 프록시의 {@code @Transactional}에만 기대어, 프록시를 거치지 않으면 저장되지 않았다.
+	 * {@link #unregister(String)}와 같이 {@code updateInstanceDescriptor}로 명시적으로 저장한다. Spring
+	 * 프록시의 {@code @Transactional}에 기대면 프록시를 거치지 않는 호출에서 저장되지 않기 때문이다.
 	 *
 	 * @param id				인스턴스 id.
 	 * @param serviceEndpoint	인스턴스의 서비스 endpoint.
@@ -132,7 +131,7 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 			}
 			catch ( Exception e ) {
 				// 실행 인자가 없거나 손상되었으면 새로 만든다. 그러지 않으면 마지막 갱신 시각이 남지 않아 다음
-				// health check에서 곧바로 STOPPED가 된다(2026-11-05 이전에는 빈 catch로 삼켰다).
+				// health check에서 곧바로 STOPPED가 된다.
 				getLogger().warn("rebuild the broken execution arguments: id={}, cause={}", id, "" + e);
 				ExternalInstanceArguments args = new ExternalInstanceArguments();
 				args.setLastModified(System.currentTimeMillis());
@@ -152,8 +151,7 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	/**
 	 * 외부 인스턴스의 등록을 해제한다(상태 STOPPED, endpoint 없음).
 	 * <p>
-	 * 2026-11-05 이전에는 트랜잭션 밖에서 조회한 엔티티의 필드만 바꾸고 저장하지 않아, DB에 반영되지 않았다
-	 * ({@code DELETE /registry/{id}}가 아무것도 하지 않았다).
+	 * {@code updateInstanceDescriptor}로 명시적으로 저장하므로 트랜잭션 밖에서 불러도 DB에 반영된다.
 	 *
 	 * @param id	인스턴스 id.
 	 * @throws ResourceNotFoundException	해당 인스턴스가 없는 경우.
@@ -189,8 +187,8 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 	
 	private final Service m_healthCheckService = new AbstractScheduledService() {
 		// 예외를 밖으로 던지면 Guava 서비스가 FAILED가 되어 health check가 영구히 멈추므로, 한 번의 실패는 로그만
-		// 남기고 다음 주기에 다시 한다. 2026-11-05 이전에는 예외가 그대로 나가 로그 없이 멈췄다. 트랜잭션은
-		// JpaProcessor가 연다(내부 클래스 메소드의 @Transactional은 Spring 프록시를 거치지 않아 효과가 없어 지웠다).
+		// 남기고 다음 주기에 다시 한다. 트랜잭션은 JpaProcessor가
+		// 연다(내부 클래스 메소드의 @Transactional은 Spring 프록시를 거치지 않아 효과가 없다).
 		@Override
 		protected void runOneIteration() {
 			try {
@@ -202,7 +200,7 @@ public class ExternalInstanceManager extends AbstractJpaInstanceManager<External
 			}
 		}
 
-		// 밀리초 단위로 스케줄한다(2026-11-05 이전에는 초 단위로 잘라 1초 미만이면 0이 되어 실패했다).
+		// 밀리초 단위로 스케줄한다(초 단위로 자르면 1초 미만 주기가 0이 되어 실패한다).
 		@Override
 		protected Scheduler scheduler() {
 			long intervalMillis = m_extConfig.getCheckInterval().toMillis();

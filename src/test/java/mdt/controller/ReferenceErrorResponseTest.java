@@ -19,7 +19,7 @@ import mdt.model.ResourceNotFoundException;
 
 
 /**
- * 참조 핸들러에서 난 예외가 advice 하나에서 응답으로 바뀌는지 확인한다(mdt-manager 검토 I8).
+ * 참조 핸들러에서 난 예외가 advice 하나에서 응답으로 바뀌는지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

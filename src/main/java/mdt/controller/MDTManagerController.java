@@ -18,9 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 /**
  * MDTManager 자체 상태 API.
  * <p>
- * 2026-11-05 이전에는 이 컨트롤러가 JVM shutdown hook을 등록해, 새 스레드에서 1초 뒤 인스턴스 매니저를 정리하고
- * {@code System.exit(0)}을 불렀다. hook이 곧바로 반환해서 정리가 사실상 실행되지 않았다. 지금은 인스턴스 매니저의
- * {@code shutdown()}이 {@code @PreDestroy}로 Spring 컨텍스트 종료 때 동기로 불린다.
+ * 이 컨트롤러는 종료 처리를 하지 않는다. 인스턴스 매니저의 {@code shutdown()}은 {@code @PreDestroy}로
+ * Spring 컨텍스트 종료 때 동기로 불린다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

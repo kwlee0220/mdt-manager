@@ -27,8 +27,7 @@ public interface JpaInstanceDescriptorRepository extends CrudRepository<JpaInsta
 	public Iterable<JpaInstanceDescriptor> findAllByAasIdShort(String aasIdShort);
 	public Iterable<JpaInstanceDescriptor> findAllByGlobalAssetId(String assetId);
 	
-	// 2026-11-05 삭제(검토 D41): deleteByInstanceId(JPQL bulk DELETE라 cascade를 우회해 자식 행 FK 위반·orphan을
-	// 만들 수 있었다)와 markStoppedOfInstanceId(WHERE d.id(Long) = :instId(String)로 잘못된 쿼리). 둘 다 쓰이지 않았다.
+	// 인스턴스 삭제에 JPQL bulk DELETE를 쓰지 않는다. cascade를 우회해 자식 행 FK 위반·orphan을 만들 수 있다.
 	
 	@Modifying
 	@Transactional

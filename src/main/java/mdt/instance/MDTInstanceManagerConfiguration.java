@@ -13,15 +13,12 @@ import utils.io.FileUtils;
  * 디렉터리)을 기준으로 한다. 지정하지 않으면 각각 {@code <homeDir>/bundles}, {@code <homeDir>/instances},
  * {@code <homeDir>/mdt_global_config.json}이고, 상대 경로로 지정하면 {@code homeDir} 기준으로 해석한다(절대 경로는
  * 그대로). 값은 getter가 부를 때 계산하므로 설정 순서와 상관없다.
- * <p>
- * 2026-11-05 이전에는 생성자에서 현재 작업 디렉터리 기준으로 세 경로를 미리 계산해, {@code homeDir}만 바꾸면 나머지는
- * 계속 작업 디렉터리 아래를 가리켰고, 상대 경로는 작업 디렉터리 기준이었다.
  *
  * @author Kang-Woo Lee (ETRI)
  */
 @ConfigurationProperties(prefix = "instance-manager")
 public class MDTInstanceManagerConfiguration {
-	private String m_type;						// "jar", "docker", "external" ("kubernetes"는 2026-11-05 삭제)
+	private String m_type;						// "jar", "docker", "external"
 	private String m_mdtUrl;                	// MDTPlatform 접속을 위한 URL
 	
 	private File m_homeDir;						// MDTInstanceManager home 디렉토리.

@@ -22,7 +22,7 @@ import org.springframework.test.context.TestPropertySource;
 
 /**
  * {@link JpaInstanceDescriptor#updateFrom(AssetAdministrationShellDescriptor)}가 submodel 목록을 갱신하고, 빠진
- * submodel 행을 orphan으로 지우는지 H2로 확인한다(mdt-manager 검토 D9).
+ * submodel 행을 orphan으로 지우는지 H2로 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */
@@ -51,14 +51,14 @@ public class JpaInstanceDescriptorUpdateTest {
 
 	@Test
 	public void updateReplacesSubmodelsAndRemovesOrphans() {
-		// instance id와 AAS id는 다른 식별자다(D10: 2026-11-05 이전에는 둘이 같을 때만 갱신되었다).
+		// instance id와 AAS id는 다른 식별자다.
 		JpaInstanceDescriptor desc = JpaInstanceDescriptor.from("t1", aas(AAS_ID, "Data", "Simulation"), infoSubmodel());
 		m_em.persistAndFlush(desc);
 		m_em.clear();
 
 		JpaInstanceDescriptor loaded = m_em.find(JpaInstanceDescriptor.class, desc.getRowId());
 		loaded.updateFrom(aas(AAS_ID, "Data", "Timeseries"));
-		m_em.flush();		// 2026-11-05 이전에는 여기서 HibernateException(all-delete-orphan)
+		m_em.flush();		// all-delete-orphan 컬렉션을 바꿔치기하면 여기서 HibernateException
 		m_em.clear();
 
 		JpaInstanceDescriptor reloaded = m_em.find(JpaInstanceDescriptor.class, desc.getRowId());

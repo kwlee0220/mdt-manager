@@ -105,7 +105,7 @@ public class JarInstanceManager extends AbstractJpaInstanceManager<JpaInstance> 
 	@Override
 	public MDTInstance addInstance(String id, int port, File bundleDir)
 		throws ModelValidationException, IOException, MDTInstanceManagerException {
-		// 기존 인스턴스의 디렉터리를 지우기 전에 확인한다(검토 D29).
+		// 기존 인스턴스의 디렉터리를 지우기 전에 확인한다.
 		checkNotRegistered(id);
 		try {
 			// bundle directory 전체가 해당 instance의 workspace가 되기 때문에

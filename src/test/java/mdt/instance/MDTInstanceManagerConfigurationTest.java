@@ -10,7 +10,7 @@ import utils.io.FileUtils;
 
 
 /**
- * 경로 설정이 homeDir을 기준으로 하는지 확인한다(mdt-manager 검토 D34).
+ * 경로 설정이 homeDir을 기준으로 하는지 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */
@@ -22,7 +22,7 @@ public class MDTInstanceManagerConfigurationTest {
 		assertEquals(new File(cwd, "instances"), conf.getInstancesDir());
 
 		File home = new File("/opt/mdt/manager");
-		conf.setHomeDir(home);		// 2026-11-05 이전에는 나머지 경로가 그대로 cwd 아래였다
+		conf.setHomeDir(home);		// 나머지 경로도 homeDir을 따라간다
 		assertEquals(new File(home, "instances"), conf.getInstancesDir());
 		assertEquals(new File(home, "bundles"), conf.getBundlesDir());
 		assertEquals(new File(home, "mdt_global_config.json"), conf.getGlobalConfigFile());

@@ -31,10 +31,6 @@ import mdt.model.expr.MDTParserException;
  * 정한다({@link #toErrorBody(Throwable)}). Spring MVC 표준 예외(요청 파라미터·파트 누락, 본문 파싱 실패, 지원하지
  * 않는 메소드, 없는 경로 등)는 {@link ResponseEntityExceptionHandler}가 원래의 4xx 상태로 처리한다.
  * 5xx 응답은 ERROR 로그를 남긴다.
- * <p>
- * 2026-11-05 이전에는 {@code MDTInstanceManagerController}의 {@code @ExceptionHandler(Exception)}와 이 패키지의
- * {@code MDTExceptionAdvice}가 서로 다른 상태 코드를 썼고(409↔400, 409↔500, 403↔405), 둘 다 Spring 표준 예외까지
- * 500으로 바꿨다.
  *
  * @author Kang-Woo Lee (ETRI)
  */

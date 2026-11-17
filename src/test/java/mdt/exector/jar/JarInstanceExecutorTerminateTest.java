@@ -21,7 +21,7 @@ import mdt.instance.jar.JarExecutorConfiguration;
 
 /**
  * 인스턴스 프로세스 종료({@link JarInstanceExecutor#terminate})와 남은 프로세스 정리
- * ({@link JarInstanceExecutor#killOrphanProcesses()})를 실제 프로세스로 확인한다(mdt-manager 검토 D6).
+ * ({@link JarInstanceExecutor#killOrphanProcesses()})를 실제 프로세스로 확인한다.
  *
  * @author Kang-Woo Lee (ETRI)
  */
