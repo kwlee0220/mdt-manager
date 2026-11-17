@@ -12,7 +12,7 @@ ARG GID=1000
 # curl: 아래 HEALTHCHECK에서 쓴다.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-pip tini curl \
- && pip3 install --no-cache-dir uv==0.10.9 pyyaml==6.0.3 python-dateutil==2.8.2 mdtpy==0.2.4 \
+ && pip3 install --no-cache-dir uv==0.10.9 pyyaml==6.0.3 python-dateutil==2.8.2 mdtpy==0.3.0 \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
